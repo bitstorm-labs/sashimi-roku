@@ -1,0 +1,78 @@
+namespace Registry
+
+    function read(section as string, key as string) as string
+        sec = CreateObject("roRegistrySection", section)
+        if sec = invalid then return ""
+        return sec.Read(key)
+    end function
+
+    sub write(section as string, key as string, value as string)
+        sec = CreateObject("roRegistrySection", section)
+        if sec = invalid then return
+        sec.Write(key, value)
+        sec.Flush()
+    end sub
+
+    sub delete(section as string, key as string)
+        sec = CreateObject("roRegistrySection", section)
+        if sec = invalid then return
+        sec.Delete(key)
+        sec.Flush()
+    end sub
+
+    sub deleteSection(section as string)
+        sec = CreateObject("roRegistrySection", section)
+        if sec = invalid then return
+        keys = sec.GetKeyList()
+        for each key in keys
+            sec.Delete(key)
+        end for
+        sec.Flush()
+    end sub
+
+    function readJson(section as string, key as string) as dynamic
+        raw = read(section, key)
+        if raw = "" then return invalid
+        return ParseJSON(raw)
+    end function
+
+    sub writeJson(section as string, key as string, value as dynamic)
+        raw = FormatJSON(value)
+        write(section, key, raw)
+    end sub
+
+    function getAuthToken() as string
+        return read("auth", "authToken")
+    end function
+
+    function getServerUrl() as string
+        return read("auth", "serverUrl")
+    end function
+
+    function getUserId() as string
+        return read("auth", "userId")
+    end function
+
+    function getUserName() as string
+        return read("auth", "userName")
+    end function
+
+    sub saveAuth(serverUrl as string, authToken as string, userId as string, userName as string)
+        sec = CreateObject("roRegistrySection", "auth")
+        if sec = invalid then return
+        sec.Write("serverUrl", serverUrl)
+        sec.Write("authToken", authToken)
+        sec.Write("userId", userId)
+        sec.Write("userName", userName)
+        sec.Flush()
+    end sub
+
+    sub clearAuth()
+        deleteSection("auth")
+    end sub
+
+    function hasAuth() as boolean
+        return getServerUrl() <> "" and getAuthToken() <> "" and getUserId() <> ""
+    end function
+
+end namespace
