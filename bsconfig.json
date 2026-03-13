@@ -1,0 +1,16 @@
+{
+  "rootDir": ".",
+  "stagingDir": "out",
+  "files": [
+    "manifest",
+    "source/**/*",
+    "components/**/*",
+    "images/**/*",
+    "locale/**/*"
+  ],
+  "autoImportComponentScript": true,
+  "sourceMap": true,
+  "diagnosticFilters": [
+    { "src": "tests/**/*" }
+  ]
+}

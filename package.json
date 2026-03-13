@@ -1,0 +1,17 @@
+{
+  "name": "sashimi-roku",
+  "version": "0.1.0",
+  "description": "Sashimi - Jellyfin client for Roku",
+  "scripts": {
+    "build": "bsc",
+    "package": "bsc && cd out && zip -r ../sashimi.zip . && cd ..",
+    "deploy": "roku-deploy --host $ROKU_DEV_TARGET --password $ROKU_DEV_PASSWORD",
+    "dev": "npm run package && npm run deploy",
+    "lint": "bsc --lint-only",
+    "test": "echo 'Rooibos tests - run via device sideload'"
+  },
+  "devDependencies": {
+    "brighterscript": "^0.67.0",
+    "roku-deploy": "^3.12.0"
+  }
+}

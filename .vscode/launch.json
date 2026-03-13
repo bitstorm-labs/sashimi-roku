@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "brightscript",
+      "request": "launch",
+      "name": "Sashimi (Roku)",
+      "rootDir": "${workspaceFolder}",
+      "host": "${env:ROKU_DEV_TARGET}",
+      "password": "${env:ROKU_DEV_PASSWORD}",
+      "stopOnEntry": false
+    }
+  ]
+}
