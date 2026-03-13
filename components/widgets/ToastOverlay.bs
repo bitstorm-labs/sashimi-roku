@@ -1,0 +1,29 @@
+sub init()
+    m.toastBg = m.top.findNode("toastBg")
+    m.toastLabel = m.top.findNode("toastLabel")
+    m.dismissTimer = m.top.findNode("dismissTimer")
+
+    m.top.observeField("showToast", "onShowToast")
+    m.dismissTimer.observeField("fire", "onDismiss")
+end sub
+
+sub onShowToast()
+    toastInfo = m.top.showToast
+    if toastInfo = invalid then return
+
+    m.toastLabel.text = toastInfo.message
+
+    duration = 3
+    if toastInfo.duration <> invalid
+        duration = toastInfo.duration
+    end if
+
+    m.dismissTimer.duration = duration
+    m.dismissTimer.control = "stop"
+    m.toastBg.visible = true
+    m.dismissTimer.control = "start"
+end sub
+
+sub onDismiss()
+    m.toastBg.visible = false
+end sub
