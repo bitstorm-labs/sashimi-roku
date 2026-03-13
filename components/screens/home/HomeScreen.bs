@@ -1,61 +1,238 @@
 import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/ImageUrl.bs"
 
 sub init()
-    m.welcomeLabel = m.top.findNode("welcomeLabel")
-    m.userLabel = m.top.findNode("userLabel")
-    m.serverLabel = m.top.findNode("serverLabel")
-    m.signOutButtons = m.top.findNode("signOutButtons")
-    m.spinnerLabel = m.top.findNode("spinnerLabel")
+    m.rowList = m.top.findNode("rowList")
+    m.loadingLabel = m.top.findNode("loadingLabel")
+    m.emptyLabel = m.top.findNode("emptyLabel")
+    m.headerUser = m.top.findNode("headerUser")
     m.apiTask = m.top.findNode("apiTask")
     m.toast = m.top.findNode("toast")
 
-    m.signOutButtons.buttons = ["Sign Out"]
-    m.signOutButtons.observeFieldScoped("buttonSelected", "onSignOut")
     m.apiTask.observeFieldScoped("response", "onApiResponse")
 
-    restoreSession()
+    ' State
+    m.libraries = []
+    m.continueWatchingItems = []
+    m.rowContent = invalid
+    m.currentLibraryIndex = 0
 
-    m.userLabel.text = "Logged in as: " + Registry.getUserName()
-    m.serverLabel.text = "Server: " + m.global.serverUrl
+    ' Set header
+    m.headerUser.text = Registry.getUserName()
 
-    m.signOutButtons.setFocus(true)
+    ' Observe row selection
+    m.rowList.observeFieldScoped("rowItemSelected", "onRowItemSelected")
+
+    ' Start loading
+    loadHomeData()
 end sub
 
-sub restoreSession()
-    m.global.serverUrl = Registry.getServerUrl()
-    m.global.authToken = Registry.getAuthToken()
-    m.global.userId = Registry.getUserId()
-
-    m.spinnerLabel.visible = true
-    m.apiTask.request = { action: "validateSession" }
+sub loadHomeData()
+    m.loadingLabel.visible = true
+    m.rowList.visible = false
+    m.emptyLabel.visible = false
+    m.apiTask.request = { action: "getLibraryViews" }
 end sub
 
 sub onApiResponse()
     response = m.apiTask.response
     if response = invalid then return
 
-    if response.action = "validateSession"
-        m.spinnerLabel.visible = false
-        if response.success
-            m.toast.showToast = { message: "Connected to server", duration: 2 }
-        else
-            doSignOut()
+    action = response.action
+
+    if action = "getLibraryViews"
+        onLibrariesLoaded(response)
+    else if action = "getResumeItems"
+        onResumeItemsLoaded(response)
+    else if action = "getNextUp"
+        onNextUpLoaded(response)
+    else if action = "getLatestMedia"
+        onLatestMediaLoaded(response)
+    end if
+end sub
+
+sub onLibrariesLoaded(response as object)
+    if not response.success then return
+
+    m.libraries = []
+    for each lib in response.items
+        collectionType = ""
+        if lib.CollectionType <> invalid then collectionType = LCase(lib.CollectionType)
+        if collectionType = "movies" or collectionType = "tvshows" or collectionType = "music" or collectionType = ""
+            m.libraries.push(lib)
+        end if
+    end for
+
+    print "[Home] Loaded " + str(m.libraries.count()) + " libraries"
+    m.apiTask.request = { action: "getResumeItems", limit: 20 }
+end sub
+
+sub onResumeItemsLoaded(response as object)
+    if response.success and response.items <> invalid
+        m.continueWatchingItems = response.items
+        print "[Home] Loaded " + str(response.items.count()) + " resume items"
+    end if
+    m.apiTask.request = { action: "getNextUp", limit: 20 }
+end sub
+
+sub onNextUpLoaded(response as object)
+    if response.success and response.items <> invalid
+        print "[Home] Loaded " + str(response.items.count()) + " next up items"
+        seenSeries = {}
+        for each item in m.continueWatchingItems
+            if item.SeriesId <> invalid
+                seenSeries[item.SeriesId] = true
+            end if
+        end for
+        for each item in response.items
+            seriesId = ""
+            if item.SeriesId <> invalid then seriesId = item.SeriesId
+            if seriesId = "" or not seenSeries.DoesExist(seriesId)
+                m.continueWatchingItems.push(item)
+                if seriesId <> "" then seenSeries[seriesId] = true
+            end if
+        end for
+    end if
+
+    m.rowContent = CreateObject("roSGNode", "ContentNode")
+
+    if m.continueWatchingItems.count() > 0
+        addRow("Continue Watching", m.continueWatchingItems)
+    end if
+
+    if m.libraries.count() > 0
+        m.currentLibraryIndex = 0
+        lib = m.libraries[0]
+        m.apiTask.request = { action: "getLatestMedia", parentId: lib.Id, limit: 16 }
+    else
+        showRows()
+    end if
+end sub
+
+sub onLatestMediaLoaded(response as object)
+    if response.success and response.items <> invalid and response.items.count() > 0
+        libName = "Recently Added"
+        for each lib in m.libraries
+            if lib.Id = response.parentId
+                libName = lib.Name
+                exit for
+            end if
+        end for
+        addRow(libName, response.items)
+    end if
+
+    m.currentLibraryIndex = m.currentLibraryIndex + 1
+    if m.currentLibraryIndex < m.libraries.count()
+        lib = m.libraries[m.currentLibraryIndex]
+        m.apiTask.request = { action: "getLatestMedia", parentId: lib.Id, limit: 16 }
+    else
+        showRows()
+    end if
+end sub
+
+sub addRow(title as string, items as object)
+    if m.rowContent = invalid then return
+
+    row = m.rowContent.createChild("ContentNode")
+    row.title = title
+
+    for each item in items
+        child = row.createChild("ContentNode")
+        child.title = ""
+        if item.Name <> invalid then child.title = item.Name
+
+        ' Set poster image URL
+        itemId = ""
+        if item.Id <> invalid then itemId = item.Id
+        if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+            child.HDPosterUrl = ImageUrl.primary(itemId, 210)
+        else if item.SeriesId <> invalid and item.SeriesId <> ""
+            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 210)
+        end if
+
+        ' Subtitle
+        description = ""
+        if item.SeriesName <> invalid and item.SeriesName <> ""
+            description = item.SeriesName
+        else if item.ProductionYear <> invalid
+            description = str(item.ProductionYear).Trim()
+        end if
+        child.description = description
+
+        ' Store full item JSON for selection
+        child.addFields({ itemJson: "" })
+        child.itemJson = FormatJSON(item)
+    end for
+end sub
+
+sub showRows()
+    m.loadingLabel.visible = false
+
+    if m.rowContent = invalid or m.rowContent.getChildCount() = 0
+        m.emptyLabel.text = "No content found on this server."
+        m.emptyLabel.visible = true
+        return
+    end if
+
+    m.rowList.content = m.rowContent
+    m.rowList.visible = true
+    m.rowList.setFocus(true)
+end sub
+
+sub onRowItemSelected()
+    selectedIndex = m.rowList.rowItemSelected
+    if selectedIndex = invalid or selectedIndex.count() < 2 then return
+
+    rowIndex = selectedIndex[0]
+    itemIndex = selectedIndex[1]
+
+    row = m.rowContent.getChild(rowIndex)
+    if row = invalid then return
+    item = row.getChild(itemIndex)
+    if item = invalid then return
+
+    if item.itemJson <> invalid and item.itemJson <> ""
+        itemData = ParseJSON(item.itemJson)
+        if itemData <> invalid
+            m.top.selectedItem = itemData
         end if
     end if
 end sub
 
-sub onSignOut()
-    doSignOut()
-end sub
-
-sub doSignOut()
-    Registry.clearAuth()
-    m.global.serverUrl = ""
-    m.global.authToken = ""
-    m.global.userId = ""
-    m.top.signOut = true
-end sub
-
 function onKeyEvent(key as string, press as boolean) as boolean
+    if press
+        if key = "options"
+            showOptionsDialog()
+            return true
+        end if
+    end if
     return false
 end function
+
+sub showOptionsDialog()
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Options"
+    dialog.message = [""]
+    dialog.buttons = ["Refresh", "Sign Out", "Cancel"]
+    dialog.observeFieldScoped("buttonSelected", "onOptionsButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onOptionsButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    index = dialog.buttonSelected
+    dialog.close = true
+
+    if index = 0
+        loadHomeData()
+    else if index = 1
+        Registry.clearAuth()
+        m.global.serverUrl = ""
+        m.global.authToken = ""
+        m.global.userId = ""
+        m.top.signOut = true
+    end if
+
+    m.rowList.setFocus(true)
+end sub

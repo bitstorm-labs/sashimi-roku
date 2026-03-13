@@ -14,6 +14,7 @@ sub init()
     initDeviceId()
 
     if hasSavedSession()
+        restoreSession()
         showScreen("HomeScreen")
     else
         showScreen("ServerConnectionScreen")
@@ -32,6 +33,12 @@ end sub
 function hasSavedSession() as boolean
     return Registry.hasAuth()
 end function
+
+sub restoreSession()
+    m.global.serverUrl = Registry.getServerUrl()
+    m.global.authToken = Registry.getAuthToken()
+    m.global.userId = Registry.getUserId()
+end sub
 
 sub showScreen(screenName as string)
     screen = createObject("roSGNode", screenName)

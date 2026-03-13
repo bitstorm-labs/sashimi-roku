@@ -2,86 +2,70 @@
 <component name="HomeScreen" extends="Group">
     <interface>
         <field id="signOut" type="boolean" value="false" alwaysNotify="true" />
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
-        <!-- Background -->
         <Rectangle width="1920" height="1080" color="#0e0e1a" />
 
-        <!-- Title -->
+        <Rectangle id="headerBg" width="1920" height="80" color="#101420" opacity="0.9" />
         <Label
+            id="headerTitle"
             text="Sashimi"
-            font="font:LargeBoldSystemFont"
-            color="#FFFFFF"
-            horizAlign="center"
-            width="1920"
-            translation="[0, 120]"
-        />
-
-        <!-- Info card -->
-        <Rectangle
-            translation="[560, 300]"
-            width="800"
-            height="300"
-            color="#101420"
-        />
-
-        <Label
-            id="welcomeLabel"
-            text="Welcome to Sashimi"
             font="font:MediumBoldSystemFont"
             color="#FFFFFF"
-            horizAlign="center"
-            width="800"
-            translation="[560, 330]"
+            translation="[192, 20]"
         />
         <Label
-            id="userLabel"
-            text=""
-            font="font:MediumSystemFont"
-            color="#AAAAAA"
-            horizAlign="center"
-            width="800"
-            translation="[560, 400]"
-        />
-        <Label
-            id="serverLabel"
+            id="headerUser"
             text=""
             font="font:SmallSystemFont"
-            color="#666666"
-            horizAlign="center"
-            width="800"
-            translation="[560, 450]"
+            color="#888888"
+            horizAlign="right"
+            width="1536"
+            translation="[192, 25]"
         />
 
-        <ButtonGroup
-            id="signOutButtons"
-            translation="[760, 660]"
-            minWidth="400"
-            buttonHeight="72"
-            textFont="font:MediumSystemFont"
-            focusedTextFont="font:MediumBoldSystemFont"
-            textColor="#AAAAAA"
-            focusedTextColor="#FFFFFF"
-            focusBitmapUri="pkg:/images/button_focus.png"
-            focusFootprintBitmapUri="pkg:/images/button_unfocus.png"
+        <RowList
+            id="rowList"
+            translation="[130, 100]"
+            itemSize="[1660, 400]"
+            numRows="4"
+            itemSpacing="[0, 20]"
+            focusBitmapUri=""
+            focusFootprintBitmapUri=""
+            rowItemSize="[[230, 380]]"
+            rowItemSpacing="[[20, 0]]"
+            showRowLabel="[true]"
+            showRowCounter="[false]"
+            rowLabelFont="font:MediumBoldSystemFont"
+            rowLabelColor="#FFFFFF"
+            rowFocusAnimationStyle="fixedFocusWrap"
+            visible="false"
         />
 
-        <!-- Loading -->
         <Label
-            id="spinnerLabel"
-            text="Validating session..."
+            id="loadingLabel"
+            text="Loading..."
             font="font:MediumSystemFont"
             color="#CCCCCC"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 500]"
+            visible="true"
+        />
+
+        <Label
+            id="emptyLabel"
+            text=""
+            font="font:MediumSystemFont"
+            color="#888888"
             horizAlign="center"
             width="1920"
             translation="[0, 500]"
             visible="false"
         />
 
-        <!-- API Task -->
         <JellyfinApi id="apiTask" />
-
-        <!-- Toast Overlay -->
         <ToastOverlay id="toast" />
     </children>
 </component>
