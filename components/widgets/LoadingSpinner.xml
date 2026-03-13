@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="LoadingSpinner" extends="Group">
+    <interface>
+        <field id="message" type="string" value="Loading..." />
+    </interface>
+    <children>
+        <LayoutGroup
+            id="spinnerGroup"
+            layoutDirection="vert"
+            horizAlignment="center"
+            vertAlignment="center"
+            itemSpacings="[20]"
+            translation="[960, 540]"
+        >
+            <BusySpinner
+                id="spinner"
+                poster="pkg:/images/spinner.png"
+                visible="true"
+            />
+            <Label
+                id="messageLabel"
+                text="Loading..."
+                font="font:MediumSystemFont"
+                color="#CCCCCC"
+                horizAlign="center"
+            />
+        </LayoutGroup>
+    </children>
+</component>
