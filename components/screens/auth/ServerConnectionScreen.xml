@@ -4,68 +4,101 @@
         <field id="loginSuccess" type="boolean" value="false" alwaysNotify="true" />
     </interface>
     <children>
+        <!-- Background -->
         <Rectangle width="1920" height="1080" color="#1a1a2e" />
 
-        <LayoutGroup
-            id="titleGroup"
-            layoutDirection="vert"
-            horizAlignment="center"
-            translation="[960, 80]"
-            itemSpacings="[8]"
-        >
-            <Label id="titleLabel" text="Sashimi" font="font:LargeSystemFont" color="#FFFFFF" horizAlign="center" />
-            <Label id="subtitleLabel" text="Jellyfin Client" font="font:SmallSystemFont" color="#888888" horizAlign="center" />
-        </LayoutGroup>
+        <!-- Title -->
+        <Label
+            id="titleLabel"
+            text="Sashimi"
+            font="font:LargeBoldSystemFont"
+            color="#FFFFFF"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 80]"
+        />
+        <Label
+            id="subtitleLabel"
+            text="Jellyfin Client"
+            font="font:SmallSystemFont"
+            color="#888888"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 150]"
+        />
 
-        <LayoutGroup
-            id="formGroup"
-            layoutDirection="vert"
-            horizAlignment="center"
-            translation="[560, 250]"
-            itemSpacings="[20]"
-        >
-            <Label text="Server Address" font="font:SmallSystemFont" color="#AAAAAA" />
-            <TextEditBox id="serverUrlField" width="800" hintText="http://192.168.1.100:8096" maxTextLength="200" />
-            <Label text="Username" font="font:SmallSystemFont" color="#AAAAAA" />
-            <TextEditBox id="usernameField" width="800" hintText="Username" maxTextLength="100" />
-            <Label text="Password" font="font:SmallSystemFont" color="#AAAAAA" />
-            <TextEditBox id="passwordField" width="800" hintText="Password" maxTextLength="100" secureMode="true" />
-            <Button id="connectButton" text="Connect" minWidth="300" focusedColor="#4a90d9" />
-            <Button id="discoverButton" text="Discover Servers" minWidth="300" />
-        </LayoutGroup>
+        <!-- Form container -->
+        <Rectangle
+            id="formBg"
+            translation="[510, 240]"
+            width="900"
+            height="520"
+            color="#252545"
+        />
 
-        <LayoutGroup
-            id="discoveryGroup"
-            layoutDirection="vert"
-            translation="[1400, 250]"
-            itemSpacings="[10]"
-            visible="false"
-        >
-            <Label text="Discovered Servers" font="font:SmallSystemFont" color="#AAAAAA" />
-            <LabelList
-                id="serverList"
-                itemSize="[400, 48]"
-                numRows="5"
-                textColor="#FFFFFF"
-                focusedTextColor="#FFFFFF"
-                color="#333333"
-                focusedColor="#4a90d9"
-            />
-        </LayoutGroup>
+        <!-- Form buttons (ButtonGroup handles D-pad automatically) -->
+        <ButtonGroup
+            id="formButtons"
+            translation="[560, 270]"
+            minWidth="800"
+            itemSpacings="[12]"
+        />
 
+        <!-- Status label -->
         <Label
             id="statusLabel"
             text=""
             font="font:SmallSystemFont"
             color="#FF6666"
-            translation="[960, 900]"
             horizAlign="center"
-            width="1000"
+            width="1920"
+            translation="[0, 810]"
         />
 
-        <LoadingSpinner id="spinner" visible="false" />
+        <!-- Loading indicator -->
+        <Label
+            id="loadingLabel"
+            text="Connecting..."
+            font="font:MediumSystemFont"
+            color="#CCCCCC"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 540]"
+            visible="false"
+        />
+
+        <!-- Discovered servers panel -->
+        <Rectangle
+            id="discoveryBg"
+            translation="[1050, 240]"
+            width="450"
+            height="400"
+            color="#252545"
+            visible="false"
+        />
+        <Label
+            id="discoveryTitle"
+            text="Discovered Servers"
+            font="font:SmallSystemFont"
+            color="#AAAAAA"
+            translation="[1070, 250]"
+            visible="false"
+        />
+        <LabelList
+            id="serverList"
+            translation="[1070, 290]"
+            itemSize="[410, 48]"
+            numRows="6"
+            visible="false"
+        />
+
+        <!-- Error Dialog -->
         <ErrorDialog id="errorDialog" />
+
+        <!-- API Task -->
         <JellyfinApi id="apiTask" />
+
+        <!-- Server Discovery Task -->
         <ServerDiscoveryTask id="discoveryTask" />
     </children>
 </component>

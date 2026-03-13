@@ -1,22 +1,17 @@
 import "pkg:/source/utils/Http.bs"
 
 sub init()
-    m.top.functionName = "taskLoop"
+    m.top.functionName = "executeRequest"
+    m.top.observeFieldScoped("request", "onRequestChanged")
 end sub
 
-sub taskLoop()
-    port = CreateObject("roMessagePort")
-    m.top.observeFieldScoped("request", port)
-
-    while true
-        msg = wait(0, port)
-        if msg <> invalid
-            processRequest()
-        end if
-    end while
+sub onRequestChanged()
+    ' Each time request changes, re-run the task
+    m.top.control = "stop"
+    m.top.control = "RUN"
 end sub
 
-sub processRequest()
+sub executeRequest()
     request = m.top.request
     if request = invalid then return
 
@@ -25,6 +20,8 @@ sub processRequest()
         m.top.response = { success: false, error: "No action specified", action: "" }
         return
     end if
+
+    print "[API] Action: " + action
 
     if action = "authenticate"
         doAuthenticate(request)
@@ -37,59 +34,12 @@ sub processRequest()
     end if
 end sub
 
-sub doAuthenticate(request as object)
-    serverUrl = request.serverUrl
-    username = request.username
-    password = request.password
-
-    m.global.serverUrl = serverUrl
-
-    url = Http.apiUrl("/Users/AuthenticateByName")
-    body = { Username: username, Pw: password }
-    result = Http.postJson(url, body)
-
-    if result <> invalid and result.AccessToken <> invalid
-        m.top.response = {
-            success: true
-            action: "authenticate"
-            accessToken: result.AccessToken
-            userId: result.User.Id
-            userName: result.User.Name
-            serverUrl: serverUrl
-        }
-    else
-        m.top.response = {
-            success: false
-            action: "authenticate"
-            error: "Authentication failed. Check your username and password."
-        }
-    end if
-end sub
-
-sub doValidateSession()
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Views")
-    result = Http.getJson(url)
-
-    if result <> invalid and result.Items <> invalid
-        m.top.response = {
-            success: true
-            action: "validateSession"
-        }
-    else
-        m.top.response = {
-            success: false
-            action: "validateSession"
-            error: "Session is no longer valid."
-        }
-    end if
-end sub
-
 sub doGetPublicInfo(request as object)
     serverUrl = request.serverUrl
+    if Right(serverUrl, 1) = "/" then serverUrl = Left(serverUrl, Len(serverUrl) - 1)
+    url = serverUrl + "/System/Info/Public"
 
-    url = serverUrl
-    if Right(url, 1) = "/" then url = Left(url, Len(url) - 1)
-    url = url + "/System/Info/Public"
+    print "[API] GET " + url
 
     transfer = CreateObject("roUrlTransfer")
     port = CreateObject("roMessagePort")
@@ -102,29 +52,135 @@ sub doGetPublicInfo(request as object)
     transfer.AddHeader("Accept", "application/json")
     transfer.RetainBodyOnError(true)
 
-    if transfer.AsyncGetToString()
-        msg = wait(10000, port)
-        if msg <> invalid and type(msg) = "roUrlEvent"
-            code = msg.GetResponseCode()
-            if code >= 200 and code < 300
-                info = ParseJSON(msg.GetString())
-                if info <> invalid and info.ServerName <> invalid
-                    m.top.response = {
-                        success: true
-                        action: "getPublicInfo"
-                        serverName: info.ServerName
-                        version: info.Version
-                        serverUrl: serverUrl
-                    }
-                    return
-                end if
-            end if
+    if not transfer.AsyncGetToString()
+        print "[API] AsyncGetToString failed to start"
+        m.top.response = {
+            success: false
+            action: "getPublicInfo"
+            error: "Failed to start request."
+        }
+        return
+    end if
+
+    msg = wait(10000, port)
+    if msg = invalid
+        print "[API] Request timed out"
+        m.top.response = {
+            success: false
+            action: "getPublicInfo"
+            error: "Connection timed out."
+        }
+        return
+    end if
+
+    if type(msg) <> "roUrlEvent"
+        print "[API] Unexpected message type: " + type(msg)
+        m.top.response = {
+            success: false
+            action: "getPublicInfo"
+            error: "Unexpected response."
+        }
+        return
+    end if
+
+    code = msg.GetResponseCode()
+    print "[API] Response code: " + str(code)
+
+    if code < 0
+        print "[API] Connection error: " + msg.GetFailureReason()
+        m.top.response = {
+            success: false
+            action: "getPublicInfo"
+            error: "Connection failed: " + msg.GetFailureReason()
+        }
+        return
+    end if
+
+    if code >= 200 and code < 300
+        body = msg.GetString()
+        print "[API] Response: " + Left(body, 200)
+        info = ParseJSON(body)
+        if info <> invalid
+            serverName = "Jellyfin Server"
+            if info.ServerName <> invalid then serverName = info.ServerName
+            m.top.response = {
+                success: true
+                action: "getPublicInfo"
+                serverName: serverName
+                serverUrl: serverUrl
+            }
+            return
         end if
     end if
 
     m.top.response = {
         success: false
         action: "getPublicInfo"
-        error: "Could not connect to server. Check the URL and try again."
+        error: "Server returned error code " + str(code)
     }
+end sub
+
+sub doAuthenticate(request as object)
+    serverUrl = request.serverUrl
+    username = request.username
+    password = request.password
+
+    print "[API] Authenticating as " + username + " to " + serverUrl
+
+    m.global.serverUrl = serverUrl
+
+    url = Http.apiUrl("/Users/AuthenticateByName")
+    body = { Username: username, Pw: password }
+    result = Http.postJson(url, body)
+
+    if result = invalid
+        print "[API] Auth request failed"
+        m.top.response = {
+            success: false
+            action: "authenticate"
+            error: "Could not reach server."
+        }
+        return
+    end if
+
+    token = result.AccessToken
+    if token <> invalid and result.User <> invalid
+        print "[API] Auth success"
+        m.top.response = {
+            success: true
+            action: "authenticate"
+            accessToken: token
+            userId: result.User.Id
+            userName: result.User.Name
+            serverUrl: serverUrl
+        }
+    else
+        print "[API] Auth failed - response: " + FormatJSON(result).Left(200)
+        m.top.response = {
+            success: false
+            action: "authenticate"
+            error: "Authentication failed. Check your username and password."
+        }
+    end if
+end sub
+
+sub doValidateSession()
+    print "[API] Validating session"
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Views")
+    result = Http.getJson(url)
+
+    if result <> invalid and result.Items <> invalid
+        print "[API] Session valid"
+        m.top.response = {
+            success: true
+            action: "validateSession"
+        }
+    else
+        print "[API] Session invalid"
+        m.top.response = {
+            success: false
+            action: "validateSession"
+            error: "Session is no longer valid."
+        }
+    end if
 end sub

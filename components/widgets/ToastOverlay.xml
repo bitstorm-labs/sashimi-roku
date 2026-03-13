@@ -12,7 +12,7 @@
             width="600"
             height="80"
             translation="[660, 50]"
-            cornerRadius="12"
+
         >
             <Label
                 id="toastLabel"

@@ -11,7 +11,6 @@ sub init()
 
     m.signOutButton.observeFieldScoped("buttonSelected", "onSignOut")
     m.apiTask.observeFieldScoped("response", "onApiResponse")
-    m.apiTask.control = "RUN"
 
     restoreSession()
 

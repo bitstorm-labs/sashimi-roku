@@ -12,10 +12,12 @@
             itemSpacings="[20]"
             translation="[960, 540]"
         >
-            <BusySpinner
-                id="spinner"
-                poster="pkg:/images/spinner.png"
-                visible="true"
+            <Label
+                id="spinnerDots"
+                text="..."
+                font="font:LargeSystemFont"
+                color="#FFFFFF"
+                horizAlign="center"
             />
             <Label
                 id="messageLabel"
