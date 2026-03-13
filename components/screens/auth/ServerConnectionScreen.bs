@@ -1,0 +1,172 @@
+import "pkg:/source/utils/Registry.bs"
+
+sub init()
+    m.serverUrlField = m.top.findNode("serverUrlField")
+    m.usernameField = m.top.findNode("usernameField")
+    m.passwordField = m.top.findNode("passwordField")
+    m.connectButton = m.top.findNode("connectButton")
+    m.discoverButton = m.top.findNode("discoverButton")
+    m.serverList = m.top.findNode("serverList")
+    m.discoveryGroup = m.top.findNode("discoveryGroup")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.spinner = m.top.findNode("spinner")
+    m.errorDialog = m.top.findNode("errorDialog")
+    m.apiTask = m.top.findNode("apiTask")
+    m.discoveryTask = m.top.findNode("discoveryTask")
+
+    m.isLoading = false
+
+    m.connectButton.observeFieldScoped("buttonSelected", "onConnectPressed")
+    m.discoverButton.observeFieldScoped("buttonSelected", "onDiscoverPressed")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.discoveryTask.observeFieldScoped("servers", "onServersDiscovered")
+    m.serverList.observeFieldScoped("itemSelected", "onServerSelected")
+
+    m.serverUrlField.setFocus(true)
+end sub
+
+sub onConnectPressed()
+    if m.isLoading then return
+
+    serverUrl = m.serverUrlField.text.Trim()
+    username = m.usernameField.text.Trim()
+    password = m.passwordField.text
+
+    if serverUrl = ""
+        showStatus("Please enter a server address.")
+        m.serverUrlField.setFocus(true)
+        return
+    end if
+
+    if username = ""
+        showStatus("Please enter a username.")
+        m.usernameField.setFocus(true)
+        return
+    end if
+
+    serverUrl = normalizeUrl(serverUrl)
+
+    showLoading(true)
+    showStatus("")
+
+    m.pendingUsername = username
+    m.pendingPassword = password
+    m.apiTask.request = {
+        action: "getPublicInfo"
+        serverUrl: serverUrl
+    }
+end sub
+
+sub onDiscoverPressed()
+    showStatus("Searching for Jellyfin servers...")
+    m.discoveryTask.control = "stop"
+    m.discoveryTask.control = "RUN"
+end sub
+
+sub onServersDiscovered()
+    servers = m.discoveryTask.servers
+    showStatus("")
+
+    if servers = invalid or servers.count() = 0
+        showStatus("No servers found on your network.")
+        return
+    end if
+
+    content = CreateObject("roSGNode", "ContentNode")
+    for each server in servers
+        item = content.createChild("ContentNode")
+        item.title = server.serverName + " (" + server.serverUrl + ")"
+        item.description = server.serverUrl
+    end for
+    m.serverList.content = content
+    m.discoveryGroup.visible = true
+    m.serverList.setFocus(true)
+end sub
+
+sub onServerSelected()
+    index = m.serverList.itemSelected
+    if index < 0 then return
+
+    content = m.serverList.content
+    if content = invalid then return
+
+    item = content.getChild(index)
+    if item = invalid then return
+
+    m.serverUrlField.text = item.description
+    m.discoveryGroup.visible = false
+    m.usernameField.setFocus(true)
+end sub
+
+sub onApiResponse()
+    response = m.apiTask.response
+    if response = invalid then return
+
+    action = response.action
+
+    if action = "getPublicInfo"
+        if response.success
+            m.apiTask.request = {
+                action: "authenticate"
+                serverUrl: response.serverUrl
+                username: m.pendingUsername
+                password: m.pendingPassword
+            }
+        else
+            showLoading(false)
+            showStatus(response.error)
+        end if
+    else if action = "authenticate"
+        showLoading(false)
+        if response.success
+            Registry.saveAuth(
+                response.serverUrl,
+                response.accessToken,
+                response.userId,
+                response.userName
+            )
+
+            m.global.serverUrl = response.serverUrl
+            m.global.authToken = response.accessToken
+            m.global.userId = response.userId
+
+            m.top.loginSuccess = true
+        else
+            showStatus(response.error)
+        end if
+    end if
+end sub
+
+sub showLoading(loading as boolean)
+    m.isLoading = loading
+    m.spinner.visible = loading
+end sub
+
+sub showStatus(message as string)
+    m.statusLabel.text = message
+end sub
+
+function normalizeUrl(url as string) as string
+    urlLower = LCase(url)
+    if Left(urlLower, 7) <> "http://" and Left(urlLower, 8) <> "https://"
+        url = "http://" + url
+    end if
+    if Right(url, 1) = "/"
+        url = Left(url, Len(url) - 1)
+    end if
+    return url
+end function
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if press
+        if key = "back"
+            if m.discoveryGroup.visible
+                m.discoveryGroup.visible = false
+                m.connectButton.setFocus(true)
+                return true
+            end if
+        end if
+    end if
+    return false
+end function
