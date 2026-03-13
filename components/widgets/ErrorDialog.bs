@@ -1,0 +1,20 @@
+sub init()
+    m.top.observeField("showError", "onShowError")
+end sub
+
+sub onShowError()
+    errorInfo = m.top.showError
+    if errorInfo = invalid then return
+
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = errorInfo.title
+    dialog.message = [errorInfo.message]
+    dialog.buttons = ["OK"]
+    dialog.observeFieldScoped("buttonSelected", "onDialogButton")
+
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onDialogButton()
+    m.top.getScene().dialog.close = true
+end sub
