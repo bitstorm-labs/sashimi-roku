@@ -1,0 +1,63 @@
+import "pkg:/source/utils/Registry.bs"
+
+sub init()
+    m.welcomeLabel = m.top.findNode("welcomeLabel")
+    m.userLabel = m.top.findNode("userLabel")
+    m.serverLabel = m.top.findNode("serverLabel")
+    m.signOutButton = m.top.findNode("signOutButton")
+    m.spinner = m.top.findNode("spinner")
+    m.apiTask = m.top.findNode("apiTask")
+    m.toast = m.top.findNode("toast")
+
+    m.signOutButton.observeFieldScoped("buttonSelected", "onSignOut")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+
+    userName = Registry.getUserName()
+    serverUrl = m.global.serverUrl
+    m.userLabel.text = "Logged in as: " + userName
+    m.serverLabel.text = "Server: " + serverUrl
+
+    restoreSession()
+
+    m.signOutButton.setFocus(true)
+end sub
+
+sub restoreSession()
+    m.global.serverUrl = Registry.getServerUrl()
+    m.global.authToken = Registry.getAuthToken()
+    m.global.userId = Registry.getUserId()
+
+    m.spinner.visible = true
+    m.apiTask.request = { action: "validateSession" }
+end sub
+
+sub onApiResponse()
+    response = m.apiTask.response
+    if response = invalid then return
+
+    if response.action = "validateSession"
+        m.spinner.visible = false
+        if response.success
+            m.toast.showToast = { message: "Connected to server", duration: 2 }
+        else
+            doSignOut()
+        end if
+    end if
+end sub
+
+sub onSignOut()
+    doSignOut()
+end sub
+
+sub doSignOut()
+    Registry.clearAuth()
+    m.global.serverUrl = ""
+    m.global.authToken = ""
+    m.global.userId = ""
+    m.top.signOut = true
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    return false
+end function

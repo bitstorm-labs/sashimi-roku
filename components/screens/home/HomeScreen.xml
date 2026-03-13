@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="HomeScreen" extends="Group">
+    <interface>
+        <field id="signOut" type="boolean" value="false" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="#1a1a2e" />
+
+        <LayoutGroup
+            id="contentGroup"
+            layoutDirection="vert"
+            horizAlignment="center"
+            vertAlignment="center"
+            translation="[960, 400]"
+            itemSpacings="[20]"
+        >
+            <Label id="welcomeLabel" text="Welcome to Sashimi" font="font:LargeSystemFont" color="#FFFFFF" horizAlign="center" />
+            <Label id="userLabel" text="" font="font:MediumSystemFont" color="#888888" horizAlign="center" />
+            <Label id="serverLabel" text="" font="font:SmallSystemFont" color="#666666" horizAlign="center" />
+            <Button id="signOutButton" text="Sign Out" minWidth="200" />
+        </LayoutGroup>
+
+        <LoadingSpinner id="spinner" visible="false" message="Validating session..." />
+        <JellyfinApi id="apiTask" />
+        <ToastOverlay id="toast" />
+    </children>
+</component>
