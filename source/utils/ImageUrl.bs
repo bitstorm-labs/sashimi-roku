@@ -1,0 +1,15 @@
+namespace ImageUrl
+
+    function primary(itemId as string, maxWidth as integer) as string
+        return m.global.serverUrl + "/Items/" + itemId + "/Images/Primary?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
+    end function
+
+    function backdrop(itemId as string, maxWidth as integer) as string
+        return m.global.serverUrl + "/Items/" + itemId + "/Images/Backdrop?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
+    end function
+
+    function thumb(itemId as string, maxWidth as integer) as string
+        return m.global.serverUrl + "/Items/" + itemId + "/Images/Thumb?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
+    end function
+
+end namespace
