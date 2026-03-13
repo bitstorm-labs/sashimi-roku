@@ -37,6 +37,8 @@ sub executeRequest()
         doGetNextUp(request)
     else if action = "getLatestMedia"
         doGetLatestMedia(request)
+    else if action = "getItems"
+        doGetItems(request)
     else
         m.top.response = { success: false, error: "Unknown action: " + action, action: action }
     end if
@@ -264,5 +266,81 @@ sub doGetLatestMedia(request as object)
         m.top.response = { success: true, action: "getLatestMedia", items: items, parentId: parentId }
     else
         m.top.response = { success: true, action: "getLatestMedia", items: [], parentId: parentId }
+    end if
+end sub
+
+sub doGetItems(request as object)
+    parentId = ""
+    if request.parentId <> invalid then parentId = request.parentId
+    sortBy = "SortName"
+    if request.sortBy <> invalid then sortBy = request.sortBy
+    sortOrder = "Ascending"
+    if request.sortOrder <> invalid then sortOrder = request.sortOrder
+    limit = 50
+    if request.limit <> invalid then limit = request.limit
+    startIndex = 0
+    if request.startIndex <> invalid then startIndex = request.startIndex
+
+    print "[API] Getting items (parentId=" + parentId + ", sort=" + sortBy + ", start=" + str(startIndex) + ")"
+
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url += "?SortBy=" + sortBy
+    url += "&SortOrder=" + sortOrder
+    url += "&Recursive=true"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    url += "&Limit=" + str(limit).Trim()
+    url += "&StartIndex=" + str(startIndex).Trim()
+
+    if parentId <> "" then url += "&ParentId=" + parentId
+
+    if request.includeTypes <> invalid and request.includeTypes <> ""
+        url += "&IncludeItemTypes=" + request.includeTypes
+    end if
+    if request.isPlayed <> invalid
+        if request.isPlayed
+            url += "&IsPlayed=true"
+        else
+            url += "&IsPlayed=false"
+        end if
+    end if
+    if request.isFavorite <> invalid
+        if request.isFavorite
+            url += "&IsFavorite=true"
+        else
+            url += "&IsFavorite=false"
+        end if
+    end if
+    if request.isResumable <> invalid
+        if request.isResumable
+            url += "&IsResumable=true"
+        else
+            url += "&IsResumable=false"
+        end if
+    end if
+    if request.nameStartsWith <> invalid and request.nameStartsWith <> ""
+        url += "&NameStartsWith=" + request.nameStartsWith
+    end if
+
+    result = Http.getJson(url)
+
+    if result <> invalid and result.Items <> invalid
+        print "[API] Found " + str(result.Items.count()) + " of " + str(result.TotalRecordCount) + " total items"
+        m.top.response = {
+            success: true
+            action: "getItems"
+            items: result.Items
+            totalRecordCount: result.TotalRecordCount
+            startIndex: startIndex
+        }
+    else
+        m.top.response = {
+            success: false
+            action: "getItems"
+            error: "Could not load items."
+            items: []
+            totalRecordCount: 0
+            startIndex: startIndex
+        }
     end if
 end sub
