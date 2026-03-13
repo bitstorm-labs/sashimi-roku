@@ -63,6 +63,9 @@ sub showScreen(screenName as string)
         screen.observeFieldScoped("loginSuccess", "onLoginSuccess")
     else if screenName = "HomeScreen"
         screen.observeFieldScoped("signOut", "onSignOut")
+        screen.observeFieldScoped("selectedItem", "onItemSelected")
+    else if screenName = "LibraryScreen"
+        screen.observeFieldScoped("selectedItem", "onItemSelected")
     end if
 end sub
 
@@ -72,6 +75,16 @@ end sub
 
 sub onSignOut()
     navigateToAuth()
+end sub
+
+sub onItemSelected()
+    if m.currentScreen <> invalid
+        item = m.currentScreen.selectedItem
+        if item <> invalid and item.Name <> invalid
+            print "[Nav] Item selected: " + item.Name
+            ' TODO: Phase 3 will navigate to MediaDetailScreen
+        end if
+    end if
 end sub
 
 sub popScreen()
