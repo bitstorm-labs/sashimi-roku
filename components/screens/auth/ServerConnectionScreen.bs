@@ -115,7 +115,7 @@ sub onApiResponse()
             }
         else
             showLoading(false)
-            showStatus(response.error)
+            m.errorDialog.showError = { title: "Connection Error", message: response.error }
         end if
     else if action = "authenticate"
         showLoading(false)
