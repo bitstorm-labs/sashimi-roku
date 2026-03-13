@@ -104,7 +104,7 @@ namespace Http
         request.SetRequest("DELETE")
         request.RetainBodyOnError(true)
 
-        if request.AsyncPostFromString("")
+        if request.AsyncGetToString()
             msg = wait(30000, port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 return msg.GetResponseCode()

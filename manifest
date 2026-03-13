@@ -11,3 +11,4 @@ splash_color=#1a1a2e
 ui_resolutions=fhd
 confirm_partner_button=1
 bs_const=DEBUG=true
+rsg_version=1.2

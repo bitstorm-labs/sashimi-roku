@@ -1,3 +1,5 @@
+import "pkg:/source/utils/Registry.bs"
+
 sub init()
     m.navStack = []
     m.currentScreen = invalid
@@ -19,22 +21,16 @@ sub init()
 end sub
 
 sub initDeviceId()
-    sec = CreateObject("roRegistrySection", "device")
-    deviceId = sec.Read("deviceId")
+    deviceId = Registry.read("device", "deviceId")
     if deviceId = ""
         deviceId = CreateObject("roDeviceInfo").GetChannelClientId()
-        sec.Write("deviceId", deviceId)
-        sec.Flush()
+        Registry.write("device", "deviceId", deviceId)
     end if
     m.global.deviceId = deviceId
 end sub
 
 function hasSavedSession() as boolean
-    sec = CreateObject("roRegistrySection", "auth")
-    serverUrl = sec.Read("serverUrl")
-    authToken = sec.Read("authToken")
-    userId = sec.Read("userId")
-    return serverUrl <> "" and authToken <> "" and userId <> ""
+    return Registry.hasAuth()
 end function
 
 sub showScreen(screenName as string)
