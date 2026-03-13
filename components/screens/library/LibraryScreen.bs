@@ -9,6 +9,7 @@ sub init()
     m.apiTask = m.top.findNode("apiTask")
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
 
     m.libraryId = ""
     m.libraryName = ""

@@ -10,6 +10,7 @@ sub init()
     m.toast = m.top.findNode("toast")
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
 
     ' State
     m.libraries = []

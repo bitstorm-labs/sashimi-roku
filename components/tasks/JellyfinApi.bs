@@ -1,17 +1,29 @@
 import "pkg:/source/utils/Http.bs"
 
 sub init()
-    m.top.functionName = "executeRequest"
-    m.top.observeFieldScoped("request", "onRequestChanged")
+    m.top.functionName = "taskLoop"
 end sub
 
-sub onRequestChanged()
-    ' Each time request changes, re-run the task
-    m.top.control = "stop"
-    m.top.control = "RUN"
+sub taskLoop()
+    ' Long-running task that processes requests via message port
+    port = CreateObject("roMessagePort")
+    m.top.observeFieldScoped("request", port)
+
+    ' Process initial request if already set
+    if m.top.request <> invalid
+        processRequest()
+    end if
+
+    ' Wait for new requests
+    while true
+        msg = wait(0, port)
+        if msg <> invalid
+            processRequest()
+        end if
+    end while
 end sub
 
-sub executeRequest()
+sub processRequest()
     request = m.top.request
     if request = invalid then return
 
