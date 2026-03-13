@@ -1,0 +1,52 @@
+sub init()
+    m.top.functionName = "discover"
+end sub
+
+sub discover()
+    servers = []
+    seenUrls = {}
+
+    socket = CreateObject("roDatagramSocket")
+    port = CreateObject("roMessagePort")
+    socket.SetMessagePort(port)
+    socket.SetBroadcast(true)
+    socket.SetSendToAddress("255.255.255.255")
+    socket.SetSendToPort(7359)
+
+    byteArray = CreateObject("roByteArray")
+    byteArray.FromAsciiString("Who is JellyfinServer?")
+    socket.Send(byteArray)
+
+    timeout = 3000
+    timer = CreateObject("roTimespan")
+    timer.Mark()
+
+    while true
+        remaining = timeout - timer.TotalMilliseconds()
+        if remaining <= 0 then exit while
+
+        msg = wait(remaining, port)
+        if msg = invalid then exit while
+
+        if type(msg) = "roDatagramEvent"
+            response = msg.GetString()
+            parsed = ParseJSON(response)
+            if parsed <> invalid and parsed.Address <> invalid
+                serverUrl = parsed.Address
+                serverName = "Jellyfin Server"
+                if parsed.Name <> invalid then serverName = parsed.Name
+
+                if not seenUrls.DoesExist(serverUrl)
+                    seenUrls[serverUrl] = true
+                    servers.push({
+                        serverUrl: serverUrl
+                        serverName: serverName
+                    })
+                end if
+            end if
+        end if
+    end while
+
+    socket.Close()
+    m.top.servers = servers
+end sub
