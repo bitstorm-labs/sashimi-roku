@@ -1,0 +1,243 @@
+import "pkg:/source/utils/ImageUrl.bs"
+
+sub init()
+    m.headerTitle = m.top.findNode("headerTitle")
+    m.filterLabel = m.top.findNode("filterLabel")
+    m.posterGrid = m.top.findNode("posterGrid")
+    m.loadingLabel = m.top.findNode("loadingLabel")
+    m.alphaBar = m.top.findNode("alphaBar")
+    m.apiTask = m.top.findNode("apiTask")
+
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+
+    m.libraryId = ""
+    m.libraryName = ""
+    m.sortBy = "SortName"
+    m.sortOrder = "Ascending"
+    m.filterPlayed = invalid
+    m.filterFavorite = invalid
+    m.totalItems = 0
+    m.loadedItems = 0
+    m.isLoading = false
+    m.gridContent = invalid
+
+    m.posterGrid.observeFieldScoped("itemSelected", "onItemSelected")
+    m.posterGrid.observeFieldScoped("itemFocused", "onItemFocused")
+
+    ' Build alphabet bar
+    alphaContent = CreateObject("roSGNode", "ContentNode")
+    for i = 65 to 90
+        letter = CreateObject("roSGNode", "ContentNode")
+        letter.title = Chr(i)
+        alphaContent.appendChild(letter)
+    end for
+    m.alphaBar.content = alphaContent
+    m.alphaBar.observeFieldScoped("itemSelected", "onAlphaSelected")
+end sub
+
+sub onLibraryDataChanged()
+    data = m.top.libraryData
+    if data = invalid then return
+    m.libraryId = data.id
+    m.libraryName = data.name
+    m.headerTitle.text = m.libraryName
+    loadItems(0)
+end sub
+
+sub loadItems(startIndex as integer)
+    m.isLoading = true
+    if startIndex = 0
+        m.loadingLabel.visible = true
+        m.posterGrid.visible = false
+    end if
+    updateFilterLabel()
+
+    m.apiTask.request = {
+        action: "getItems"
+        parentId: m.libraryId
+        sortBy: m.sortBy
+        sortOrder: m.sortOrder
+        limit: 50
+        startIndex: startIndex
+        isPlayed: m.filterPlayed
+        isFavorite: m.filterFavorite
+    }
+end sub
+
+sub onApiResponse()
+    response = m.apiTask.response
+    if response = invalid then return
+    if response.action = "getItems"
+        onItemsLoaded(response)
+    end if
+end sub
+
+sub onItemsLoaded(response as object)
+    m.isLoading = false
+    m.loadingLabel.visible = false
+    if not response.success then return
+
+    m.totalItems = response.totalRecordCount
+
+    if response.startIndex = 0
+        m.gridContent = CreateObject("roSGNode", "ContentNode")
+    end if
+
+    for each item in response.items
+        child = m.gridContent.createChild("ContentNode")
+        title = ""
+        if item.Name <> invalid then title = item.Name
+        child.shortDescriptionLine1 = title
+
+        subtitle = ""
+        if item.ProductionYear <> invalid
+            subtitle = str(item.ProductionYear).Trim()
+        end if
+        child.shortDescriptionLine2 = subtitle
+
+        itemId = ""
+        if item.Id <> invalid then itemId = item.Id
+        if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+            child.HDPosterUrl = ImageUrl.primary(itemId, 210)
+        end if
+
+        child.addFields({ itemJson: "" })
+        child.itemJson = FormatJSON(item)
+    end for
+
+    m.loadedItems = m.gridContent.getChildCount()
+    m.posterGrid.content = m.gridContent
+    m.posterGrid.visible = true
+
+    if response.startIndex = 0
+        m.posterGrid.setFocus(true)
+    end if
+end sub
+
+sub onItemFocused()
+    focusIndex = m.posterGrid.itemFocused
+    if focusIndex > m.loadedItems - 15 and m.loadedItems < m.totalItems and not m.isLoading
+        print "[Library] Loading more at " + str(m.loadedItems)
+        loadItems(m.loadedItems)
+    end if
+end sub
+
+sub onItemSelected()
+    index = m.posterGrid.itemSelected
+    if index < 0 then return
+    child = m.gridContent.getChild(index)
+    if child = invalid then return
+    if child.itemJson <> invalid and child.itemJson <> ""
+        itemData = ParseJSON(child.itemJson)
+        if itemData <> invalid
+            m.top.selectedItem = itemData
+        end if
+    end if
+end sub
+
+sub onAlphaSelected()
+    index = m.alphaBar.itemSelected
+    if index < 0 then return
+    letter = Chr(65 + index)
+    m.apiTask.request = {
+        action: "getItems"
+        parentId: m.libraryId
+        sortBy: "SortName"
+        sortOrder: "Ascending"
+        limit: 50
+        startIndex: 0
+        nameStartsWith: letter
+    }
+end sub
+
+sub updateFilterLabel()
+    sortLabel = "Name"
+    if m.sortBy = "DateCreated"
+        sortLabel = "Date Added"
+    else if m.sortBy = "CommunityRating"
+        sortLabel = "Rating"
+    else if m.sortBy = "PlayCount"
+        sortLabel = "Play Count"
+    end if
+
+    filterLabel = ""
+    if m.filterPlayed = true
+        filterLabel = " | Watched"
+    else if m.filterPlayed = false
+        filterLabel = " | Unwatched"
+    end if
+    if m.filterFavorite = true then filterLabel += " | Favorites"
+
+    m.filterLabel.text = "Sort: " + sortLabel + filterLabel + " | Press * for options"
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if press
+        if key = "options"
+            showSortFilterDialog()
+            return true
+        else if key = "right" and m.posterGrid.hasFocus()
+            m.alphaBar.visible = true
+            m.alphaBar.setFocus(true)
+            return true
+        else if key = "left" and m.alphaBar.hasFocus()
+            m.alphaBar.visible = false
+            m.posterGrid.setFocus(true)
+            return true
+        end if
+    end if
+    return false
+end function
+
+sub showSortFilterDialog()
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Sort & Filter"
+    dialog.message = [""]
+    dialog.buttons = [
+        "Sort: Name",
+        "Sort: Date Added",
+        "Sort: Rating",
+        "Filter: All",
+        "Filter: Unwatched",
+        "Filter: Favorites",
+        "Cancel"
+    ]
+    dialog.observeFieldScoped("buttonSelected", "onSortFilterButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onSortFilterButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    index = dialog.buttonSelected
+    dialog.close = true
+
+    if index = 0
+        m.sortBy = "SortName"
+        m.sortOrder = "Ascending"
+    else if index = 1
+        m.sortBy = "DateCreated"
+        m.sortOrder = "Descending"
+    else if index = 2
+        m.sortBy = "CommunityRating"
+        m.sortOrder = "Descending"
+    else if index = 3
+        m.filterPlayed = invalid
+        m.filterFavorite = invalid
+    else if index = 4
+        m.filterPlayed = false
+        m.filterFavorite = invalid
+    else if index = 5
+        m.filterFavorite = true
+        m.filterPlayed = invalid
+    else
+        m.posterGrid.setFocus(true)
+        return
+    end if
+
+    if index < 6
+        loadItems(0)
+    end if
+
+    m.posterGrid.setFocus(true)
+end sub

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="LibraryScreen" extends="Group">
+    <interface>
+        <field id="libraryData" type="assocarray" onChange="onLibraryDataChanged" />
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="#0e0e1a" />
+
+        <Rectangle width="1920" height="80" color="#101420" opacity="0.9" />
+        <Label
+            id="headerTitle"
+            text=""
+            font="font:MediumBoldSystemFont"
+            color="#FFFFFF"
+            translation="[192, 20]"
+        />
+        <Label
+            id="filterLabel"
+            text="Sort: Name | Press * for options"
+            font="font:SmallestSystemFont"
+            color="#666666"
+            horizAlign="right"
+            width="1536"
+            translation="[192, 30]"
+        />
+
+        <PosterGrid
+            id="posterGrid"
+            translation="[192, 100]"
+            basePosterSize="[210, 315]"
+            itemSpacing="[30, 60]"
+            numColumns="7"
+            numRows="3"
+            caption1NumLines="2"
+            caption1Font="font:SmallestSystemFont"
+            caption1Color="#CCCCCC"
+            caption2Font="font:SmallestSystemFont"
+            caption2Color="#888888"
+        />
+
+        <Label
+            id="loadingLabel"
+            text="Loading..."
+            font="font:MediumSystemFont"
+            color="#CCCCCC"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 500]"
+            visible="false"
+        />
+
+        <LabelList
+            id="alphaBar"
+            translation="[1780, 100]"
+            itemSize="[80, 32]"
+            numRows="26"
+            visible="false"
+        />
+
+        <JellyfinApi id="apiTask" />
+    </children>
+</component>
