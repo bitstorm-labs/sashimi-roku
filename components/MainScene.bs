@@ -48,6 +48,21 @@ sub showScreen(screenName as string)
     m.navStack.push(screen)
     m.currentScreen = screen
     screen.setFocus(true)
+
+    ' Wire up screen-specific observers
+    if screenName = "ServerConnectionScreen"
+        screen.observeFieldScoped("loginSuccess", "onLoginSuccess")
+    else if screenName = "HomeScreen"
+        screen.observeFieldScoped("signOut", "onSignOut")
+    end if
+end sub
+
+sub onLoginSuccess()
+    navigateToHome()
+end sub
+
+sub onSignOut()
+    navigateToAuth()
 end sub
 
 sub popScreen()
