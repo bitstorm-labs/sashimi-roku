@@ -39,11 +39,15 @@ namespace Http
                 if code >= 200 and code < 300
                     return ParseJSON(msg.GetString())
                 else
-                    print "HTTP GET error: " + str(code) + " for " + url
+                    #if DEBUG
+                        print "HTTP GET error: " + str(code) + " for " + url
+                    #end if
                     return invalid
                 end if
             else
-                print "HTTP GET timeout for " + url
+                #if DEBUG
+                    print "HTTP GET timeout for " + url
+                #end if
                 return invalid
             end if
         end if
@@ -80,11 +84,15 @@ namespace Http
                     end if
                     return { _statusCode: code }
                 else
-                    print "HTTP POST error: " + str(code) + " for " + url
+                    #if DEBUG
+                        print "HTTP POST error: " + str(code) + " for " + url
+                    #end if
                     return invalid
                 end if
             else
-                print "HTTP POST timeout for " + url
+                #if DEBUG
+                    print "HTTP POST timeout for " + url
+                #end if
                 return invalid
             end if
         end if

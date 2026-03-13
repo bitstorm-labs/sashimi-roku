@@ -36,7 +36,9 @@ end function
 sub showScreen(screenName as string)
     screen = createObject("roSGNode", screenName)
     if screen = invalid
-        print "ERROR: Could not create screen: " + screenName
+        #if DEBUG
+            print "ERROR: Could not create screen: " + screenName
+        #end if
         return
     end if
 
