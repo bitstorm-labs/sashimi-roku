@@ -1,0 +1,130 @@
+import "pkg:/source/utils/Http.bs"
+
+sub init()
+    m.top.functionName = "taskLoop"
+end sub
+
+sub taskLoop()
+    port = CreateObject("roMessagePort")
+    m.top.observeFieldScoped("request", port)
+
+    while true
+        msg = wait(0, port)
+        if msg <> invalid
+            processRequest()
+        end if
+    end while
+end sub
+
+sub processRequest()
+    request = m.top.request
+    if request = invalid then return
+
+    action = request.action
+    if action = invalid or action = ""
+        m.top.response = { success: false, error: "No action specified", action: "" }
+        return
+    end if
+
+    if action = "authenticate"
+        doAuthenticate(request)
+    else if action = "validateSession"
+        doValidateSession()
+    else if action = "getPublicInfo"
+        doGetPublicInfo(request)
+    else
+        m.top.response = { success: false, error: "Unknown action: " + action, action: action }
+    end if
+end sub
+
+sub doAuthenticate(request as object)
+    serverUrl = request.serverUrl
+    username = request.username
+    password = request.password
+
+    m.global.serverUrl = serverUrl
+
+    url = Http.apiUrl("/Users/AuthenticateByName")
+    body = { Username: username, Pw: password }
+    result = Http.postJson(url, body)
+
+    if result <> invalid and result.AccessToken <> invalid
+        m.top.response = {
+            success: true
+            action: "authenticate"
+            accessToken: result.AccessToken
+            userId: result.User.Id
+            userName: result.User.Name
+            serverUrl: serverUrl
+        }
+    else
+        m.top.response = {
+            success: false
+            action: "authenticate"
+            error: "Authentication failed. Check your username and password."
+        }
+    end if
+end sub
+
+sub doValidateSession()
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Views")
+    result = Http.getJson(url)
+
+    if result <> invalid and result.Items <> invalid
+        m.top.response = {
+            success: true
+            action: "validateSession"
+        }
+    else
+        m.top.response = {
+            success: false
+            action: "validateSession"
+            error: "Session is no longer valid."
+        }
+    end if
+end sub
+
+sub doGetPublicInfo(request as object)
+    serverUrl = request.serverUrl
+
+    url = serverUrl
+    if Right(url, 1) = "/" then url = Left(url, Len(url) - 1)
+    url = url + "/System/Info/Public"
+
+    transfer = CreateObject("roUrlTransfer")
+    port = CreateObject("roMessagePort")
+    transfer.SetMessagePort(port)
+    transfer.SetCertificatesFile("common:/certs/ca-bundle.crt")
+    transfer.InitClientCertificates()
+    transfer.EnableHostVerification(false)
+    transfer.EnablePeerVerification(false)
+    transfer.SetUrl(url)
+    transfer.AddHeader("Accept", "application/json")
+    transfer.RetainBodyOnError(true)
+
+    if transfer.AsyncGetToString()
+        msg = wait(10000, port)
+        if msg <> invalid and type(msg) = "roUrlEvent"
+            code = msg.GetResponseCode()
+            if code >= 200 and code < 300
+                info = ParseJSON(msg.GetString())
+                if info <> invalid and info.ServerName <> invalid
+                    m.top.response = {
+                        success: true
+                        action: "getPublicInfo"
+                        serverName: info.ServerName
+                        version: info.Version
+                        serverUrl: serverUrl
+                    }
+                    return
+                end if
+            end if
+        end if
+    end if
+
+    m.top.response = {
+        success: false
+        action: "getPublicInfo"
+        error: "Could not connect to server. Check the URL and try again."
+    }
+end sub

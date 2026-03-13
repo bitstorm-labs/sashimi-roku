@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="JellyfinApi" extends="Task">
+    <interface>
+        <field id="request" type="assocarray" alwaysNotify="true" />
+        <field id="response" type="assocarray" alwaysNotify="true" />
+    </interface>
+</component>
