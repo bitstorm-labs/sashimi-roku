@@ -1,0 +1,96 @@
+sub init()
+    m.navStack = []
+    m.currentScreen = invalid
+
+    m.global.addFields({
+        serverUrl: ""
+        authToken: ""
+        userId: ""
+        deviceId: ""
+    })
+
+    initDeviceId()
+
+    if hasSavedSession()
+        showScreen("HomeScreen")
+    else
+        showScreen("ServerConnectionScreen")
+    end if
+end sub
+
+sub initDeviceId()
+    sec = CreateObject("roRegistrySection", "device")
+    deviceId = sec.Read("deviceId")
+    if deviceId = ""
+        deviceId = CreateObject("roDeviceInfo").GetChannelClientId()
+        sec.Write("deviceId", deviceId)
+        sec.Flush()
+    end if
+    m.global.deviceId = deviceId
+end sub
+
+function hasSavedSession() as boolean
+    sec = CreateObject("roRegistrySection", "auth")
+    serverUrl = sec.Read("serverUrl")
+    authToken = sec.Read("authToken")
+    userId = sec.Read("userId")
+    return serverUrl <> "" and authToken <> "" and userId <> ""
+end function
+
+sub showScreen(screenName as string)
+    screen = createObject("roSGNode", screenName)
+    if screen = invalid
+        print "ERROR: Could not create screen: " + screenName
+        return
+    end if
+
+    if m.currentScreen <> invalid
+        m.currentScreen.visible = false
+    end if
+
+    m.top.appendChild(screen)
+    m.navStack.push(screen)
+    m.currentScreen = screen
+    screen.setFocus(true)
+end sub
+
+sub popScreen()
+    if m.navStack.count() <= 1
+        return
+    end if
+
+    currentScreen = m.navStack.pop()
+    m.top.removeChild(currentScreen)
+
+    m.currentScreen = m.navStack.peek()
+    m.currentScreen.visible = true
+    m.currentScreen.setFocus(true)
+end sub
+
+sub navigateToHome()
+    while m.navStack.count() > 0
+        screen = m.navStack.pop()
+        m.top.removeChild(screen)
+    end while
+    m.currentScreen = invalid
+    showScreen("HomeScreen")
+end sub
+
+sub navigateToAuth()
+    while m.navStack.count() > 0
+        screen = m.navStack.pop()
+        m.top.removeChild(screen)
+    end while
+    m.currentScreen = invalid
+    showScreen("ServerConnectionScreen")
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if press and key = "back"
+        if m.navStack.count() > 1
+            popScreen()
+            return true
+        end if
+    end if
+    return false
+end function
