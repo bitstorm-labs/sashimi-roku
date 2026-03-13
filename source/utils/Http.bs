@@ -1,0 +1,127 @@
+namespace Http
+
+    function authHeader() as string
+        parts = []
+        parts.push("MediaBrowser Client=""Sashimi""")
+        parts.push("Device=""Sashimi Roku""")
+        parts.push("DeviceId=""" + m.global.deviceId + """")
+        parts.push("Version=""0.1.0""")
+        token = m.global.authToken
+        if token <> "" and token <> invalid
+            parts.push("Token=""" + token + """")
+        end if
+
+        result = ""
+        for i = 0 to parts.count() - 1
+            if i > 0 then result += ", "
+            result += parts[i]
+        end for
+        return result
+    end function
+
+    function getJson(url as string) as dynamic
+        request = CreateObject("roUrlTransfer")
+        port = CreateObject("roMessagePort")
+        request.SetMessagePort(port)
+        request.SetCertificatesFile("common:/certs/ca-bundle.crt")
+        request.InitClientCertificates()
+        request.EnableHostVerification(false)
+        request.EnablePeerVerification(false)
+        request.SetUrl(url)
+        request.AddHeader("Authorization", authHeader())
+        request.AddHeader("Accept", "application/json")
+        request.RetainBodyOnError(true)
+
+        if request.AsyncGetToString()
+            msg = wait(30000, port)
+            if msg <> invalid and type(msg) = "roUrlEvent"
+                code = msg.GetResponseCode()
+                if code >= 200 and code < 300
+                    return ParseJSON(msg.GetString())
+                else
+                    print "HTTP GET error: " + str(code) + " for " + url
+                    return invalid
+                end if
+            else
+                print "HTTP GET timeout for " + url
+                return invalid
+            end if
+        end if
+        return invalid
+    end function
+
+    function postJson(url as string, body as dynamic) as dynamic
+        request = CreateObject("roUrlTransfer")
+        port = CreateObject("roMessagePort")
+        request.SetMessagePort(port)
+        request.SetCertificatesFile("common:/certs/ca-bundle.crt")
+        request.InitClientCertificates()
+        request.EnableHostVerification(false)
+        request.EnablePeerVerification(false)
+        request.SetUrl(url)
+        request.AddHeader("Authorization", authHeader())
+        request.AddHeader("Content-Type", "application/json")
+        request.AddHeader("Accept", "application/json")
+        request.RetainBodyOnError(true)
+
+        bodyStr = ""
+        if body <> invalid
+            bodyStr = FormatJSON(body)
+        end if
+
+        if request.AsyncPostFromString(bodyStr)
+            msg = wait(30000, port)
+            if msg <> invalid and type(msg) = "roUrlEvent"
+                code = msg.GetResponseCode()
+                if code >= 200 and code < 300
+                    responseStr = msg.GetString()
+                    if responseStr <> "" and responseStr <> invalid
+                        return ParseJSON(responseStr)
+                    end if
+                    return { _statusCode: code }
+                else
+                    print "HTTP POST error: " + str(code) + " for " + url
+                    return invalid
+                end if
+            else
+                print "HTTP POST timeout for " + url
+                return invalid
+            end if
+        end if
+        return invalid
+    end function
+
+    function deleteRequest(url as string) as integer
+        request = CreateObject("roUrlTransfer")
+        port = CreateObject("roMessagePort")
+        request.SetMessagePort(port)
+        request.SetCertificatesFile("common:/certs/ca-bundle.crt")
+        request.InitClientCertificates()
+        request.EnableHostVerification(false)
+        request.EnablePeerVerification(false)
+        request.SetUrl(url)
+        request.AddHeader("Authorization", authHeader())
+        request.SetRequest("DELETE")
+        request.RetainBodyOnError(true)
+
+        if request.AsyncPostFromString("")
+            msg = wait(30000, port)
+            if msg <> invalid and type(msg) = "roUrlEvent"
+                return msg.GetResponseCode()
+            end if
+        end if
+        return -1
+    end function
+
+    function apiUrl(path as string) as string
+        serverUrl = m.global.serverUrl
+        if Right(serverUrl, 1) = "/"
+            serverUrl = Left(serverUrl, Len(serverUrl) - 1)
+        end if
+        if Left(path, 1) <> "/"
+            path = "/" + path
+        end if
+        return serverUrl + path
+    end function
+
+end namespace
