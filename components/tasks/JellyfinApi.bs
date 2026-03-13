@@ -29,6 +29,14 @@ sub executeRequest()
         doValidateSession()
     else if action = "getPublicInfo"
         doGetPublicInfo(request)
+    else if action = "getLibraryViews"
+        doGetLibraryViews()
+    else if action = "getResumeItems"
+        doGetResumeItems(request)
+    else if action = "getNextUp"
+        doGetNextUp(request)
+    else if action = "getLatestMedia"
+        doGetLatestMedia(request)
     else
         m.top.response = { success: false, error: "Unknown action: " + action, action: action }
     end if
@@ -182,5 +190,79 @@ sub doValidateSession()
             action: "validateSession"
             error: "Session is no longer valid."
         }
+    end if
+end sub
+
+sub doGetLibraryViews()
+    print "[API] Getting library views"
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Views")
+    result = Http.getJson(url)
+    if result <> invalid and result.Items <> invalid
+        print "[API] Found " + str(result.Items.count()) + " libraries"
+        m.top.response = { success: true, action: "getLibraryViews", items: result.Items }
+    else
+        m.top.response = { success: false, action: "getLibraryViews", error: "Could not load libraries." }
+    end if
+end sub
+
+sub doGetResumeItems(request as object)
+    limit = 20
+    if request.limit <> invalid then limit = request.limit
+    print "[API] Getting resume items (limit=" + str(limit) + ")"
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items/Resume")
+    url += "?Limit=" + str(limit).Trim()
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    url += "&Recursive=true"
+    result = Http.getJson(url)
+    if result <> invalid and result.Items <> invalid
+        print "[API] Found " + str(result.Items.count()) + " resume items"
+        m.top.response = { success: true, action: "getResumeItems", items: result.Items }
+    else
+        m.top.response = { success: true, action: "getResumeItems", items: [] }
+    end if
+end sub
+
+sub doGetNextUp(request as object)
+    limit = 50
+    if request.limit <> invalid then limit = request.limit
+    print "[API] Getting next up (limit=" + str(limit) + ")"
+    url = Http.apiUrl("/Shows/NextUp")
+    url += "?UserId=" + m.global.userId
+    url += "&Limit=" + str(limit).Trim()
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    url += "&EnableRewatching=false&DisableFirstEpisode=false"
+    result = Http.getJson(url)
+    if result <> invalid and result.Items <> invalid
+        print "[API] Found " + str(result.Items.count()) + " next up items"
+        m.top.response = { success: true, action: "getNextUp", items: result.Items }
+    else
+        m.top.response = { success: true, action: "getNextUp", items: [] }
+    end if
+end sub
+
+sub doGetLatestMedia(request as object)
+    limit = 16
+    if request.limit <> invalid then limit = request.limit
+    parentId = ""
+    if request.parentId <> invalid then parentId = request.parentId
+    print "[API] Getting latest media (parentId=" + parentId + ", limit=" + str(limit) + ")"
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items/Latest")
+    url += "?Limit=" + str(limit).Trim()
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    if parentId <> "" then url += "&ParentId=" + parentId
+    result = Http.getJson(url)
+    if result <> invalid
+        ' /Items/Latest returns an array directly, not wrapped in Items
+        items = result
+        if type(result) = "roAssociativeArray" and result.Items <> invalid
+            items = result.Items
+        end if
+        print "[API] Found " + str(items.count()) + " latest items"
+        m.top.response = { success: true, action: "getLatestMedia", items: items, parentId: parentId }
+    else
+        m.top.response = { success: true, action: "getLatestMedia", items: [], parentId: parentId }
     end if
 end sub
