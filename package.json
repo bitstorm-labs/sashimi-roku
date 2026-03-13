@@ -4,7 +4,7 @@
   "description": "Sashimi - Jellyfin client for Roku",
   "scripts": {
     "build": "bsc",
-    "package": "bsc && cd out && zip -r ../sashimi.zip . && cd ..",
+    "package": "bsc && cp out/sashimi-roku.zip sashimi.zip",
     "deploy": "roku-deploy --host $ROKU_DEV_TARGET --password $ROKU_DEV_PASSWORD",
     "dev": "npm run package && npm run deploy",
     "lint": "bsc --lint-only",

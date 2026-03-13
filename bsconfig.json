@@ -1,6 +1,7 @@
 {
   "rootDir": ".",
   "stagingDir": "out",
+  "retainStagingDir": true,
   "files": [
     "manifest",
     "source/**/*",
