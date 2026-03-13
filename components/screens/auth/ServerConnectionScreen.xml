@@ -5,46 +5,51 @@
     </interface>
     <children>
         <!-- Background -->
-        <Rectangle width="1920" height="1080" color="#1a1a2e" />
+        <Rectangle width="1920" height="1080" color="#0e0e1a" />
 
-        <!-- Title -->
+        <!-- Title area (centered, in title safe zone) -->
         <Label
-            id="titleLabel"
             text="Sashimi"
             font="font:LargeBoldSystemFont"
             color="#FFFFFF"
             horizAlign="center"
             width="1920"
-            translation="[0, 80]"
+            translation="[0, 120]"
         />
         <Label
-            id="subtitleLabel"
-            text="Jellyfin Client"
+            text="Connect to your Jellyfin server"
             font="font:SmallSystemFont"
             color="#888888"
             horizAlign="center"
             width="1920"
-            translation="[0, 150]"
+            translation="[0, 190]"
         />
 
-        <!-- Form container -->
+        <!-- Form card background -->
         <Rectangle
             id="formBg"
-            translation="[510, 240]"
-            width="900"
-            height="520"
-            color="#252545"
+            translation="[460, 280]"
+            width="1000"
+            height="480"
+            color="#101420"
         />
 
-        <!-- Form buttons (ButtonGroup handles D-pad automatically) -->
+        <!-- Form buttons -->
         <ButtonGroup
             id="formButtons"
-            translation="[560, 270]"
-            minWidth="800"
-            itemSpacings="[12]"
+            translation="[510, 310]"
+            minWidth="900"
+            buttonHeight="72"
+            itemSpacings="[16]"
+            textFont="font:MediumSystemFont"
+            focusedTextFont="font:MediumBoldSystemFont"
+            textColor="#AAAAAA"
+            focusedTextColor="#FFFFFF"
+            focusBitmapUri="pkg:/images/button_focus.png"
+            focusFootprintBitmapUri="pkg:/images/button_unfocus.png"
         />
 
-        <!-- Status label -->
+        <!-- Status message -->
         <Label
             id="statusLabel"
             text=""
@@ -52,43 +57,43 @@
             color="#FF6666"
             horizAlign="center"
             width="1920"
-            translation="[0, 810]"
+            translation="[0, 800]"
         />
 
-        <!-- Loading indicator -->
+        <!-- Loading text -->
         <Label
             id="loadingLabel"
             text="Connecting..."
-            font="font:MediumSystemFont"
+            font="font:MediumBoldSystemFont"
             color="#CCCCCC"
             horizAlign="center"
             width="1920"
-            translation="[0, 540]"
+            translation="[0, 500]"
             visible="false"
         />
 
         <!-- Discovered servers panel -->
         <Rectangle
             id="discoveryBg"
-            translation="[1050, 240]"
-            width="450"
-            height="400"
-            color="#252545"
+            translation="[460, 280]"
+            width="1000"
+            height="480"
+            color="#101420"
             visible="false"
         />
         <Label
             id="discoveryTitle"
-            text="Discovered Servers"
-            font="font:SmallSystemFont"
-            color="#AAAAAA"
-            translation="[1070, 250]"
+            text="Select a Server"
+            font="font:MediumBoldSystemFont"
+            color="#FFFFFF"
+            translation="[510, 300]"
             visible="false"
         />
         <LabelList
             id="serverList"
-            translation="[1070, 290]"
-            itemSize="[410, 48]"
-            numRows="6"
+            translation="[510, 370]"
+            itemSize="[900, 60]"
+            numRows="5"
             visible="false"
         />
 

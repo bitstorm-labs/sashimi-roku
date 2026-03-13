@@ -150,6 +150,7 @@ end sub
 sub onDiscoverPressed()
     showStatus("Searching for servers...")
     m.discoveryTask.control = "stop"
+    m.discoveryTask.functionName = "discover"
     m.discoveryTask.control = "RUN"
 end sub
 
@@ -158,7 +159,8 @@ sub onServersDiscovered()
     showStatus("")
 
     if servers = invalid or servers.count() = 0
-        showStatus("No servers found on your network.")
+        showStatus("No servers found. Enter your server address manually.")
+        m.formButtons.setFocus(true)
         return
     end if
 

@@ -4,24 +4,84 @@
         <field id="signOut" type="boolean" value="false" alwaysNotify="true" />
     </interface>
     <children>
-        <Rectangle width="1920" height="1080" color="#1a1a2e" />
+        <!-- Background -->
+        <Rectangle width="1920" height="1080" color="#0e0e1a" />
 
-        <LayoutGroup
-            id="contentGroup"
-            layoutDirection="vert"
-            horizAlignment="center"
-            vertAlignment="center"
-            translation="[960, 400]"
-            itemSpacings="[20]"
-        >
-            <Label id="welcomeLabel" text="Welcome to Sashimi" font="font:LargeSystemFont" color="#FFFFFF" horizAlign="center" />
-            <Label id="userLabel" text="" font="font:MediumSystemFont" color="#888888" horizAlign="center" />
-            <Label id="serverLabel" text="" font="font:SmallSystemFont" color="#666666" horizAlign="center" />
-            <Button id="signOutButton" text="Sign Out" minWidth="200" />
-        </LayoutGroup>
+        <!-- Title -->
+        <Label
+            text="Sashimi"
+            font="font:LargeBoldSystemFont"
+            color="#FFFFFF"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 120]"
+        />
 
-        <LoadingSpinner id="spinner" visible="false" message="Validating session..." />
+        <!-- Info card -->
+        <Rectangle
+            translation="[560, 300]"
+            width="800"
+            height="300"
+            color="#101420"
+        />
+
+        <Label
+            id="welcomeLabel"
+            text="Welcome to Sashimi"
+            font="font:MediumBoldSystemFont"
+            color="#FFFFFF"
+            horizAlign="center"
+            width="800"
+            translation="[560, 330]"
+        />
+        <Label
+            id="userLabel"
+            text=""
+            font="font:MediumSystemFont"
+            color="#AAAAAA"
+            horizAlign="center"
+            width="800"
+            translation="[560, 400]"
+        />
+        <Label
+            id="serverLabel"
+            text=""
+            font="font:SmallSystemFont"
+            color="#666666"
+            horizAlign="center"
+            width="800"
+            translation="[560, 450]"
+        />
+
+        <ButtonGroup
+            id="signOutButtons"
+            translation="[760, 660]"
+            minWidth="400"
+            buttonHeight="72"
+            textFont="font:MediumSystemFont"
+            focusedTextFont="font:MediumBoldSystemFont"
+            textColor="#AAAAAA"
+            focusedTextColor="#FFFFFF"
+            focusBitmapUri="pkg:/images/button_focus.png"
+            focusFootprintBitmapUri="pkg:/images/button_unfocus.png"
+        />
+
+        <!-- Loading -->
+        <Label
+            id="spinnerLabel"
+            text="Validating session..."
+            font="font:MediumSystemFont"
+            color="#CCCCCC"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 500]"
+            visible="false"
+        />
+
+        <!-- API Task -->
         <JellyfinApi id="apiTask" />
+
+        <!-- Toast Overlay -->
         <ToastOverlay id="toast" />
     </children>
 </component>

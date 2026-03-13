@@ -4,12 +4,13 @@ sub init()
     m.welcomeLabel = m.top.findNode("welcomeLabel")
     m.userLabel = m.top.findNode("userLabel")
     m.serverLabel = m.top.findNode("serverLabel")
-    m.signOutButton = m.top.findNode("signOutButton")
-    m.spinner = m.top.findNode("spinner")
+    m.signOutButtons = m.top.findNode("signOutButtons")
+    m.spinnerLabel = m.top.findNode("spinnerLabel")
     m.apiTask = m.top.findNode("apiTask")
     m.toast = m.top.findNode("toast")
 
-    m.signOutButton.observeFieldScoped("buttonSelected", "onSignOut")
+    m.signOutButtons.buttons = ["Sign Out"]
+    m.signOutButtons.observeFieldScoped("buttonSelected", "onSignOut")
     m.apiTask.observeFieldScoped("response", "onApiResponse")
 
     restoreSession()
@@ -17,7 +18,7 @@ sub init()
     m.userLabel.text = "Logged in as: " + Registry.getUserName()
     m.serverLabel.text = "Server: " + m.global.serverUrl
 
-    m.signOutButton.setFocus(true)
+    m.signOutButtons.setFocus(true)
 end sub
 
 sub restoreSession()
@@ -25,7 +26,7 @@ sub restoreSession()
     m.global.authToken = Registry.getAuthToken()
     m.global.userId = Registry.getUserId()
 
-    m.spinner.visible = true
+    m.spinnerLabel.visible = true
     m.apiTask.request = { action: "validateSession" }
 end sub
 
@@ -34,7 +35,7 @@ sub onApiResponse()
     if response = invalid then return
 
     if response.action = "validateSession"
-        m.spinner.visible = false
+        m.spinnerLabel.visible = false
         if response.success
             m.toast.showToast = { message: "Connected to server", duration: 2 }
         else
