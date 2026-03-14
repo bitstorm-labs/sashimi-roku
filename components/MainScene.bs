@@ -64,8 +64,11 @@ sub showScreen(screenName as string)
     else if screenName = "HomeScreen"
         screen.observeFieldScoped("signOut", "onSignOut")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
+        screen.observeFieldScoped("openSearch", "onOpenSearch")
     else if screenName = "LibraryScreen"
         screen.observeFieldScoped("selectedItem", "onItemSelected")
+    else if screenName = "SearchScreen"
+        screen.observeFieldScoped("selectedItem", "onSearchItemSelected")
     end if
 end sub
 
@@ -75,6 +78,19 @@ end sub
 
 sub onSignOut()
     navigateToAuth()
+end sub
+
+sub onOpenSearch()
+    showScreen("SearchScreen")
+end sub
+
+sub onSearchItemSelected()
+    if m.currentScreen <> invalid
+        item = m.currentScreen.selectedItem
+        if item <> invalid
+            showDetailScreen(item)
+        end if
+    end if
 end sub
 
 sub onItemSelected()

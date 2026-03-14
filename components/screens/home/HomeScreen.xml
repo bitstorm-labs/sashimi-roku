@@ -3,6 +3,7 @@
     <interface>
         <field id="signOut" type="boolean" value="false" alwaysNotify="true" />
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+        <field id="openSearch" type="boolean" value="false" alwaysNotify="true" />
     </interface>
     <children>
         <Rectangle width="1920" height="1080" color="#0e0e1a" />

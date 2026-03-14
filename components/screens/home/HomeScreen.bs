@@ -214,7 +214,7 @@ sub showOptionsDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Options"
     dialog.message = [""]
-    dialog.buttons = ["Refresh", "Sign Out", "Cancel"]
+    dialog.buttons = ["Refresh", "Search", "Sign Out", "Cancel"]
     dialog.observeFieldScoped("buttonSelected", "onOptionsButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -228,6 +228,8 @@ sub onOptionsButton()
     if index = 0
         loadHomeData()
     else if index = 1
+        m.top.openSearch = true
+    else if index = 2
         Registry.clearAuth()
         m.global.serverUrl = ""
         m.global.authToken = ""
