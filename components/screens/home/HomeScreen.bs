@@ -5,7 +5,6 @@ sub init()
     m.rowList = m.top.findNode("rowList")
     m.loadingLabel = m.top.findNode("loadingLabel")
     m.emptyLabel = m.top.findNode("emptyLabel")
-    m.headerUser = m.top.findNode("headerUser")
     m.apiTask = m.top.findNode("apiTask")
     m.toast = m.top.findNode("toast")
 
@@ -17,9 +16,7 @@ sub init()
     m.continueWatchingItems = []
     m.rowContent = invalid
     m.currentLibraryIndex = 0
-
-    ' Set header
-    m.headerUser.text = Registry.getUserName()
+    m.wideRowIndices = {}  ' track which row indices should use landscape sizing
 
     ' Observe row selection
     m.rowList.observeFieldScoped("rowItemSelected", "onRowItemSelected")
@@ -34,6 +31,7 @@ sub loadHomeData()
     m.loadingLabel.visible = true
     m.rowList.visible = false
     m.emptyLabel.visible = false
+    m.wideRowIndices = {}
     m.apiTask.request = { action: "getLibraryViews" }
 end sub
 
@@ -135,7 +133,9 @@ sub onLatestMediaLoaded(response as object)
                 exit for
             end if
         end for
-        addRow(libName, response.items)
+        ' Detect YouTube libraries by name
+        isYouTube = Instr(1, LCase(libName), "youtube") > 0
+        addRow(libName, response.items, isYouTube)
     end if
 
     m.currentLibraryIndex = m.currentLibraryIndex + 1
@@ -207,34 +207,49 @@ sub addContinueWatchingRow(items as object)
     end for
 end sub
 
-sub addRow(title as string, items as object)
+sub addRow(title as string, items as object, isYouTube = false as boolean)
     if m.rowContent = invalid then return
+
+    rowIndex = m.rowContent.getChildCount()
+
+    ' YouTube rows use wide landscape layout
+    if isYouTube
+        m.wideRowIndices[str(rowIndex).Trim()] = true
+    end if
 
     row = m.rowContent.createChild("ContentNode")
     row.title = title
 
     for each item in items
         child = row.createChild("ContentNode")
-        child.title = ""
-        if item.Name <> invalid then child.title = item.Name
+
+        ' Title: use series name for TV items, otherwise item name. No subtitle for library rows.
+        if item.SeriesName <> invalid and item.SeriesName <> ""
+            child.title = item.SeriesName
+        else if item.Name <> invalid
+            child.title = item.Name
+        else
+            child.title = ""
+        end if
+        child.description = ""
 
         ' Set poster image URL
         itemId = ""
         if item.Id <> invalid then itemId = item.Id
-        if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primary(itemId, 210)
-        else if item.SeriesId <> invalid and item.SeriesId <> ""
-            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 210)
-        end if
 
-        ' Subtitle
-        description = ""
-        if item.SeriesName <> invalid and item.SeriesName <> ""
-            description = item.SeriesName
-        else if item.ProductionYear <> invalid
-            description = str(item.ProductionYear).Trim()
+        if isYouTube
+            ' YouTube: use episode primary (landscape thumbnail)
+            if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+            end if
+            ' For YouTube, show the video title not the series name
+            if item.Name <> invalid then child.title = item.Name
+        else if item.SeriesId <> invalid and item.SeriesId <> ""
+            ' TV show episode: always use series poster
+            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 220)
+        else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+            child.HDPosterUrl = ImageUrl.primary(itemId, 220)
         end if
-        child.description = description
 
         ' Store full item JSON for selection
         child.addFields({ itemJson: "" })
@@ -257,13 +272,18 @@ sub showRows()
         return
     end if
 
-    ' Set per-row item sizes: wide for Continue Watching, portrait for library rows
+    ' Set per-row item sizes: wide for Continue Watching and YouTube, portrait for other library rows
     rowCount = m.rowContent.getChildCount()
     itemSizes = []
     itemSpacings = []
     for i = 0 to rowCount - 1
+        iKey = str(i).Trim()
         if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
             ' Continue Watching: wide landscape items
+            itemSizes.push([400, 290])
+            itemSpacings.push([20, 0])
+        else if m.wideRowIndices.DoesExist(iKey)
+            ' YouTube: wide landscape items
             itemSizes.push([400, 290])
             itemSpacings.push([20, 0])
         else

@@ -24,21 +24,22 @@
 
         <!-- Header -->
         <Rectangle id="headerBg" width="1920" height="80" color="#0e0e1a" opacity="0.85" />
+        <Poster
+            id="headerLogo"
+            translation="[96, 10]"
+            width="53"
+            height="40"
+            loadWidth="80"
+            loadHeight="60"
+            uri="pkg:/images/logo.png"
+            loadDisplayMode="scaleToFit"
+        />
         <Label
             id="headerTitle"
             text="Sashimi"
-            font="font:LargeBoldSystemFont"
+            font="font:MediumBoldSystemFont"
             color="#FFFFFF"
-            translation="[96, 14]"
-        />
-        <Label
-            id="headerUser"
-            text=""
-            font="font:SmallSystemFont"
-            color="#555555"
-            horizAlign="right"
-            width="1728"
-            translation="[96, 28]"
+            translation="[158, 14]"
         />
 
         <!-- Content rows -->

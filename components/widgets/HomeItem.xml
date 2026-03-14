@@ -21,8 +21,6 @@
             loadDisplayMode="scaleToZoom"
             scaleRotateCenter="[110, 165]"
         />
-        <!-- Focus border -->
-        <Rectangle id="focusBorder" width="224" height="334" translation="[-2, -2]" color="#FFFFFF" opacity="0.0" />
         <!-- Progress bar -->
         <Rectangle id="progressBg" translation="[0, 322]" width="220" height="8" color="#333333" visible="false" />
         <Rectangle id="progressBar" translation="[0, 322]" width="0" height="8" color="#00CC66" visible="false" />

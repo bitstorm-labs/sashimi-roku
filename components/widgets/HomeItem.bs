@@ -2,7 +2,6 @@ sub init()
     m.cardBg = m.top.findNode("cardBg")
     m.posterImage = m.top.findNode("posterImage")
     m.dimOverlay = m.top.findNode("dimOverlay")
-    m.focusBorder = m.top.findNode("focusBorder")
     m.progressBg = m.top.findNode("progressBg")
     m.progressBar = m.top.findNode("progressBar")
     m.titleLabel = m.top.findNode("titleLabel")
@@ -37,8 +36,6 @@ sub onSizeChanged()
     m.posterImage.loadWidth = w
     m.posterImage.loadHeight = m.posterHeight
     m.posterImage.scaleRotateCenter = [w / 2, m.posterHeight / 2]
-    m.focusBorder.width = w + 4
-    m.focusBorder.height = m.posterHeight + 4
     m.progressBg.width = w
     m.progressBg.translation = [0, m.posterHeight - 8]
     m.progressBar.translation = [0, m.posterHeight - 8]
@@ -81,7 +78,6 @@ sub onFocusChanged()
     m.posterImage.scale = [scale, scale]
 
     m.dimOverlay.opacity = 0.4 - (fp * 0.4)
-    m.focusBorder.opacity = fp * 0.9
 
     if fp > 0.5
         m.titleLabel.color = "0xFFFFFFFF"

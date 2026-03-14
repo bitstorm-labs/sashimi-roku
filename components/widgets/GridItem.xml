@@ -15,7 +15,6 @@
             loadDisplayMode="scaleToZoom"
             scaleRotateCenter="[105, 157]"
         />
-        <Rectangle id="focusBorder" width="214" height="319" translation="[-2, -2]" color="#FFFFFF" opacity="0.0" />
         <Label
             id="titleLabel"
             text=""
