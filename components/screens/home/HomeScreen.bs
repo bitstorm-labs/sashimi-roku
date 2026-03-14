@@ -11,11 +11,14 @@ sub init()
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
 
+    ' Hero banner
+    m.heroBanner = m.top.findNode("heroBanner")
+    m.heroBanner.observeFieldScoped("selectedItem", "onHeroItemSelected")
+
     ' State
     m.libraries = []
     m.continueWatchingItems = []
     m.rowContent = invalid
-    m.heroRowIndex = invalid
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
 
@@ -40,7 +43,7 @@ sub loadHomeData()
     m.rowList.visible = false
     m.emptyLabel.visible = false
     m.wideRowIndices = {}
-    m.heroRowIndex = invalid
+    m.heroBanner.visible = false
     m.apiTask.request = { action: "getLibraryViews" }
 end sub
 
@@ -119,7 +122,37 @@ sub onNextUpLoaded(response as object)
     end if
 
     m.rowContent = CreateObject("roSGNode", "ContentNode")
-    m.heroRowIndex = invalid
+
+    ' Build hero content from continue watching items
+    if m.continueWatchingItems.count() > 0
+        heroContent = CreateObject("roSGNode", "ContentNode")
+        maxHero = 5
+        if maxHero > m.continueWatchingItems.count() then maxHero = m.continueWatchingItems.count()
+        for i = 0 to maxHero - 1
+            item = m.continueWatchingItems[i]
+            child = heroContent.createChild("ContentNode")
+            child.title = ""
+            if item.Name <> invalid then child.title = item.Name
+            child.description = ""
+            if item.SeriesName <> invalid then child.description = item.SeriesName
+
+            ' Use backdrop image
+            itemId = ""
+            if item.Id <> invalid then itemId = item.Id
+            if item.ParentBackdropItemId <> invalid
+                child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 960)
+            else if item.SeriesId <> invalid and item.SeriesId <> ""
+                child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 960)
+            else if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
+                child.HDPosterUrl = ImageUrl.backdrop(itemId, 960)
+            end if
+
+            child.addFields({ itemJson: "" })
+            child.itemJson = FormatJSON(item)
+        end for
+        m.heroBanner.content = heroContent
+        m.heroBanner.visible = true
+    end if
 
     if m.continueWatchingItems.count() > 0
         addContinueWatchingRow(m.continueWatchingItems)
@@ -155,52 +188,6 @@ sub onLatestMediaLoaded(response as object)
     else
         showRows()
     end if
-end sub
-
-sub addHeroRow()
-    if m.rowContent = invalid then return
-
-    m.heroRowIndex = m.rowContent.getChildCount()
-    row = m.rowContent.createChild("ContentNode")
-    row.title = ""  ' No label for hero row
-
-    ' Add first few continue watching items as hero items
-    maxHero = 5
-    if maxHero > m.continueWatchingItems.count() then maxHero = m.continueWatchingItems.count()
-
-    for i = 0 to maxHero - 1
-        item = m.continueWatchingItems[i]
-        child = row.createChild("ContentNode")
-
-        child.title = ""
-        if item.Name <> invalid then child.title = item.Name
-
-        ' Description used for the series/movie name on the hero
-        description = ""
-        if item.SeriesName <> invalid and item.SeriesName <> ""
-            description = item.SeriesName
-        else if item.Name <> invalid
-            description = item.Name
-        end if
-        child.description = description
-
-        ' Use backdrop image for hero
-        itemId = ""
-        if item.Id <> invalid then itemId = item.Id
-        if item.ParentBackdropItemId <> invalid
-            child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 1200)
-        else if item.SeriesId <> invalid and item.SeriesId <> ""
-            child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 1200)
-        else if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
-            child.HDPosterUrl = ImageUrl.backdrop(itemId, 1200)
-        else if itemId <> ""
-            child.HDPosterUrl = ImageUrl.primary(itemId, 1200)
-        end if
-
-        child.addFields({ itemJson: "", isHero: false })
-        child.itemJson = FormatJSON(item)
-        child.isHero = true
-    end for
 end sub
 
 sub addContinueWatchingRow(items as object)
@@ -412,7 +399,18 @@ sub showRows()
 
     m.rowList.content = m.rowContent
     m.rowList.visible = true
-    m.rowList.setFocus(true)
+    if m.heroBanner.visible
+        m.heroBanner.setFocus(true)
+    else
+        m.rowList.setFocus(true)
+    end if
+end sub
+
+sub onHeroItemSelected()
+    item = m.heroBanner.selectedItem
+    if item <> invalid
+        m.top.selectedItem = item
+    end if
 end sub
 
 sub onRowItemSelected()
@@ -440,6 +438,15 @@ function onKeyEvent(key as string, press as boolean) as boolean
         if key = "options"
             showOptionsDialog()
             return true
+        else if key = "down" and m.heroBanner.isInFocusChain()
+            m.rowList.setFocus(true)
+            return true
+        else if key = "up" and m.rowList.isInFocusChain()
+            ' Check if we're on the first row
+            if m.rowList.rowItemFocused <> invalid and m.rowList.rowItemFocused[0] = 0 and m.heroBanner.visible
+                m.heroBanner.setFocus(true)
+                return true
+            end if
         end if
     end if
     return false
@@ -493,5 +500,9 @@ sub onOptionsButton()
         m.top.signOut = true
     end if
 
-    m.rowList.setFocus(true)
+    if m.heroBanner.visible and m.heroBanner.isInFocusChain()
+        m.heroBanner.setFocus(true)
+    else
+        m.rowList.setFocus(true)
+    end if
 end sub

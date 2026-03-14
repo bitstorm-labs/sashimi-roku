@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="HeroBanner" extends="Group">
+    <interface>
+        <field id="content" type="node" onChange="onContentChanged" />
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <!-- Banner background -->
+        <Rectangle id="heroBg" width="1728" height="420" color="#1a1a2a" />
+        <!-- Backdrop image (right-aligned, fills banner) -->
+        <Poster
+            id="heroImage"
+            width="1728"
+            height="420"
+            loadWidth="960"
+            loadHeight="420"
+            loadDisplayMode="scaleToZoom"
+            opacity="0.6"
+        />
+        <!-- Left gradient overlay for text readability -->
+        <Rectangle id="heroGradLeft" width="900" height="420" color="#121215" opacity="0.85" />
+        <Rectangle id="heroGradMid" width="300" height="420" color="#121215" opacity="0.4" translation="[900, 0]" />
+        <!-- Bottom gradient -->
+        <Rectangle id="heroGradBottom" width="1728" height="120" color="#121215" opacity="0.7" translation="[0, 300]" />
+        <!-- Text overlay -->
+        <Label
+            id="heroTitle"
+            text=""
+            font="font:LargeBoldSystemFont"
+            color="#FFFFFF"
+            width="800"
+            maxLines="2"
+            translation="[60, 140]"
+        />
+        <Label
+            id="heroSubtitle"
+            text=""
+            color="#BBBBBB"
+            width="800"
+            maxLines="1"
+            translation="[60, 240]"
+        >
+            <Font role="font" uri="font:SystemFontFile" size="22" />
+        </Label>
+        <Label
+            id="heroMeta"
+            text=""
+            color="#888888"
+            width="800"
+            maxLines="1"
+            translation="[60, 275]"
+        >
+            <Font role="font" uri="font:SystemFontFile" size="18" />
+        </Label>
+        <!-- Page indicators (dots) -->
+        <LayoutGroup
+            id="dotsGroup"
+            layoutDirection="horiz"
+            horizAlignment="center"
+            itemSpacings="[8]"
+            translation="[864, 390]"
+        />
+        <!-- Focus border (inset, like poster items) -->
+        <Rectangle id="focusTop" width="1728" height="4" color="#5BADE6" opacity="0.0" />
+        <Rectangle id="focusBottom" width="1728" height="4" color="#5BADE6" opacity="0.0" translation="[0, 416]" />
+        <Rectangle id="focusLeft" width="4" height="420" color="#5BADE6" opacity="0.0" />
+        <Rectangle id="focusRight" width="4" height="420" color="#5BADE6" opacity="0.0" translation="[1724, 0]" />
+        <!-- Auto-advance timer -->
+        <Timer id="advanceTimer" repeat="true" duration="6" />
+    </children>
+</component>

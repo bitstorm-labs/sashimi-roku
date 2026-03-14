@@ -49,12 +49,19 @@
             text=""
         />
 
+        <!-- Hero Banner -->
+        <HeroBanner
+            id="heroBanner"
+            translation="[96, 80]"
+            visible="false"
+        />
+
         <!-- Content rows -->
         <RowList
             id="rowList"
-            translation="[96, 95]"
+            translation="[96, 520]"
             itemSize="[1728, 480]"
-            numRows="5"
+            numRows="3"
             itemSpacing="[0, 10]"
             rowItemSize="[[180, 330]]"
             rowItemSpacing="[[30, 0]]"
