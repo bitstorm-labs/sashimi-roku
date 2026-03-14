@@ -97,12 +97,18 @@ sub onItemContentChanged()
         m.isCircular = true
     end if
 
+    ' Reset focus border
+    m.focusTop.opacity = 0.0
+    m.focusBottom.opacity = 0.0
+    m.focusLeft.opacity = 0.0
+    m.focusRight.opacity = 0.0
+    m.dimOverlay.opacity = 0.25
+
     if m.isCircular
         m.posterImage.visible = false
         m.circularMask.visible = true
         m.cardBg.visible = false
         m.dimOverlay.visible = false
-        ' Hide focus edges for circular
         m.focusTop.visible = false
         m.focusBottom.visible = false
         m.focusLeft.visible = false
@@ -174,8 +180,6 @@ sub onFocusChanged()
         m.posterImage.scale = [scale, scale]
         m.dimOverlay.opacity = 0.2 - (fp * 0.15)
     else
-        scale = 1.0 + (fp * 0.05)
-        m.posterImage.scale = [scale, scale]
         m.dimOverlay.opacity = 0.25 - (fp * 0.25)
         ' Focus border edges
         m.focusTop.opacity = fp
@@ -190,5 +194,22 @@ sub onFocusChanged()
     else
         m.titleLabel.color = "0xBBBBBBFF"
         m.subtitleLabel.color = "0x666666FF"
+    end if
+end sub
+
+sub onRowFocusChanged()
+    rfp = m.top.rowFocusPercent
+    ' When row loses focus, dim all items and hide any border
+    if rfp < 0.5
+        m.focusTop.opacity = 0.0
+        m.focusBottom.opacity = 0.0
+        m.focusLeft.opacity = 0.0
+        m.focusRight.opacity = 0.0
+        m.dimOverlay.opacity = 0.4
+        m.titleLabel.color = "0x888888FF"
+        m.subtitleLabel.color = "0x555555FF"
+    else
+        m.dimOverlay.opacity = 0.25
+        m.titleLabel.color = "0xBBBBBBFF"
     end if
 end sub

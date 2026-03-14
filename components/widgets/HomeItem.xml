@@ -3,6 +3,7 @@
     <interface>
         <field id="itemContent" type="node" onChange="onItemContentChanged" />
         <field id="focusPercent" type="float" onChange="onFocusChanged" />
+        <field id="rowFocusPercent" type="float" onChange="onRowFocusChanged" />
         <field id="width" type="float" onChange="onSizeChanged" />
         <field id="height" type="float" onChange="onSizeChanged" />
     </interface>
