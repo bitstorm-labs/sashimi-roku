@@ -59,22 +59,23 @@
             id="titleLabel"
             text=""
             font="font:SmallestBoldSystemFont"
-            color="#BBBBBB"
+            color="#EEEEEE"
             width="200"
             maxLines="1"
             ellipsizeOnBoundary="true"
             translation="[0, 308]"
         />
-        <!-- Subtitle below title -->
+        <!-- Subtitle below title (with gap, smaller via custom font size) -->
         <Label
             id="subtitleLabel"
             text=""
-            font="font:SmallestSystemFont"
-            color="#555555"
+            color="#777777"
             width="200"
             maxLines="1"
             ellipsizeOnBoundary="true"
-            translation="[0, 328]"
-        />
+            translation="[0, 336]"
+        >
+            <Font role="font" uri="font:SystemFontFile" size="16" />
+        </Label>
     </children>
 </component>
