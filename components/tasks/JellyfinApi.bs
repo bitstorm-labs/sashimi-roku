@@ -51,6 +51,22 @@ sub processRequest()
         doGetLatestMedia(request)
     else if action = "getItems"
         doGetItems(request)
+    else if action = "getItem"
+        doGetItem(request)
+    else if action = "getSeasons"
+        doGetSeasons(request)
+    else if action = "getEpisodes"
+        doGetEpisodes(request)
+    else if action = "search"
+        doSearch(request)
+    else if action = "markPlayed"
+        doMarkPlayed(request)
+    else if action = "markUnplayed"
+        doMarkUnplayed(request)
+    else if action = "markFavorite"
+        doMarkFavorite(request)
+    else if action = "removeFavorite"
+        doRemoveFavorite(request)
     else
         m.top.response = { success: false, error: "Unknown action: " + action, action: action }
     end if
@@ -355,4 +371,102 @@ sub doGetItems(request as object)
             startIndex: startIndex
         }
     end if
+end sub
+
+sub doGetItem(request as object)
+    itemId = request.itemId
+    print "[API] Getting item: " + itemId
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items/" + itemId)
+    url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    result = Http.getJson(url)
+    if result <> invalid and result.Id <> invalid
+        m.top.response = { success: true, action: "getItem", item: result }
+    else
+        m.top.response = { success: false, action: "getItem", error: "Could not load item." }
+    end if
+end sub
+
+sub doGetSeasons(request as object)
+    seriesId = request.seriesId
+    print "[API] Getting seasons for: " + seriesId
+    url = Http.apiUrl("/Shows/" + seriesId + "/Seasons")
+    url += "?UserId=" + m.global.userId
+    url += "&Fields=Overview,PrimaryImageAspectRatio"
+    result = Http.getJson(url)
+    if result <> invalid and result.Items <> invalid
+        m.top.response = { success: true, action: "getSeasons", items: result.Items, seriesId: seriesId }
+    else
+        m.top.response = { success: true, action: "getSeasons", items: [], seriesId: seriesId }
+    end if
+end sub
+
+sub doGetEpisodes(request as object)
+    seriesId = request.seriesId
+    seasonId = ""
+    if request.seasonId <> invalid then seasonId = request.seasonId
+    print "[API] Getting episodes for series: " + seriesId
+    url = Http.apiUrl("/Shows/" + seriesId + "/Episodes")
+    url += "?UserId=" + m.global.userId
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,ImageTags,UserData"
+    url += "&EnableImageTypes=Primary,Thumb"
+    if seasonId <> "" then url += "&SeasonId=" + seasonId
+    result = Http.getJson(url)
+    if result <> invalid and result.Items <> invalid
+        m.top.response = { success: true, action: "getEpisodes", items: result.Items, seriesId: seriesId, seasonId: seasonId }
+    else
+        m.top.response = { success: true, action: "getEpisodes", items: [], seriesId: seriesId, seasonId: seasonId }
+    end if
+end sub
+
+sub doSearch(request as object)
+    query = request.query
+    limit = 50
+    if request.limit <> invalid then limit = request.limit
+    print "[API] Searching: " + query
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url += "?SearchTerm=" + query
+    url += "&Limit=" + str(limit).Trim()
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    url += "&IncludeItemTypes=Movie,Series"
+    url += "&Recursive=true"
+    result = Http.getJson(url)
+    if result <> invalid and result.Items <> invalid
+        m.top.response = { success: true, action: "search", items: result.Items, query: query }
+    else
+        m.top.response = { success: true, action: "search", items: [], query: query }
+    end if
+end sub
+
+sub doMarkPlayed(request as object)
+    itemId = request.itemId
+    print "[API] Marking played: " + itemId
+    url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
+    Http.postJson(url, invalid)
+    m.top.response = { success: true, action: "markPlayed", itemId: itemId }
+end sub
+
+sub doMarkUnplayed(request as object)
+    itemId = request.itemId
+    print "[API] Marking unplayed: " + itemId
+    url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
+    Http.deleteRequest(url)
+    m.top.response = { success: true, action: "markUnplayed", itemId: itemId }
+end sub
+
+sub doMarkFavorite(request as object)
+    itemId = request.itemId
+    print "[API] Marking favorite: " + itemId
+    url = Http.apiUrl("/Users/" + m.global.userId + "/FavoriteItems/" + itemId)
+    Http.postJson(url, invalid)
+    m.top.response = { success: true, action: "markFavorite", itemId: itemId }
+end sub
+
+sub doRemoveFavorite(request as object)
+    itemId = request.itemId
+    print "[API] Removing favorite: " + itemId
+    url = Http.apiUrl("/Users/" + m.global.userId + "/FavoriteItems/" + itemId)
+    Http.deleteRequest(url)
+    m.top.response = { success: true, action: "removeFavorite", itemId: itemId }
 end sub
