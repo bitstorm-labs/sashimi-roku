@@ -6,55 +6,61 @@
         <field id="openSearch" type="boolean" value="false" alwaysNotify="true" />
     </interface>
     <children>
+        <!-- Background -->
         <Rectangle width="1920" height="1080" color="#0e0e1a" />
 
-        <Rectangle id="headerBg" width="1920" height="80" color="#101420" opacity="0.9" />
+        <!-- Header bar -->
+        <Rectangle id="headerBg" width="1920" height="90" color="#101420" />
         <Label
             id="headerTitle"
             text="Sashimi"
-            font="font:MediumBoldSystemFont"
+            font="font:LargeBoldSystemFont"
             color="#FFFFFF"
-            translation="[192, 20]"
+            translation="[96, 18]"
         />
         <Label
             id="headerUser"
             text=""
             font="font:SmallSystemFont"
-            color="#888888"
+            color="#666666"
             horizAlign="right"
-            width="1536"
-            translation="[192, 25]"
+            width="1728"
+            translation="[96, 30]"
         />
 
+        <!-- Main content rows -->
         <RowList
             id="rowList"
-            translation="[130, 100]"
-            itemSize="[1660, 400]"
-            numRows="4"
-            itemSpacing="[0, 20]"
+            translation="[96, 120]"
+            itemSize="[1728, 420]"
+            numRows="3"
+            itemSpacing="[0, 30]"
             focusBitmapUri=""
             focusFootprintBitmapUri=""
-            rowItemSize="[[230, 380]]"
-            rowItemSpacing="[[20, 0]]"
+            rowItemSize="[[240, 400]]"
+            rowItemSpacing="[[24, 0]]"
             showRowLabel="[true]"
             showRowCounter="[false]"
             rowLabelFont="font:MediumBoldSystemFont"
             rowLabelColor="#FFFFFF"
+            rowLabelOffset="[[0, 10]]"
             rowFocusAnimationStyle="fixedFocusWrap"
             visible="false"
         />
 
+        <!-- Loading -->
         <Label
             id="loadingLabel"
-            text="Loading..."
+            text="Loading your library..."
             font="font:MediumSystemFont"
-            color="#CCCCCC"
+            color="#888888"
             horizAlign="center"
             width="1920"
-            translation="[0, 500]"
+            translation="[0, 480]"
             visible="true"
         />
 
+        <!-- Empty state -->
         <Label
             id="emptyLabel"
             text=""
@@ -62,7 +68,7 @@
             color="#888888"
             horizAlign="center"
             width="1920"
-            translation="[0, 500]"
+            translation="[0, 480]"
             visible="false"
         />
 

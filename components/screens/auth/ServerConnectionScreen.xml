@@ -7,49 +7,49 @@
         <!-- Background -->
         <Rectangle width="1920" height="1080" color="#0e0e1a" />
 
-        <!-- Title area (centered, in title safe zone) -->
+        <!-- Centered title -->
         <Label
             text="Sashimi"
             font="font:LargeBoldSystemFont"
             color="#FFFFFF"
             horizAlign="center"
             width="1920"
-            translation="[0, 120]"
+            translation="[0, 140]"
         />
         <Label
             text="Connect to your Jellyfin server"
-            font="font:SmallSystemFont"
-            color="#888888"
+            font="font:MediumSystemFont"
+            color="#666666"
             horizAlign="center"
             width="1920"
-            translation="[0, 190]"
+            translation="[0, 210]"
         />
 
-        <!-- Form card background -->
+        <!-- Form card -->
         <Rectangle
             id="formBg"
-            translation="[460, 280]"
-            width="1000"
-            height="480"
+            translation="[560, 300]"
+            width="800"
+            height="440"
             color="#101420"
         />
 
         <!-- Form buttons -->
         <ButtonGroup
             id="formButtons"
-            translation="[510, 310]"
-            minWidth="900"
-            buttonHeight="72"
-            itemSpacings="[16]"
+            translation="[600, 330]"
+            minWidth="720"
+            buttonHeight="64"
+            itemSpacings="[14]"
             textFont="font:MediumSystemFont"
             focusedTextFont="font:MediumBoldSystemFont"
-            textColor="#AAAAAA"
+            textColor="#888888"
             focusedTextColor="#FFFFFF"
             focusBitmapUri="pkg:/images/button_focus.png"
             focusFootprintBitmapUri="pkg:/images/button_unfocus.png"
         />
 
-        <!-- Status message -->
+        <!-- Status -->
         <Label
             id="statusLabel"
             text=""
@@ -57,27 +57,27 @@
             color="#FF6666"
             horizAlign="center"
             width="1920"
-            translation="[0, 800]"
+            translation="[0, 790]"
         />
 
-        <!-- Loading text -->
+        <!-- Loading -->
         <Label
             id="loadingLabel"
             text="Connecting..."
-            font="font:MediumBoldSystemFont"
-            color="#CCCCCC"
+            font="font:MediumSystemFont"
+            color="#888888"
             horizAlign="center"
             width="1920"
             translation="[0, 500]"
             visible="false"
         />
 
-        <!-- Discovered servers panel -->
+        <!-- Discovery panel -->
         <Rectangle
             id="discoveryBg"
-            translation="[460, 280]"
-            width="1000"
-            height="480"
+            translation="[560, 300]"
+            width="800"
+            height="440"
             color="#101420"
             visible="false"
         />
@@ -86,24 +86,19 @@
             text="Select a Server"
             font="font:MediumBoldSystemFont"
             color="#FFFFFF"
-            translation="[510, 300]"
+            translation="[600, 320]"
             visible="false"
         />
         <LabelList
             id="serverList"
-            translation="[510, 370]"
-            itemSize="[900, 60]"
-            numRows="5"
+            translation="[600, 380]"
+            itemSize="[720, 52]"
+            numRows="6"
             visible="false"
         />
 
-        <!-- Error Dialog -->
         <ErrorDialog id="errorDialog" />
-
-        <!-- API Task -->
         <JellyfinApi id="apiTask" />
-
-        <!-- Server Discovery Task -->
         <ServerDiscoveryTask id="discoveryTask" />
     </children>
 </component>

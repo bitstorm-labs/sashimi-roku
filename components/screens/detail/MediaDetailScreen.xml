@@ -9,80 +9,74 @@
         <!-- Background -->
         <Rectangle width="1920" height="1080" color="#0e0e1a" />
 
-        <!-- Backdrop image (dimmed) -->
+        <!-- Backdrop image — full screen, heavily dimmed -->
         <Poster
             id="backdropImage"
             width="1920"
-            height="600"
+            height="1080"
             loadWidth="960"
             loadHeight="540"
             loadDisplayMode="scaleToZoom"
-            opacity="0.3"
+            opacity="0.25"
         />
-        <!-- Gradient overlay on backdrop -->
-        <Rectangle
-            id="backdropGradient"
-            width="1920"
-            height="600"
-            color="#0e0e1a"
-            opacity="0.5"
-        />
+        <!-- Dark gradient overlay from left (content area) to right (image area) -->
+        <Rectangle id="backdropGradient" width="1100" height="1080" color="#0e0e1a" opacity="0.7" />
 
-        <!-- Poster image -->
+        <!-- Poster image — left side -->
         <Poster
             id="posterImage"
-            translation="[192, 120]"
-            width="300"
-            height="450"
-            loadWidth="300"
-            loadHeight="450"
+            translation="[96, 100]"
+            width="280"
+            height="420"
+            loadWidth="280"
+            loadHeight="420"
             loadDisplayMode="scaleToZoom"
         />
 
-        <!-- Title area -->
+        <!-- Content area — right of poster -->
         <Label
             id="titleLabel"
             text=""
             font="font:LargeBoldSystemFont"
             color="#FFFFFF"
-            width="1200"
+            width="1400"
             maxLines="2"
-            translation="[530, 120]"
+            translation="[420, 100]"
         />
         <Label
             id="subtitleLabel"
             text=""
             font="font:MediumSystemFont"
             color="#AAAAAA"
-            width="1200"
-            translation="[530, 190]"
+            width="1400"
+            translation="[420, 180]"
         />
         <Label
             id="metadataLabel"
             text=""
             font="font:SmallSystemFont"
             color="#888888"
-            width="1200"
-            translation="[530, 230]"
+            width="1400"
+            translation="[420, 225]"
         />
         <Label
             id="overviewLabel"
             text=""
             font="font:SmallSystemFont"
-            color="#CCCCCC"
+            color="#BBBBBB"
             width="1100"
-            maxLines="4"
+            maxLines="5"
             wrap="true"
-            translation="[530, 280]"
+            translation="[420, 270]"
         />
 
-        <!-- Action buttons -->
+        <!-- Action buttons — horizontal row below content -->
         <ButtonGroup
             id="actionButtons"
-            translation="[530, 430]"
-            minWidth="250"
-            buttonHeight="60"
-            itemSpacings="[10]"
+            translation="[420, 430]"
+            minWidth="220"
+            buttonHeight="56"
+            itemSpacings="[12]"
             layoutDirection="horiz"
             textFont="font:SmallSystemFont"
             focusedTextFont="font:SmallBoldSystemFont"
@@ -92,19 +86,20 @@
             focusFootprintBitmapUri="pkg:/images/button_unfocus.png"
         />
 
-        <!-- Related content (seasons, episodes, cast) -->
+        <!-- Related content rows — bottom section -->
         <RowList
             id="relatedContent"
-            translation="[130, 580]"
-            itemSize="[1660, 350]"
+            translation="[96, 530]"
+            itemSize="[1728, 400]"
             numRows="2"
-            itemSpacing="[0, 10]"
-            rowItemSize="[[230, 330]]"
-            rowItemSpacing="[[20, 0]]"
+            itemSpacing="[0, 20]"
+            rowItemSize="[[240, 380]]"
+            rowItemSpacing="[[24, 0]]"
             showRowLabel="[true]"
             showRowCounter="[false]"
             rowLabelFont="font:MediumBoldSystemFont"
             rowLabelColor="#FFFFFF"
+            rowLabelOffset="[[0, 10]]"
             rowFocusAnimationStyle="fixedFocusWrap"
             focusBitmapUri=""
             focusFootprintBitmapUri=""
@@ -116,14 +111,13 @@
             id="loadingLabel"
             text="Loading..."
             font="font:MediumSystemFont"
-            color="#CCCCCC"
+            color="#888888"
             horizAlign="center"
             width="1920"
-            translation="[0, 500]"
+            translation="[0, 480]"
             visible="true"
         />
 
-        <!-- API Task -->
         <JellyfinApi id="apiTask" />
     </children>
 </component>

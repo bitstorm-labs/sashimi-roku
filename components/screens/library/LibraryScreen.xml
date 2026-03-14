@@ -5,15 +5,17 @@
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
+        <!-- Background -->
         <Rectangle width="1920" height="1080" color="#0e0e1a" />
 
-        <Rectangle width="1920" height="80" color="#101420" opacity="0.9" />
+        <!-- Header -->
+        <Rectangle width="1920" height="90" color="#101420" />
         <Label
             id="headerTitle"
             text=""
-            font="font:MediumBoldSystemFont"
+            font="font:LargeBoldSystemFont"
             color="#FFFFFF"
-            translation="[192, 20]"
+            translation="[96, 18]"
         />
         <Label
             id="filterLabel"
@@ -21,13 +23,14 @@
             font="font:SmallestSystemFont"
             color="#666666"
             horizAlign="right"
-            width="1536"
-            translation="[192, 30]"
+            width="1728"
+            translation="[96, 30]"
         />
 
+        <!-- Content grid -->
         <PosterGrid
             id="posterGrid"
-            translation="[192, 100]"
+            translation="[96, 120]"
             basePosterSize="[210, 315]"
             itemSpacing="[30, 60]"
             numColumns="7"
@@ -39,20 +42,22 @@
             caption2Color="#888888"
         />
 
+        <!-- Loading -->
         <Label
             id="loadingLabel"
             text="Loading..."
             font="font:MediumSystemFont"
-            color="#CCCCCC"
+            color="#888888"
             horizAlign="center"
             width="1920"
-            translation="[0, 500]"
+            translation="[0, 480]"
             visible="false"
         />
 
+        <!-- Alphabet jump bar -->
         <LabelList
             id="alphaBar"
-            translation="[1780, 100]"
+            translation="[1780, 120]"
             itemSize="[80, 32]"
             numRows="26"
             visible="false"

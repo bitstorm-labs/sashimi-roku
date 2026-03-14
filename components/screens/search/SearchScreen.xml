@@ -4,36 +4,38 @@
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
+        <!-- Background -->
         <Rectangle width="1920" height="1080" color="#0e0e1a" />
 
-        <Rectangle width="1920" height="80" color="#101420" opacity="0.9" />
+        <!-- Header -->
+        <Rectangle width="1920" height="90" color="#101420" />
         <Label
             id="headerTitle"
             text="Search"
-            font="font:MediumBoldSystemFont"
+            font="font:LargeBoldSystemFont"
             color="#FFFFFF"
-            translation="[192, 20]"
+            translation="[96, 18]"
         />
 
-        <!-- Search button + recent searches -->
+        <!-- Search buttons + history (left panel) -->
         <ButtonGroup
             id="searchButtons"
-            translation="[192, 120]"
-            minWidth="400"
-            buttonHeight="60"
+            translation="[96, 120]"
+            minWidth="420"
+            buttonHeight="56"
             itemSpacings="[10]"
             textFont="font:SmallSystemFont"
             focusedTextFont="font:SmallBoldSystemFont"
-            textColor="#AAAAAA"
+            textColor="#888888"
             focusedTextColor="#FFFFFF"
             focusBitmapUri="pkg:/images/button_focus.png"
             focusFootprintBitmapUri="pkg:/images/button_unfocus.png"
         />
 
-        <!-- Results grid -->
+        <!-- Results grid (right area) -->
         <PosterGrid
             id="resultsGrid"
-            translation="[650, 120]"
+            translation="[570, 120]"
             basePosterSize="[210, 315]"
             itemSpacing="[30, 60]"
             numColumns="5"
@@ -46,15 +48,15 @@
             visible="false"
         />
 
-        <!-- Status labels -->
+        <!-- Status -->
         <Label
             id="statusLabel"
             text="Press OK to search"
             font="font:MediumSystemFont"
-            color="#888888"
+            color="#666666"
             horizAlign="center"
-            width="1270"
-            translation="[650, 400]"
+            width="1350"
+            translation="[570, 400]"
         />
 
         <JellyfinApi id="apiTask" />
