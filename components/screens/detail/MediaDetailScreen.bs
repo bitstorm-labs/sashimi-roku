@@ -1,0 +1,394 @@
+import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/Registry.bs"
+
+sub init()
+    m.backdropImage = m.top.findNode("backdropImage")
+    m.posterImage = m.top.findNode("posterImage")
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.subtitleLabel = m.top.findNode("subtitleLabel")
+    m.metadataLabel = m.top.findNode("metadataLabel")
+    m.overviewLabel = m.top.findNode("overviewLabel")
+    m.actionButtons = m.top.findNode("actionButtons")
+    m.relatedContent = m.top.findNode("relatedContent")
+    m.loadingLabel = m.top.findNode("loadingLabel")
+    m.apiTask = m.top.findNode("apiTask")
+
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+
+    m.actionButtons.observeFieldScoped("buttonSelected", "onActionButton")
+    m.relatedContent.observeFieldScoped("rowItemSelected", "onRelatedItemSelected")
+
+    ' State
+    m.item = invalid
+    m.itemType = ""
+    m.seasons = []
+    m.episodes = []
+    m.selectedSeasonIndex = 0
+    m.actionList = []
+    m.relatedRowContent = invalid
+end sub
+
+sub onItemDataChanged()
+    data = m.top.itemData
+    if data = invalid then return
+
+    m.loadingLabel.visible = true
+
+    ' If we have an Id, fetch full details
+    itemId = ""
+    if data.Id <> invalid then itemId = data.Id
+    if itemId <> ""
+        m.apiTask.request = { action: "getItem", itemId: itemId }
+    end if
+end sub
+
+sub onApiResponse()
+    response = m.apiTask.response
+    if response = invalid then return
+
+    action = response.action
+
+    if action = "getItem"
+        onItemLoaded(response)
+    else if action = "getSeasons"
+        onSeasonsLoaded(response)
+    else if action = "getEpisodes"
+        onEpisodesLoaded(response)
+    else if action = "markPlayed" or action = "markUnplayed"
+        onPlayedToggled(response)
+    else if action = "markFavorite" or action = "removeFavorite"
+        onFavoriteToggled(response)
+    end if
+end sub
+
+sub onItemLoaded(response as object)
+    m.loadingLabel.visible = false
+    if not response.success then return
+
+    m.item = response.item
+    item = m.item
+
+    ' Determine item type
+    m.itemType = ""
+    if item.Type <> invalid then m.itemType = item.Type
+
+    ' Set backdrop
+    itemId = item.Id
+    if item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
+        m.backdropImage.uri = ImageUrl.backdrop(itemId, 960)
+    else if item.ParentBackdropItemId <> invalid
+        m.backdropImage.uri = ImageUrl.backdrop(item.ParentBackdropItemId, 960)
+    end if
+
+    ' Set poster
+    if item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+        m.posterImage.uri = ImageUrl.primary(itemId, 300)
+    else if item.SeriesId <> invalid
+        m.posterImage.uri = ImageUrl.primary(item.SeriesId, 300)
+    end if
+
+    ' Set title
+    title = ""
+    if item.Name <> invalid then title = item.Name
+    m.titleLabel.text = title
+
+    ' Set subtitle
+    subtitle = ""
+    if m.itemType = "Episode" and item.SeriesName <> invalid
+        seasonNum = ""
+        episodeNum = ""
+        if item.ParentIndexNumber <> invalid then seasonNum = "S" + str(item.ParentIndexNumber).Trim()
+        if item.IndexNumber <> invalid then episodeNum = "E" + str(item.IndexNumber).Trim()
+        subtitle = item.SeriesName
+        if seasonNum <> "" or episodeNum <> ""
+            subtitle += " - " + seasonNum + episodeNum
+        end if
+    else if item.SeriesName <> invalid
+        subtitle = item.SeriesName
+    else if item.ProductionYear <> invalid
+        subtitle = str(item.ProductionYear).Trim()
+    end if
+    m.subtitleLabel.text = subtitle
+
+    ' Set metadata line
+    metadata = []
+    if item.ProductionYear <> invalid and m.itemType <> "Episode"
+        metadata.push(str(item.ProductionYear).Trim())
+    end if
+    if item.OfficialRating <> invalid and item.OfficialRating <> ""
+        metadata.push(item.OfficialRating)
+    end if
+    if item.RunTimeTicks <> invalid
+        minutes = Int(item.RunTimeTicks / 600000000)
+        if minutes > 0
+            hours = Int(minutes / 60)
+            mins = minutes mod 60
+            if hours > 0
+                metadata.push(str(hours).Trim() + "h " + str(mins).Trim() + "m")
+            else
+                metadata.push(str(mins).Trim() + "m")
+            end if
+        end if
+    end if
+    if item.CommunityRating <> invalid
+        rating = Int(item.CommunityRating * 10) / 10.0
+        metadata.push(str(rating).Trim() + " / 10")
+    end if
+    if item.Genres <> invalid and item.Genres.count() > 0
+        genreStr = ""
+        maxGenres = 3
+        if item.Genres.count() < maxGenres then maxGenres = item.Genres.count()
+        for i = 0 to maxGenres - 1
+            if i > 0 then genreStr += ", "
+            genreStr += item.Genres[i]
+        end for
+        metadata.push(genreStr)
+    end if
+
+    metaStr = ""
+    for i = 0 to metadata.count() - 1
+        if i > 0 then metaStr += "  |  "
+        metaStr += metadata[i]
+    end for
+    m.metadataLabel.text = metaStr
+
+    ' Set overview
+    overview = ""
+    if item.Overview <> invalid then overview = item.Overview
+    m.overviewLabel.text = overview
+
+    ' Build action buttons
+    buildActionButtons()
+
+    ' Load related content based on type
+    if m.itemType = "Series"
+        m.apiTask.request = { action: "getSeasons", seriesId: itemId }
+    else
+        m.actionButtons.setFocus(true)
+    end if
+end sub
+
+sub buildActionButtons()
+    item = m.item
+    if item = invalid then return
+
+    buttons = []
+    m.actionList = []
+
+    ' Play/Resume
+    hasProgress = false
+    if item.UserData <> invalid and item.UserData.PlaybackPositionTicks <> invalid
+        if item.UserData.PlaybackPositionTicks > 0
+            hasProgress = true
+        end if
+    end if
+
+    if m.itemType = "Movie" or m.itemType = "Episode"
+        if hasProgress
+            buttons.push("Resume")
+            m.actionList.push("resume")
+            buttons.push("Start Over")
+            m.actionList.push("play")
+        else
+            buttons.push("Play")
+            m.actionList.push("play")
+        end if
+    else if m.itemType = "Series"
+        buttons.push("Play Next")
+        m.actionList.push("playNext")
+    end if
+
+    ' Watched toggle
+    isPlayed = false
+    if item.UserData <> invalid and item.UserData.Played <> invalid
+        isPlayed = item.UserData.Played
+    end if
+    if isPlayed
+        buttons.push("Mark Unwatched")
+        m.actionList.push("markUnplayed")
+    else
+        buttons.push("Mark Watched")
+        m.actionList.push("markPlayed")
+    end if
+
+    ' Favorite toggle
+    isFavorite = false
+    if item.UserData <> invalid and item.UserData.IsFavorite <> invalid
+        isFavorite = item.UserData.IsFavorite
+    end if
+    if isFavorite
+        buttons.push("Remove Favorite")
+        m.actionList.push("removeFavorite")
+    else
+        buttons.push("Add Favorite")
+        m.actionList.push("markFavorite")
+    end if
+
+    m.actionButtons.buttons = buttons
+end sub
+
+sub onActionButton()
+    index = m.actionButtons.buttonSelected
+    if index < 0 or index >= m.actionList.count() then return
+
+    actionName = m.actionList[index]
+    item = m.item
+    if item = invalid then return
+
+    if actionName = "play" or actionName = "resume" or actionName = "playNext"
+        m.top.playItem = { item: item, action: actionName }
+    else if actionName = "markPlayed"
+        m.apiTask.request = { action: "markPlayed", itemId: item.Id }
+    else if actionName = "markUnplayed"
+        m.apiTask.request = { action: "markUnplayed", itemId: item.Id }
+    else if actionName = "markFavorite"
+        m.apiTask.request = { action: "markFavorite", itemId: item.Id }
+    else if actionName = "removeFavorite"
+        m.apiTask.request = { action: "removeFavorite", itemId: item.Id }
+    end if
+end sub
+
+sub onPlayedToggled(response as object)
+    if not response.success then return
+    ' Refresh item to get updated state
+    if m.item <> invalid
+        m.apiTask.request = { action: "getItem", itemId: m.item.Id }
+    end if
+end sub
+
+sub onFavoriteToggled(response as object)
+    if not response.success then return
+    if m.item <> invalid
+        m.apiTask.request = { action: "getItem", itemId: m.item.Id }
+    end if
+end sub
+
+sub onSeasonsLoaded(response as object)
+    if not response.success then return
+    m.seasons = response.items
+    print "[Detail] Loaded " + str(m.seasons.count()) + " seasons"
+
+    ' Load episodes for first season
+    if m.seasons.count() > 0
+        m.selectedSeasonIndex = 0
+        season = m.seasons[0]
+        m.apiTask.request = { action: "getEpisodes", seriesId: response.seriesId, seasonId: season.Id }
+    else
+        m.actionButtons.setFocus(true)
+    end if
+end sub
+
+sub onEpisodesLoaded(response as object)
+    if not response.success then return
+    m.episodes = response.items
+    print "[Detail] Loaded " + str(m.episodes.count()) + " episodes"
+
+    buildRelatedContent()
+    m.actionButtons.setFocus(true)
+end sub
+
+sub buildRelatedContent()
+    m.relatedRowContent = CreateObject("roSGNode", "ContentNode")
+
+    ' Seasons row (if series)
+    if m.seasons.count() > 0
+        seasonRow = m.relatedRowContent.createChild("ContentNode")
+        seasonRow.title = "Seasons"
+        for each season in m.seasons
+            child = seasonRow.createChild("ContentNode")
+            title = "Season"
+            if season.Name <> invalid then title = season.Name
+            child.title = title
+            if season.Id <> invalid and season.ImageTags <> invalid and season.ImageTags.Primary <> invalid
+                child.HDPosterUrl = ImageUrl.primary(season.Id, 210)
+            else if m.item <> invalid and m.item.Id <> invalid
+                child.HDPosterUrl = ImageUrl.primary(m.item.Id, 210)
+            end if
+            child.addFields({ itemJson: "" })
+            child.itemJson = FormatJSON(season)
+        end for
+    end if
+
+    ' Episodes row
+    if m.episodes.count() > 0
+        episodeRow = m.relatedRowContent.createChild("ContentNode")
+        seasonName = "Episodes"
+        if m.selectedSeasonIndex < m.seasons.count()
+            sn = m.seasons[m.selectedSeasonIndex]
+            if sn.Name <> invalid then seasonName = sn.Name + " Episodes"
+        end if
+        episodeRow.title = seasonName
+        for each episode in m.episodes
+            child = episodeRow.createChild("ContentNode")
+            title = ""
+            if episode.IndexNumber <> invalid
+                title = str(episode.IndexNumber).Trim() + ". "
+            end if
+            if episode.Name <> invalid then title += episode.Name
+            child.title = title
+            if episode.Id <> invalid and episode.ImageTags <> invalid and episode.ImageTags.Primary <> invalid
+                child.HDPosterUrl = ImageUrl.primary(episode.Id, 300)
+            end if
+            child.addFields({ itemJson: "" })
+            child.itemJson = FormatJSON(episode)
+        end for
+    end if
+
+    ' Cast row (if people data exists)
+    if m.item <> invalid and m.item.People <> invalid and m.item.People.count() > 0
+        castRow = m.relatedRowContent.createChild("ContentNode")
+        castRow.title = "Cast & Crew"
+        for each person in m.item.People
+            child = castRow.createChild("ContentNode")
+            title = ""
+            if person.Name <> invalid then title = person.Name
+            if person.Role <> invalid and person.Role <> ""
+                title += " as " + person.Role
+            end if
+            child.title = title
+            if person.Id <> invalid and person.PrimaryImageTag <> invalid
+                child.HDPosterUrl = ImageUrl.primary(person.Id, 210)
+            end if
+        end for
+    end if
+
+    if m.relatedRowContent.getChildCount() > 0
+        m.relatedContent.content = m.relatedRowContent
+        m.relatedContent.visible = true
+    end if
+end sub
+
+sub onRelatedItemSelected()
+    selectedIndex = m.relatedContent.rowItemSelected
+    if selectedIndex = invalid or selectedIndex.count() < 2 then return
+
+    rowIndex = selectedIndex[0]
+    itemIndex = selectedIndex[1]
+
+    row = m.relatedRowContent.getChild(rowIndex)
+    if row = invalid then return
+    child = row.getChild(itemIndex)
+    if child = invalid then return
+
+    if child.itemJson <> invalid and child.itemJson <> ""
+        itemData = ParseJSON(child.itemJson)
+        if itemData <> invalid
+            ' Navigate to this item's detail
+            m.top.selectedItem = itemData
+        end if
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if press
+        if key = "down" and m.actionButtons.hasFocus() and m.relatedContent.visible
+            m.relatedContent.setFocus(true)
+            return true
+        else if key = "up" and m.relatedContent.hasFocus()
+            m.actionButtons.setFocus(true)
+            return true
+        end if
+    end if
+    return false
+end function

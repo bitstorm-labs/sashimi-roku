@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="MediaDetailScreen" extends="Group">
+    <interface>
+        <field id="itemData" type="assocarray" onChange="onItemDataChanged" />
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+        <field id="playItem" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <!-- Background -->
+        <Rectangle width="1920" height="1080" color="#0e0e1a" />
+
+        <!-- Backdrop image (dimmed) -->
+        <Poster
+            id="backdropImage"
+            width="1920"
+            height="600"
+            loadWidth="960"
+            loadHeight="540"
+            loadDisplayMode="scaleToZoom"
+            opacity="0.3"
+        />
+        <!-- Gradient overlay on backdrop -->
+        <Rectangle
+            id="backdropGradient"
+            width="1920"
+            height="600"
+            color="#0e0e1a"
+            opacity="0.5"
+        />
+
+        <!-- Poster image -->
+        <Poster
+            id="posterImage"
+            translation="[192, 120]"
+            width="300"
+            height="450"
+            loadWidth="300"
+            loadHeight="450"
+            loadDisplayMode="scaleToZoom"
+        />
+
+        <!-- Title area -->
+        <Label
+            id="titleLabel"
+            text=""
+            font="font:LargeBoldSystemFont"
+            color="#FFFFFF"
+            width="1200"
+            maxLines="2"
+            translation="[530, 120]"
+        />
+        <Label
+            id="subtitleLabel"
+            text=""
+            font="font:MediumSystemFont"
+            color="#AAAAAA"
+            width="1200"
+            translation="[530, 190]"
+        />
+        <Label
+            id="metadataLabel"
+            text=""
+            font="font:SmallSystemFont"
+            color="#888888"
+            width="1200"
+            translation="[530, 230]"
+        />
+        <Label
+            id="overviewLabel"
+            text=""
+            font="font:SmallSystemFont"
+            color="#CCCCCC"
+            width="1100"
+            maxLines="4"
+            wrap="true"
+            translation="[530, 280]"
+        />
+
+        <!-- Action buttons -->
+        <ButtonGroup
+            id="actionButtons"
+            translation="[530, 430]"
+            minWidth="250"
+            buttonHeight="60"
+            itemSpacings="[10]"
+            layoutDirection="horiz"
+            textFont="font:SmallSystemFont"
+            focusedTextFont="font:SmallBoldSystemFont"
+            textColor="#AAAAAA"
+            focusedTextColor="#FFFFFF"
+            focusBitmapUri="pkg:/images/button_focus.png"
+            focusFootprintBitmapUri="pkg:/images/button_unfocus.png"
+        />
+
+        <!-- Related content (seasons, episodes, cast) -->
+        <RowList
+            id="relatedContent"
+            translation="[130, 580]"
+            itemSize="[1660, 350]"
+            numRows="2"
+            itemSpacing="[0, 10]"
+            rowItemSize="[[230, 330]]"
+            rowItemSpacing="[[20, 0]]"
+            showRowLabel="[true]"
+            showRowCounter="[false]"
+            rowLabelFont="font:MediumBoldSystemFont"
+            rowLabelColor="#FFFFFF"
+            rowFocusAnimationStyle="fixedFocusWrap"
+            focusBitmapUri=""
+            focusFootprintBitmapUri=""
+            visible="false"
+        />
+
+        <!-- Loading -->
+        <Label
+            id="loadingLabel"
+            text="Loading..."
+            font="font:MediumSystemFont"
+            color="#CCCCCC"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 500]"
+            visible="true"
+        />
+
+        <!-- API Task -->
+        <JellyfinApi id="apiTask" />
+    </children>
+</component>

@@ -82,7 +82,38 @@ sub onItemSelected()
         item = m.currentScreen.selectedItem
         if item <> invalid and item.Name <> invalid
             print "[Nav] Item selected: " + item.Name
-            ' TODO: Phase 3 will navigate to MediaDetailScreen
+            showDetailScreen(item)
+        end if
+    end if
+end sub
+
+sub showDetailScreen(itemData as object)
+    screen = createObject("roSGNode", "MediaDetailScreen")
+    if screen = invalid then return
+
+    if m.currentScreen <> invalid
+        m.currentScreen.visible = false
+    end if
+
+    m.top.appendChild(screen)
+    m.navStack.push(screen)
+    m.currentScreen = screen
+
+    ' Wire up detail screen observers
+    screen.observeFieldScoped("selectedItem", "onItemSelected")
+    screen.observeFieldScoped("playItem", "onPlayItem")
+
+    ' Set item data to trigger loading
+    screen.itemData = itemData
+    screen.setFocus(true)
+end sub
+
+sub onPlayItem()
+    if m.currentScreen <> invalid
+        playData = m.currentScreen.playItem
+        if playData <> invalid
+            print "[Nav] Play requested: " + playData.action
+            ' TODO: Phase 4 will navigate to PlayerScreen
         end if
     end if
 end sub
