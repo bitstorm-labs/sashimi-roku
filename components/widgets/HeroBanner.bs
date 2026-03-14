@@ -5,6 +5,7 @@ sub init()
     m.heroTitle = m.top.findNode("heroTitle")
     m.heroSubtitle = m.top.findNode("heroSubtitle")
     m.heroMeta = m.top.findNode("heroMeta")
+    m.heroOverview = m.top.findNode("heroOverview")
     m.dotsGroup = m.top.findNode("dotsGroup")
     m.focusTop = m.top.findNode("focusTop")
     m.focusBottom = m.top.findNode("focusBottom")
@@ -59,7 +60,7 @@ sub onContentChanged()
 
     ' Center dots
     totalWidth = m.items.count() * 10 + (m.items.count() - 1) * 8 + 30
-    m.dotsGroup.translation = [864 - totalWidth / 2, 390]
+    m.dotsGroup.translation = [864 - totalWidth / 2, 400]
 
     m.currentIndex = 0
     showItem(0)
@@ -130,6 +131,13 @@ sub showItem(index as integer)
         end if
     end if
     m.heroMeta.text = meta
+
+    ' Set overview
+    overview = ""
+    if item.Overview <> invalid and item.Overview <> ""
+        overview = item.Overview
+    end if
+    m.heroOverview.text = overview
 
     ' Update dots
     for i = 0 to m.dotsGroup.getChildCount() - 1
