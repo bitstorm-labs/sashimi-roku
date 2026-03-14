@@ -51,13 +51,23 @@
         >
             <Font role="font" uri="font:SystemFontFile" size="22" />
         </Label>
+        <!-- TMDB logo before rating -->
+        <Poster
+            id="tmdbLogo"
+            width="60"
+            height="18"
+            uri="pkg:/images/tmdb_logo.png"
+            loadDisplayMode="scaleToFit"
+            translation="[50, 308]"
+            visible="false"
+        />
         <Label
             id="heroMeta"
             text=""
             color="#AAAAAA"
-            width="700"
+            width="650"
             maxLines="1"
-            translation="[50, 305]"
+            translation="[116, 305]"
         >
             <Font role="font" uri="font:SystemFontFile" size="18" />
         </Label>
@@ -70,7 +80,7 @@
             wrap="true"
             translation="[50, 335]"
         >
-            <Font role="font" uri="font:SystemFontFile" size="17" />
+            <Font role="font" uri="font:SystemFontFile" size="20" />
         </Label>
 
         <!-- Page indicators -->

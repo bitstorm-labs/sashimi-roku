@@ -30,32 +30,17 @@
             translation="[158, 20]"
         />
         <!-- User avatar (circular with image) -->
-        <Rectangle
-            id="avatarBg"
-            translation="[1810, 22]"
-            width="44"
-            height="44"
-            color="#2a2a4a"
-        />
+        <!-- User avatar (circular background with initial) -->
         <MaskGroup
-            id="avatarMask"
-            translation="[1812, 24]"
+            translation="[1812, 22]"
             maskUri="pkg:/images/avatar_mask.png"
             maskSize="[40, 40]"
         >
-            <Poster
-                id="headerAvatar"
-                width="40"
-                height="40"
-                loadWidth="100"
-                loadHeight="100"
-                loadDisplayMode="scaleToZoom"
-            />
+            <Rectangle width="40" height="40" color="#3a3a5a" />
         </MaskGroup>
-        <!-- Fallback initial if image doesn't load -->
         <Label
             id="avatarLabel"
-            translation="[1812, 24]"
+            translation="[1812, 22]"
             width="40"
             height="40"
             horizAlign="center"

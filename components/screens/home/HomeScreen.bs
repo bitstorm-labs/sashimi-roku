@@ -22,19 +22,14 @@ sub init()
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
 
-    ' User avatar - try loading image, fall back to initial
+    ' User avatar - show initial in circle
     m.avatarLabel = m.top.findNode("avatarLabel")
-    m.headerAvatar = m.top.findNode("headerAvatar")
     userName = Registry.getUserName()
     if userName <> "" and userName <> invalid
         m.avatarLabel.text = UCase(Left(userName, 1))
     else
         m.avatarLabel.text = "?"
     end if
-    ' Load avatar image
-    avatarUrl = m.global.serverUrl + "/Users/" + m.global.userId + "/Images/Primary?maxWidth=100&quality=90"
-    m.headerAvatar.uri = avatarUrl
-    m.headerAvatar.observeFieldScoped("loadStatus", "onAvatarLoaded")
 
     ' Observe row selection
     m.rowList.observeFieldScoped("rowItemSelected", "onRowItemSelected")
@@ -408,12 +403,6 @@ sub showRows()
         m.heroBanner.setFocus(true)
     else
         m.rowList.setFocus(true)
-    end if
-end sub
-
-sub onAvatarLoaded()
-    if m.headerAvatar.loadStatus = "ready"
-        m.avatarLabel.visible = false
     end if
 end sub
 

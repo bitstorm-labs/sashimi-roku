@@ -1,6 +1,7 @@
 import "pkg:/source/utils/ImageUrl.bs"
 
 sub init()
+    m.tmdbLogo = m.top.findNode("tmdbLogo")
     m.heroImage = m.top.findNode("heroImage")
     m.heroTitle = m.top.findNode("heroTitle")
     m.heroSubtitle = m.top.findNode("heroSubtitle")
@@ -128,11 +129,11 @@ sub showItem(index as integer)
     meta = ""
     if item.CommunityRating <> invalid
         rating = Int(item.CommunityRating * 10) / 10.0
-        meta += "TMDB " + str(rating).Trim() + "/10"
+        meta += str(rating).Trim()
     end if
     if item.CriticRating <> invalid
         if meta <> "" then meta += "   "
-        meta += chr(127813) + " " + str(item.CriticRating).Trim() + "%"
+        meta += str(item.CriticRating).Trim() + "%"
     end if
     if isYouTube
         if meta <> "" then meta += "   "
@@ -157,6 +158,14 @@ sub showItem(index as integer)
         end if
     end if
     m.heroMeta.text = meta
+    ' Show TMDB logo if we have a community rating
+    if item.CommunityRating <> invalid
+        m.tmdbLogo.visible = true
+        m.heroMeta.translation = [116, 305]
+    else
+        m.tmdbLogo.visible = false
+        m.heroMeta.translation = [50, 305]
+    end if
 
     ' Set overview
     overview = ""
