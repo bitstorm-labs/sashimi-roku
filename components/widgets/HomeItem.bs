@@ -91,7 +91,7 @@ sub onSizeChanged()
     m.titleLabel.width = w
     m.titleLabel.translation = [0, m.posterHeight + 10]
     m.subtitleLabel.width = w
-    m.subtitleLabel.translation = [0, m.posterHeight + 34]
+    m.subtitleLabel.translation = [0, m.posterHeight + 38]
 end sub
 
 sub onItemContentChanged()

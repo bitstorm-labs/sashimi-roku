@@ -73,9 +73,9 @@
             width="200"
             maxLines="1"
             ellipsizeOnBoundary="true"
-            translation="[0, 336]"
+            translation="[0, 340]"
         >
-            <Font role="font" uri="font:SystemFontFile" size="16" />
+            <Font role="font" uri="font:SystemFontFile" size="18" />
         </Label>
     </children>
 </component>
