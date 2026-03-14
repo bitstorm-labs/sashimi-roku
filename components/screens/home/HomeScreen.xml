@@ -10,19 +10,6 @@
         <!-- Background -->
         <Rectangle width="1920" height="1080" color="#121215" />
 
-        <!-- Dynamic backdrop (updates with focused item) -->
-        <Poster
-            id="backdrop"
-            width="1920"
-            height="1080"
-            loadWidth="960"
-            loadHeight="540"
-            loadDisplayMode="scaleToZoom"
-            opacity="0.25"
-        />
-        <!-- Left gradient for readability -->
-        <Rectangle width="800" height="1080" color="#121215" opacity="0.8" />
-
         <!-- Header -->
         <Rectangle id="headerBg" width="1920" height="80" color="#121215" opacity="0.85" />
         <Poster
@@ -42,22 +29,22 @@
             color="#FFFFFF"
             translation="[158, 14]"
         />
-        <Rectangle
-            id="avatarBg"
-            translation="[1785, 5]"
-            width="60"
-            height="60"
-            color="#2a2a4a"
-        />
-        <Poster
-            id="headerAvatar"
-            translation="[1790, 10]"
-            width="50"
-            height="50"
-            loadWidth="70"
-            loadHeight="70"
-            loadDisplayMode="scaleToZoom"
-        />
+        <!-- User avatar (circular) -->
+        <MaskGroup
+            id="avatarMask"
+            translation="[1800, 15]"
+            maskUri="pkg:/images/avatar_mask.png"
+            maskSize="[50, 50]"
+        >
+            <Poster
+                id="headerAvatar"
+                width="50"
+                height="50"
+                loadWidth="100"
+                loadHeight="100"
+                loadDisplayMode="scaleToZoom"
+            />
+        </MaskGroup>
 
         <!-- Content rows -->
         <RowList
@@ -65,13 +52,13 @@
             translation="[96, 95]"
             itemSize="[1728, 480]"
             numRows="2"
-            itemSpacing="[0, 30]"
+            itemSpacing="[0, 10]"
             rowItemSize="[[180, 330]]"
             rowItemSpacing="[[30, 0]]"
             showRowLabel="[true]"
             showRowCounter="[false]"
             drawFocusFeedback="false"
-            rowLabelFont="font:MediumBoldSystemFont"
+            rowLabelFont="font:LargeBoldSystemFont"
             rowLabelColor="#FFFFFF"
             rowLabelOffset="[[0, 12]]"
             rowFocusAnimationStyle="fixedFocusWrap"

@@ -7,6 +7,8 @@
         <field id="height" type="float" onChange="onSizeChanged" />
     </interface>
     <children>
+        <!-- Focus ring (behind poster, slightly larger) -->
+        <Rectangle id="focusRing" width="186" height="276" translation="[-3, -3]" color="#5BADE6" opacity="0.0" />
         <!-- Card background -->
         <Rectangle id="cardBg" width="180" height="270" color="#181830" />
         <!-- Standard poster (portrait/landscape) -->
@@ -39,7 +41,7 @@
         <Label
             id="titleLabel"
             text=""
-            font="font:SmallestSystemFont"
+            font="font:SmallSystemFont"
             color="#AAAAAA"
             width="180"
             maxLines="2"

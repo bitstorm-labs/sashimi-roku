@@ -1,4 +1,5 @@
 sub init()
+    m.focusRing = m.top.findNode("focusRing")
     m.posterImage = m.top.findNode("posterImage")
     m.dimOverlay = m.top.findNode("dimOverlay")
     m.titleLabel = m.top.findNode("titleLabel")
@@ -29,6 +30,7 @@ sub onFocusChanged()
     scale = 1.0 + (fp * 0.08)
     m.posterImage.scale = [scale, scale]
     m.dimOverlay.opacity = 0.3 - (fp * 0.3)
+    m.focusRing.opacity = fp * 0.9
     if fp > 0.5
         m.titleLabel.color = "0xFFFFFFFF"
     else

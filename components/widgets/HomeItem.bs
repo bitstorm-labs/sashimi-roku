@@ -1,5 +1,6 @@
 sub init()
     m.cardBg = m.top.findNode("cardBg")
+    m.focusRing = m.top.findNode("focusRing")
     m.posterImage = m.top.findNode("posterImage")
     m.circularMask = m.top.findNode("circularMask")
     m.circularPoster = m.top.findNode("circularPoster")
@@ -34,6 +35,9 @@ sub onSizeChanged()
     ' Resize all elements to match
     m.cardBg.width = w
     m.cardBg.height = m.posterHeight
+    m.focusRing.width = w + 6
+    m.focusRing.height = m.posterHeight + 6
+    m.focusRing.translation = [-3, -3]
     m.dimOverlay.width = w
     m.dimOverlay.height = m.posterHeight
     m.posterImage.width = w
@@ -45,9 +49,9 @@ sub onSizeChanged()
     m.progressBg.translation = [0, m.posterHeight - 6]
     m.progressBar.translation = [0, m.posterHeight - 6]
     m.titleLabel.width = w
-    m.titleLabel.translation = [0, m.posterHeight + 8]
+    m.titleLabel.translation = [0, m.posterHeight + 14]
     m.subtitleLabel.width = w
-    m.subtitleLabel.translation = [0, m.posterHeight + 32]
+    m.subtitleLabel.translation = [0, m.posterHeight + 38]
 end sub
 
 sub onItemContentChanged()
@@ -66,6 +70,7 @@ sub onItemContentChanged()
         m.circularMask.visible = true
         m.cardBg.visible = false
         m.dimOverlay.visible = false
+        m.focusRing.visible = false
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.circularPoster.uri = content.HDPosterUrl
         end if
@@ -80,6 +85,7 @@ sub onItemContentChanged()
         m.circularMask.visible = false
         m.cardBg.visible = true
         m.dimOverlay.visible = true
+        m.focusRing.visible = true
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.posterImage.uri = content.HDPosterUrl
         end if
@@ -116,6 +122,7 @@ sub onFocusChanged()
     else
         m.posterImage.scale = [scale, scale]
         m.dimOverlay.opacity = 0.3 - (fp * 0.3)
+        m.focusRing.opacity = fp * 0.9
     end if
 
     if fp > 0.5

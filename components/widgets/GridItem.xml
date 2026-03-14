@@ -5,6 +5,8 @@
         <field id="focusPercent" type="float" onChange="onFocusChanged" />
     </interface>
     <children>
+        <!-- Focus ring (behind poster, slightly larger) -->
+        <Rectangle id="focusRing" width="216" height="321" translation="[-3, -3]" color="#5BADE6" opacity="0.0" />
         <Rectangle id="dimOverlay" width="210" height="315" color="#000000" opacity="0.3" />
         <Poster
             id="posterImage"
@@ -18,7 +20,7 @@
         <Label
             id="titleLabel"
             text=""
-            font="font:SmallestSystemFont"
+            font="font:SmallSystemFont"
             color="#AAAAAA"
             width="210"
             maxLines="2"
