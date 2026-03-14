@@ -58,7 +58,7 @@
             showRowLabel="[true]"
             showRowCounter="[false]"
             drawFocusFeedback="false"
-            rowLabelFont="font:LargeBoldSystemFont"
+            rowLabelFont="font:MediumBoldSystemFont"
             rowLabelColor="#FFFFFF"
             rowLabelOffset="[[0, 12]]"
             rowFocusAnimationStyle="fixedFocusWrap"

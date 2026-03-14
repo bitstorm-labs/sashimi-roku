@@ -24,54 +24,44 @@ sub onSizeChanged()
     if w = 0 or h = 0 then return
     m.itemWidth = w
 
-    ' Skip resize if circular — fixed 180x180
     if m.isCircular then return
 
     if w > 800
-        ' Hero mode: large landscape banner with text overlay
+        ' Hero mode
         m.isHero = true
         m.posterHeight = 380
-
-        ' Hide regular title/subtitle labels
         m.titleLabel.visible = false
         m.subtitleLabel.visible = false
-
-        ' Show hero elements
-        m.heroGradient.visible = true
-        m.heroGradient.width = 700
-        m.heroGradient.height = 200
-        m.heroGradient.translation = [0, m.posterHeight - 200]
-        m.heroGradient.opacity = 0.8
-
-        m.heroTitleLabel.visible = true
-        m.heroTitleLabel.translation = [40, m.posterHeight - 140]
-        m.heroTitleLabel.width = 600
-
-        m.heroSubtitleLabel.visible = true
-        m.heroSubtitleLabel.translation = [40, m.posterHeight - 60]
-        m.heroSubtitleLabel.width = 600
-
-        ' Hide focus ring for hero items
         m.focusRing.visible = false
+        m.heroGradient.visible = true
+        m.heroGradient.width = w
+        m.heroGradient.height = 180
+        m.heroGradient.translation = [0, m.posterHeight - 180]
+        m.heroGradient.opacity = 0.75
+        m.heroTitleLabel.visible = true
+        m.heroTitleLabel.translation = [40, m.posterHeight - 130]
+        m.heroTitleLabel.width = w * 0.5
+        m.heroSubtitleLabel.visible = true
+        m.heroSubtitleLabel.translation = [40, m.posterHeight - 50]
+        m.heroSubtitleLabel.width = w * 0.5
     else if w > 250
-        ' Wide/landscape item (Continue Watching)
+        ' Landscape (Continue Watching)
         m.isHero = false
-        m.posterHeight = w * 0.5625  ' 16:9 ratio
+        m.posterHeight = Int(w * 0.5625)
         m.heroGradient.visible = false
         m.heroTitleLabel.visible = false
         m.heroSubtitleLabel.visible = false
         m.titleLabel.visible = true
     else
-        ' Portrait poster
+        ' Portrait
         m.isHero = false
-        m.posterHeight = w * 1.5  ' 2:3 ratio
+        m.posterHeight = Int(w * 1.5)
         m.heroGradient.visible = false
         m.heroTitleLabel.visible = false
         m.heroSubtitleLabel.visible = false
         m.titleLabel.visible = true
     end if
 
-    ' Resize all elements to match
     m.cardBg.width = w
     m.cardBg.height = m.posterHeight
     m.focusRing.width = w + 6
@@ -88,23 +78,21 @@ sub onSizeChanged()
     m.progressBg.translation = [0, m.posterHeight - 6]
     m.progressBar.translation = [0, m.posterHeight - 6]
     m.titleLabel.width = w
-    m.titleLabel.translation = [0, m.posterHeight + 14]
+    m.titleLabel.translation = [0, m.posterHeight + 10]
     m.subtitleLabel.width = w
-    m.subtitleLabel.translation = [0, m.posterHeight + 38]
+    m.subtitleLabel.translation = [0, m.posterHeight + 30]
 end sub
 
 sub onItemContentChanged()
     content = m.top.itemContent
     if content = invalid then return
 
-    ' Check if this is a circular YouTube item
     m.isCircular = false
     if content.doesExist("isCircular") and content.isCircular = true
         m.isCircular = true
     end if
 
     if m.isCircular
-        ' Circular mode: show circular poster, hide standard
         m.posterImage.visible = false
         m.circularMask.visible = true
         m.cardBg.visible = false
@@ -119,7 +107,6 @@ sub onItemContentChanged()
         m.progressBg.visible = false
         m.progressBar.visible = false
     else
-        ' Standard mode
         m.posterImage.visible = true
         m.circularMask.visible = false
         m.cardBg.visible = true
@@ -136,14 +123,13 @@ sub onItemContentChanged()
         m.titleLabel.text = content.title
     end if
 
-    if content.description <> invalid
+    if content.description <> invalid and content.description <> ""
         m.subtitleLabel.text = content.description
-        m.subtitleLabel.visible = not m.isCircular and not m.isHero and content.description <> ""
+        m.subtitleLabel.visible = not m.isCircular and not m.isHero
     else
         m.subtitleLabel.visible = false
     end if
 
-    ' Hero mode: set overlay text
     if m.isHero
         if content.doesExist("isHero") and content.isHero = true
             heroTitle = ""
@@ -153,10 +139,11 @@ sub onItemContentChanged()
                 heroTitle = content.title
             end if
             m.heroTitleLabel.text = heroTitle
-            m.heroSubtitleLabel.text = ""
+            heroSub = ""
             if content.title <> invalid and content.title <> "" and content.title <> heroTitle
-                m.heroSubtitleLabel.text = content.title
+                heroSub = content.title
             end if
+            m.heroSubtitleLabel.text = heroSub
         end if
     end if
 
@@ -173,26 +160,28 @@ end sub
 sub onFocusChanged()
     fp = m.top.focusPercent
 
-    scale = 1.0 + (fp * 0.06)
-
     if m.isCircular
+        scale = 1.0 + (fp * 0.08)
         m.circularMask.scale = [scale, scale]
     else if m.isHero
-        ' Hero mode: subtle scale, brighten on focus
-        heroScale = 1.0 + (fp * 0.02)
-        m.posterImage.scale = [heroScale, heroScale]
+        scale = 1.0 + (fp * 0.015)
+        m.posterImage.scale = [scale, scale]
         m.dimOverlay.opacity = 0.2 - (fp * 0.15)
     else
+        scale = 1.0 + (fp * 0.05)
         m.posterImage.scale = [scale, scale]
-        m.dimOverlay.opacity = 0.3 - (fp * 0.3)
-        m.focusRing.opacity = fp * 0.9
+        m.dimOverlay.opacity = 0.25 - (fp * 0.25)
+        ' Focus ring: make visible by setting opacity
+        if m.focusRing.visible
+            m.focusRing.opacity = fp
+        end if
     end if
 
     if fp > 0.5
         m.titleLabel.color = "0xFFFFFFFF"
-        m.subtitleLabel.color = "0xAAAAAAFF"
+        m.subtitleLabel.color = "0xBBBBBBFF"
     else
-        m.titleLabel.color = "0xAAAAAAFF"
+        m.titleLabel.color = "0xBBBBBBFF"
         m.subtitleLabel.color = "0x666666FF"
     end if
 end sub
