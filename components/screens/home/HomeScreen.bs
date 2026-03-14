@@ -18,6 +18,11 @@ sub init()
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
 
+    ' User avatar
+    m.headerAvatar = m.top.findNode("headerAvatar")
+    avatarUrl = m.global.serverUrl + "/Users/" + m.global.userId + "/Images/Primary?maxWidth=70"
+    m.headerAvatar.uri = avatarUrl
+
     ' Observe row selection
     m.rowList.observeFieldScoped("rowItemSelected", "onRowItemSelected")
     m.rowList.observeFieldScoped("rowItemFocused", "onRowItemFocused")
@@ -411,9 +416,22 @@ end function
 
 sub showOptionsDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
-    dialog.title = "Options"
+    dialog.title = "Menu"
     dialog.message = [""]
-    dialog.buttons = ["Refresh", "Search", "Sign Out", "Cancel"]
+
+    buttons = ["Search", "Refresh"]
+
+    ' Add library buttons
+    m.optionLibraries = []
+    for each lib in m.libraries
+        buttons.push(lib.Name)
+        m.optionLibraries.push(lib)
+    end for
+
+    buttons.push("Sign Out")
+    buttons.push("Cancel")
+
+    dialog.buttons = buttons
     dialog.observeFieldScoped("buttonSelected", "onOptionsButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -425,10 +443,18 @@ sub onOptionsButton()
     dialog.close = true
 
     if index = 0
-        loadHomeData()
-    else if index = 1
+        ' Search
         m.top.openSearch = true
-    else if index = 2
+    else if index = 1
+        ' Refresh
+        loadHomeData()
+    else if index >= 2 and index < 2 + m.optionLibraries.count()
+        ' Library selected
+        libIndex = index - 2
+        lib = m.optionLibraries[libIndex]
+        m.top.selectedLibrary = { id: lib.Id, name: lib.Name }
+    else if index = 2 + m.optionLibraries.count()
+        ' Sign Out
         Registry.clearAuth()
         m.global.serverUrl = ""
         m.global.authToken = ""

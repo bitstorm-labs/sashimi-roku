@@ -4,6 +4,7 @@
         <field id="signOut" type="boolean" value="false" alwaysNotify="true" />
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
         <field id="openSearch" type="boolean" value="false" alwaysNotify="true" />
+        <field id="selectedLibrary" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
         <!-- Background -->
@@ -40,6 +41,22 @@
             font="font:MediumBoldSystemFont"
             color="#FFFFFF"
             translation="[158, 14]"
+        />
+        <Rectangle
+            id="avatarBg"
+            translation="[1785, 5]"
+            width="60"
+            height="60"
+            color="#2a2a4a"
+        />
+        <Poster
+            id="headerAvatar"
+            translation="[1790, 10]"
+            width="50"
+            height="50"
+            loadWidth="70"
+            loadHeight="70"
+            loadDisplayMode="scaleToZoom"
         />
 
         <!-- Content rows -->

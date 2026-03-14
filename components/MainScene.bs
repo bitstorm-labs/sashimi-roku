@@ -65,6 +65,7 @@ sub showScreen(screenName as string)
         screen.observeFieldScoped("signOut", "onSignOut")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
         screen.observeFieldScoped("openSearch", "onOpenSearch")
+        screen.observeFieldScoped("selectedLibrary", "onLibrarySelected")
     else if screenName = "LibraryScreen"
         screen.observeFieldScoped("selectedItem", "onItemSelected")
     else if screenName = "SearchScreen"
@@ -82,6 +83,14 @@ end sub
 
 sub onOpenSearch()
     showScreen("SearchScreen")
+end sub
+
+sub onLibrarySelected()
+    if m.currentScreen <> invalid and m.currentScreen.selectedLibrary <> invalid
+        lib = m.currentScreen.selectedLibrary
+        showScreen("LibraryScreen")
+        m.currentScreen.libraryData = lib
+    end if
 end sub
 
 sub onSearchItemSelected()
