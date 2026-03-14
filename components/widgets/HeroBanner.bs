@@ -85,19 +85,36 @@ sub showItem(index as integer)
         m.heroImage.uri = item.HDPosterUrl
     end if
 
+    ' Detect YouTube content
+    isYouTube = false
+    if item.Path <> invalid and Instr(1, LCase(item.Path), "youtube") > 0
+        isYouTube = true
+    end if
+    if not isYouTube and item.SeriesName <> invalid and Instr(1, LCase(item.SeriesName), "youtube") > 0
+        isYouTube = true
+    end if
+
     ' Set title (series name for episodes, item name for movies)
     title = ""
     if item.SeriesName <> invalid and item.SeriesName <> ""
         title = item.SeriesName
+        ' Clean YouTube suffixes
+        if isYouTube
+            dashPos = Instr(1, title, " - ")
+            if dashPos > 0 then title = Left(title, dashPos - 1)
+        end if
     else if item.Name <> invalid
         title = item.Name
     end if
     m.heroTitle.text = title
 
-    ' Set subtitle (episode info or year)
+    ' Set subtitle
     subtitle = ""
-    if item.SeriesName <> invalid and item.SeriesName <> ""
-        ' It's an episode — show episode info
+    if isYouTube
+        ' YouTube: show video title
+        if item.Name <> invalid then subtitle = item.Name
+    else if item.SeriesName <> invalid and item.SeriesName <> ""
+        ' TV episode: show S:E info
         if item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
             subtitle = "S" + str(item.ParentIndexNumber).Trim() + " E" + str(item.IndexNumber).Trim()
             if item.Name <> invalid then subtitle += " - " + item.Name
@@ -107,26 +124,35 @@ sub showItem(index as integer)
     end if
     m.heroSubtitle.text = subtitle
 
-    ' Set metadata (year, rating, runtime)
+    ' Set metadata
     meta = ""
-    if item.ProductionYear <> invalid
-        meta = str(item.ProductionYear).Trim()
-    end if
     if item.CommunityRating <> invalid
         rating = Int(item.CommunityRating * 10) / 10.0
-        if meta <> "" then meta += "  |  "
-        meta += str(rating).Trim() + "/10"
+        meta += "TMDB " + str(rating).Trim() + "/10"
     end if
-    if item.RunTimeTicks <> invalid
-        minutes = Int(item.RunTimeTicks / 600000000)
-        if minutes > 0
-            hours = Int(minutes / 60)
-            mins = minutes mod 60
-            if meta <> "" then meta += "  |  "
-            if hours > 0
-                meta += str(hours).Trim() + "h " + str(mins).Trim() + "m"
-            else
-                meta += str(mins).Trim() + "m"
+    if item.CriticRating <> invalid
+        if meta <> "" then meta += "   "
+        meta += chr(127813) + " " + str(item.CriticRating).Trim() + "%"
+    end if
+    if isYouTube
+        if meta <> "" then meta += "   "
+        meta += "YouTube"
+    else
+        if item.ProductionYear <> invalid
+            if meta <> "" then meta += "   "
+            meta += str(item.ProductionYear).Trim()
+        end if
+        if item.RunTimeTicks <> invalid
+            minutes = Int(item.RunTimeTicks / 600000000)
+            if minutes > 0
+                hours = Int(minutes / 60)
+                mins = minutes mod 60
+                if meta <> "" then meta += "   "
+                if hours > 0
+                    meta += str(hours).Trim() + "h " + str(mins).Trim() + "m"
+                else
+                    meta += str(mins).Trim() + "m"
+                end if
             end if
         end if
     end if
