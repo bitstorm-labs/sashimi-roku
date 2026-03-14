@@ -12,28 +12,24 @@ sub onItemContentChanged()
     content = m.top.itemContent
     if content = invalid then return
 
-    ' Set poster
     if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
         m.posterImage.uri = content.HDPosterUrl
     end if
 
-    ' Set title
     if content.title <> invalid
         m.titleLabel.text = content.title
     end if
 
-    ' Set subtitle
     if content.description <> invalid
         m.subtitleLabel.text = content.description
     end if
 
-    ' Check for progress data stored in custom fields
     if content.doesExist("playedPercentage")
         pct = content.playedPercentage
         if pct > 0 and pct < 100
             m.progressBg.visible = true
             m.progressBar.visible = true
-            m.progressBar.width = 220 * (pct / 100.0)
+            m.progressBar.width = 380 * (pct / 100.0)
         end if
     end if
 end sub
@@ -41,22 +37,15 @@ end sub
 sub onFocusChanged()
     fp = m.top.focusPercent
 
-    ' Scale poster from 1.0 to 1.1 on focus
-    scale = 1.0 + (fp * 0.1)
+    scale = 1.0 + (fp * 0.05)
     m.posterImage.scale = [scale, scale]
 
-    ' Fade dim overlay from 0.4 to 0.0 on focus
-    m.dimOverlay.opacity = 0.4 - (fp * 0.4)
+    m.dimOverlay.opacity = 0.2 - (fp * 0.2)
+    m.focusBorder.opacity = fp * 0.7
 
-    ' Show focus border (bright white)
-    m.focusBorder.opacity = fp * 0.9
-
-    ' Brighten title on focus
     if fp > 0.5
         m.titleLabel.color = "0xFFFFFFFF"
-        m.subtitleLabel.color = "0xAAAAAAFF"
     else
-        m.titleLabel.color = "0xAAAAAAFF"
-        m.subtitleLabel.color = "0x555555FF"
+        m.titleLabel.color = "0xCCCCCCFF"
     end if
 end sub

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="WideItem" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="onItemContentChanged" />
+        <field id="focusPercent" type="float" onChange="onFocusChanged" />
+    </interface>
+    <children>
+        <!-- Background card -->
+        <Rectangle id="cardBg" width="380" height="260" color="#181830" />
+        <!-- Dim overlay -->
+        <Rectangle id="dimOverlay" width="380" height="214" color="#000000" opacity="0.2" />
+        <!-- Landscape thumbnail -->
+        <Poster
+            id="posterImage"
+            width="380"
+            height="214"
+            loadWidth="380"
+            loadHeight="214"
+            loadDisplayMode="scaleToZoom"
+            scaleRotateCenter="[190, 107]"
+        />
+        <!-- Focus border -->
+        <Rectangle id="focusBorder" width="384" height="264" translation="[-2, -2]" color="#FFFFFF" opacity="0.0" />
+        <!-- Progress bar -->
+        <Rectangle id="progressBg" translation="[0, 206]" width="380" height="8" color="#333333" visible="false" />
+        <Rectangle id="progressBar" translation="[0, 206]" width="0" height="8" color="#00CC66" visible="false" />
+        <!-- Title -->
+        <Label
+            id="titleLabel"
+            text=""
+            font="font:SmallestBoldSystemFont"
+            color="#CCCCCC"
+            width="370"
+            maxLines="1"
+            ellipsizeOnBoundary="true"
+            translation="[5, 220]"
+        />
+        <!-- Subtitle (series name) -->
+        <Label
+            id="subtitleLabel"
+            text=""
+            font="font:SmallestSystemFont"
+            color="#666666"
+            width="370"
+            maxLines="1"
+            ellipsizeOnBoundary="true"
+            translation="[5, 240]"
+        />
+    </children>
+</component>

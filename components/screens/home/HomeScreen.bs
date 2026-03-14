@@ -100,7 +100,7 @@ sub onNextUpLoaded(response as object)
     m.rowContent = CreateObject("roSGNode", "ContentNode")
 
     if m.continueWatchingItems.count() > 0
-        addRow("Continue Watching", m.continueWatchingItems)
+        addContinueWatchingRow(m.continueWatchingItems)
     end if
 
     if m.libraries.count() > 0
@@ -131,6 +131,46 @@ sub onLatestMediaLoaded(response as object)
     else
         showRows()
     end if
+end sub
+
+sub addContinueWatchingRow(items as object)
+    if m.rowContent = invalid then return
+
+    row = m.rowContent.createChild("ContentNode")
+    row.title = "Continue Watching"
+
+    for each item in items
+        child = row.createChild("ContentNode")
+        child.title = ""
+        if item.Name <> invalid then child.title = item.Name
+
+        ' For episodes, use series poster (looks much better than cropped landscape thumbnail)
+        itemId = ""
+        if item.Id <> invalid then itemId = item.Id
+        if item.SeriesId <> invalid and item.SeriesId <> ""
+            ' Use series poster for episodes
+            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 220)
+        else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+            child.HDPosterUrl = ImageUrl.primary(itemId, 220)
+        end if
+
+        ' Subtitle: show series name + episode info
+        description = ""
+        if item.SeriesName <> invalid and item.SeriesName <> ""
+            description = item.SeriesName
+        else if item.ProductionYear <> invalid
+            description = str(item.ProductionYear).Trim()
+        end if
+        child.description = description
+
+        child.addFields({ itemJson: "" })
+        child.itemJson = FormatJSON(item)
+
+        if item.UserData <> invalid and item.UserData.PlayedPercentage <> invalid
+            child.addFields({ playedPercentage: 0 })
+            child.playedPercentage = item.UserData.PlayedPercentage
+        end if
+    end for
 end sub
 
 sub addRow(title as string, items as object)
