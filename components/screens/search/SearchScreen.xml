@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="SearchScreen" extends="Group">
+    <interface>
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="#0e0e1a" />
+
+        <Rectangle width="1920" height="80" color="#101420" opacity="0.9" />
+        <Label
+            id="headerTitle"
+            text="Search"
+            font="font:MediumBoldSystemFont"
+            color="#FFFFFF"
+            translation="[192, 20]"
+        />
+
+        <!-- Search button + recent searches -->
+        <ButtonGroup
+            id="searchButtons"
+            translation="[192, 120]"
+            minWidth="400"
+            buttonHeight="60"
+            itemSpacings="[10]"
+            textFont="font:SmallSystemFont"
+            focusedTextFont="font:SmallBoldSystemFont"
+            textColor="#AAAAAA"
+            focusedTextColor="#FFFFFF"
+            focusBitmapUri="pkg:/images/button_focus.png"
+            focusFootprintBitmapUri="pkg:/images/button_unfocus.png"
+        />
+
+        <!-- Results grid -->
+        <PosterGrid
+            id="resultsGrid"
+            translation="[650, 120]"
+            basePosterSize="[210, 315]"
+            itemSpacing="[30, 60]"
+            numColumns="5"
+            numRows="3"
+            caption1NumLines="2"
+            caption1Font="font:SmallestSystemFont"
+            caption1Color="#CCCCCC"
+            caption2Font="font:SmallestSystemFont"
+            caption2Color="#888888"
+            visible="false"
+        />
+
+        <!-- Status labels -->
+        <Label
+            id="statusLabel"
+            text="Press OK to search"
+            font="font:MediumSystemFont"
+            color="#888888"
+            horizAlign="center"
+            width="1270"
+            translation="[650, 400]"
+        />
+
+        <JellyfinApi id="apiTask" />
+    </children>
+</component>

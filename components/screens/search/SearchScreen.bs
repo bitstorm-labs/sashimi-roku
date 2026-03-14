@@ -1,0 +1,198 @@
+import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/ImageUrl.bs"
+
+sub init()
+    m.searchButtons = m.top.findNode("searchButtons")
+    m.resultsGrid = m.top.findNode("resultsGrid")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.apiTask = m.top.findNode("apiTask")
+
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+
+    m.searchButtons.observeFieldScoped("buttonSelected", "onSearchButtonSelected")
+    m.resultsGrid.observeFieldScoped("itemSelected", "onResultSelected")
+
+    m.gridContent = invalid
+    m.currentQuery = ""
+
+    loadSearchButtons()
+    m.searchButtons.setFocus(true)
+end sub
+
+sub loadSearchButtons()
+    buttons = ["Search..."]
+
+    ' Load search history from registry
+    history = Registry.readJson("search", "history")
+    if history <> invalid and type(history) = "roArray"
+        for each query in history
+            buttons.push(query)
+        end for
+    end if
+
+    m.searchButtons.buttons = buttons
+end sub
+
+sub onSearchButtonSelected()
+    index = m.searchButtons.buttonSelected
+    if index = 0
+        ' Open keyboard
+        showSearchKeyboard("")
+    else
+        ' Replay a recent search
+        buttons = m.searchButtons.buttons
+        if index < buttons.count()
+            query = buttons[index]
+            doSearch(query)
+        end if
+    end if
+end sub
+
+sub showSearchKeyboard(currentText as string)
+    dialog = createObject("roSGNode", "StandardKeyboardDialog")
+    dialog.title = "Search Movies & TV Shows"
+    dialog.buttons = ["Search", "Cancel"]
+    if currentText <> ""
+        dialog.text = currentText
+    end if
+    dialog.observeFieldScoped("buttonSelected", "onKeyboardButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onKeyboardButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+
+    buttonIndex = dialog.buttonSelected
+    if buttonIndex = 0 ' Search
+        query = dialog.text
+        if query <> invalid and query.Trim() <> ""
+            doSearch(query.Trim())
+        end if
+    end if
+
+    dialog.close = true
+    m.searchButtons.setFocus(true)
+end sub
+
+sub doSearch(query as string)
+    m.currentQuery = query
+    m.statusLabel.text = "Searching..."
+    m.resultsGrid.visible = false
+
+    ' Save to history
+    saveToHistory(query)
+    loadSearchButtons()
+
+    m.apiTask.request = { action: "search", query: query, limit: 50 }
+end sub
+
+sub saveToHistory(query as string)
+    history = Registry.readJson("search", "history")
+    if history = invalid or type(history) <> "roArray"
+        history = []
+    end if
+
+    ' Remove if already exists (to move to front)
+    newHistory = [query]
+    for each q in history
+        if LCase(q) <> LCase(query)
+            newHistory.push(q)
+        end if
+    end for
+
+    ' Keep only 10
+    if newHistory.count() > 10
+        trimmed = []
+        for i = 0 to 9
+            trimmed.push(newHistory[i])
+        end for
+        newHistory = trimmed
+    end if
+
+    Registry.writeJson("search", "history", newHistory)
+end sub
+
+sub onApiResponse()
+    response = m.apiTask.response
+    if response = invalid then return
+
+    if response.action = "search"
+        onSearchResults(response)
+    end if
+end sub
+
+sub onSearchResults(response as object)
+    if not response.success then return
+
+    items = response.items
+    if items.count() = 0
+        m.statusLabel.text = "No results found for " + chr(34) + m.currentQuery + chr(34)
+        m.resultsGrid.visible = false
+        return
+    end if
+
+    m.statusLabel.text = str(items.count()).Trim() + " results for " + chr(34) + m.currentQuery + chr(34)
+
+    m.gridContent = CreateObject("roSGNode", "ContentNode")
+
+    for each item in items
+        child = m.gridContent.createChild("ContentNode")
+
+        title = ""
+        if item.Name <> invalid then title = item.Name
+        child.shortDescriptionLine1 = title
+
+        subtitle = ""
+        if item.ProductionYear <> invalid
+            subtitle = str(item.ProductionYear).Trim()
+        end if
+        if item.Type <> invalid
+            if subtitle <> "" then subtitle += " - "
+            subtitle += item.Type
+        end if
+        child.shortDescriptionLine2 = subtitle
+
+        itemId = ""
+        if item.Id <> invalid then itemId = item.Id
+        if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+            child.HDPosterUrl = ImageUrl.primary(itemId, 210)
+        end if
+
+        child.addFields({ itemJson: "" })
+        child.itemJson = FormatJSON(item)
+    end for
+
+    m.resultsGrid.content = m.gridContent
+    m.resultsGrid.visible = true
+    m.resultsGrid.setFocus(true)
+end sub
+
+sub onResultSelected()
+    index = m.resultsGrid.itemSelected
+    if index < 0 then return
+
+    child = m.gridContent.getChild(index)
+    if child = invalid then return
+
+    if child.itemJson <> invalid and child.itemJson <> ""
+        itemData = ParseJSON(child.itemJson)
+        if itemData <> invalid
+            m.top.selectedItem = itemData
+        end if
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if press
+        if key = "left" and m.resultsGrid.hasFocus()
+            m.searchButtons.setFocus(true)
+            return true
+        else if key = "right" and m.searchButtons.hasFocus() and m.resultsGrid.visible
+            m.resultsGrid.setFocus(true)
+            return true
+        end if
+    end if
+    return false
+end function
