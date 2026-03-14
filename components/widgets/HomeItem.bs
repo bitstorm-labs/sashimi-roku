@@ -4,11 +4,14 @@ sub init()
     m.posterImage = m.top.findNode("posterImage")
     m.circularMask = m.top.findNode("circularMask")
     m.circularPoster = m.top.findNode("circularPoster")
+    m.circularDim = m.top.findNode("circularDim")
+    m.circularFocusRing = m.top.findNode("circularFocusRing")
     m.dimOverlay = m.top.findNode("dimOverlay")
     m.focusTop = m.top.findNode("focusTop")
     m.focusBottom = m.top.findNode("focusBottom")
     m.focusLeft = m.top.findNode("focusLeft")
     m.focusRight = m.top.findNode("focusRight")
+    m.watchedBadge = m.top.findNode("watchedBadge")
     m.progressBg = m.top.findNode("progressBg")
     m.progressBar = m.top.findNode("progressBar")
     m.titleLabel = m.top.findNode("titleLabel")
@@ -46,7 +49,6 @@ sub onSizeChanged()
         m.heroSubtitleLabel.visible = true
         m.heroSubtitleLabel.translation = [40, m.posterHeight - 50]
         m.heroSubtitleLabel.width = w * 0.5
-        ' Hero doesn't use mask (too large)
         m.posterMask.maskUri = ""
     else if w > 250
         m.isHero = false
@@ -55,7 +57,6 @@ sub onSizeChanged()
         m.heroTitleLabel.visible = false
         m.heroSubtitleLabel.visible = false
         m.titleLabel.visible = true
-        ' Wide mask
         m.posterMask.maskUri = "pkg:/images/wide_mask.png"
         m.posterMask.maskSize = [w, m.posterHeight]
     else
@@ -65,7 +66,6 @@ sub onSizeChanged()
         m.heroTitleLabel.visible = false
         m.heroSubtitleLabel.visible = false
         m.titleLabel.visible = true
-        ' Portrait mask
         m.posterMask.maskUri = "pkg:/images/poster_mask.png"
         m.posterMask.maskSize = [w, m.posterHeight]
     end if
@@ -78,22 +78,20 @@ sub onSizeChanged()
     m.posterImage.height = m.posterHeight
     m.posterImage.loadWidth = w
     m.posterImage.loadHeight = m.posterHeight
-    ' Focus border edges
     m.focusTop.width = w
     m.focusBottom.width = w
     m.focusBottom.translation = [0, m.posterHeight - 4]
     m.focusLeft.height = m.posterHeight
     m.focusRight.height = m.posterHeight
     m.focusRight.translation = [w - 4, 0]
-    ' Progress bar
+    m.watchedBadge.translation = [w - 32, 4]
     m.progressBg.width = w
-    m.progressBg.translation = [0, m.posterHeight - 6]
-    m.progressBar.translation = [0, m.posterHeight - 6]
-    ' Title
+    m.progressBg.translation = [0, m.posterHeight - 5]
+    m.progressBar.translation = [0, m.posterHeight - 5]
     m.titleLabel.width = w
-    m.titleLabel.translation = [0, m.posterHeight + 10]
+    m.titleLabel.translation = [0, m.posterHeight + 8]
     m.subtitleLabel.width = w
-    m.subtitleLabel.translation = [0, m.posterHeight + 30]
+    m.subtitleLabel.translation = [0, m.posterHeight + 26]
 end sub
 
 sub onItemContentChanged()
@@ -105,16 +103,20 @@ sub onItemContentChanged()
         m.isCircular = true
     end if
 
-    ' Reset focus border
+    ' Reset focus
     m.focusTop.opacity = 0.0
     m.focusBottom.opacity = 0.0
     m.focusLeft.opacity = 0.0
     m.focusRight.opacity = 0.0
     m.dimOverlay.opacity = 0.25
+    m.watchedBadge.visible = false
+    m.progressBg.visible = false
+    m.progressBar.visible = false
 
     if m.isCircular
         m.posterMask.visible = false
         m.circularMask.visible = true
+        m.circularFocusRing.visible = true
         m.cardBg.visible = false
         m.focusTop.visible = false
         m.focusBottom.visible = false
@@ -126,11 +128,10 @@ sub onItemContentChanged()
         m.titleLabel.horizAlign = "center"
         m.titleLabel.translation = [0, 188]
         m.subtitleLabel.visible = false
-        m.progressBg.visible = false
-        m.progressBar.visible = false
     else
         m.posterMask.visible = true
         m.circularMask.visible = false
+        m.circularFocusRing.visible = false
         m.cardBg.visible = true
         m.focusTop.visible = true
         m.focusBottom.visible = true
@@ -152,6 +153,7 @@ sub onItemContentChanged()
         m.subtitleLabel.visible = false
     end if
 
+    ' Hero text
     if m.isHero
         if content.doesExist("isHero") and content.isHero = true
             heroTitle = ""
@@ -169,6 +171,15 @@ sub onItemContentChanged()
         end if
     end if
 
+    ' Watched badge
+    if content.doesExist("isPlayed") and content.isPlayed = true
+        m.watchedBadge.visible = true
+        if m.isCircular
+            m.watchedBadge.translation = [148, 0]
+        end if
+    end if
+
+    ' Progress bar
     if not m.isCircular and content.doesExist("playedPercentage")
         pct = content.playedPercentage
         if pct > 0 and pct < 100
@@ -185,6 +196,16 @@ sub onFocusChanged()
     if m.isCircular
         scale = 1.0 + (fp * 0.08)
         m.circularMask.scale = [scale, scale]
+        m.circularDim.opacity = 0.2 - (fp * 0.2)
+        ' Circular focus ring
+        ringNode = m.circularFocusRing.getChild(0)
+        if ringNode <> invalid
+            if fp > 0.1
+                ringNode.opacity = fp * 0.8
+            else
+                ringNode.opacity = 0.0
+            end if
+        end if
     else if m.isHero
         m.dimOverlay.opacity = 0.2 - (fp * 0.15)
     else
@@ -207,7 +228,7 @@ sub onFocusChanged()
         m.subtitleLabel.color = "0xBBBBBBFF"
     else
         m.titleLabel.color = "0xBBBBBBFF"
-        m.subtitleLabel.color = "0x666666FF"
+        m.subtitleLabel.color = "0x555555FF"
     end if
 end sub
 
@@ -219,10 +240,16 @@ sub onRowFocusChanged()
         m.focusLeft.opacity = 0.0
         m.focusRight.opacity = 0.0
         m.dimOverlay.opacity = 0.4
+        if m.isCircular
+            m.circularDim.opacity = 0.3
+            ringNode = m.circularFocusRing.getChild(0)
+            if ringNode <> invalid then ringNode.opacity = 0.0
+        end if
         m.titleLabel.color = "0x888888FF"
-        m.subtitleLabel.color = "0x555555FF"
+        m.subtitleLabel.color = "0x444444FF"
     else
         m.dimOverlay.opacity = 0.25
+        if m.isCircular then m.circularDim.opacity = 0.2
         m.titleLabel.color = "0xBBBBBBFF"
     end if
 end sub

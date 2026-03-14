@@ -51,7 +51,7 @@
             id="rowList"
             translation="[96, 95]"
             itemSize="[1728, 480]"
-            numRows="2"
+            numRows="5"
             itemSpacing="[0, 10]"
             rowItemSize="[[180, 330]]"
             rowItemSpacing="[[30, 0]]"

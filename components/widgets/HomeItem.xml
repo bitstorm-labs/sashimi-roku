@@ -10,7 +10,7 @@
     <children>
         <!-- Card background -->
         <Rectangle id="cardBg" width="200" height="300" color="#121215" />
-        <!-- Portrait poster with rounded corners -->
+        <!-- Portrait/landscape poster with rounded corners -->
         <MaskGroup id="posterMask" maskUri="pkg:/images/poster_mask.png" maskSize="[200, 300]">
             <Poster
                 id="posterImage"
@@ -20,11 +20,11 @@
                 loadHeight="300"
                 loadDisplayMode="scaleToZoom"
             />
-            <!-- Dim overlay inside mask for rounded corners -->
             <Rectangle id="dimOverlay" width="200" height="300" color="#000000" opacity="0.25" />
         </MaskGroup>
         <!-- Circular poster (YouTube channels) -->
-        <MaskGroup id="circularMask" maskUri="pkg:/images/circle_mask.png" maskSize="[180, 180]" visible="false">
+        <MaskGroup id="circularMask" maskUri="pkg:/images/circle_mask.png" maskSize="[180, 180]" visible="false"
+                   scaleRotateCenter="[90, 90]">
             <Poster
                 id="circularPoster"
                 width="180"
@@ -33,20 +33,31 @@
                 loadHeight="180"
                 loadDisplayMode="scaleToZoom"
             />
+            <Rectangle id="circularDim" width="180" height="180" color="#000000" opacity="0.2" />
         </MaskGroup>
-        <!-- Focus border (4 edge rectangles on top of poster) -->
+        <!-- Circular focus ring (for YouTube items) -->
+        <MaskGroup id="circularFocusRing" maskUri="pkg:/images/circle_mask.png" maskSize="[190, 190]"
+                   translation="[-5, -5]" visible="false">
+            <Rectangle width="190" height="190" color="#5BADE6" opacity="0.0" />
+        </MaskGroup>
+        <!-- Rectangular focus border -->
         <Rectangle id="focusTop" width="200" height="4" color="#5BADE6" opacity="0.0" />
         <Rectangle id="focusBottom" width="200" height="4" color="#5BADE6" opacity="0.0" translation="[0, 296]" />
         <Rectangle id="focusLeft" width="4" height="300" color="#5BADE6" opacity="0.0" />
         <Rectangle id="focusRight" width="4" height="300" color="#5BADE6" opacity="0.0" translation="[196, 0]" />
+        <!-- Watched badge (checkmark) -->
+        <Rectangle id="watchedBadge" width="28" height="28" color="#4AB978" translation="[168, 4]" visible="false">
+            <Label text="✓" font="font:SmallestBoldSystemFont" color="#FFFFFF" width="28" height="28"
+                   horizAlign="center" vertAlign="center" />
+        </Rectangle>
         <!-- Progress bar -->
-        <Rectangle id="progressBg" translation="[0, 294]" width="200" height="6" color="#333333" visible="false" />
-        <Rectangle id="progressBar" translation="[0, 294]" width="0" height="6" color="#5BADE6" visible="false" />
+        <Rectangle id="progressBg" translation="[0, 294]" width="200" height="5" color="#333333" visible="false" />
+        <Rectangle id="progressBar" translation="[0, 294]" width="0" height="5" color="#5BADE6" visible="false" />
         <!-- Hero overlay -->
         <Rectangle id="heroGradient" width="700" height="180" color="#121215" opacity="0.0" visible="false" />
         <Label id="heroTitleLabel" text="" font="font:LargeBoldSystemFont" color="#FFFFFF" width="600" maxLines="2" visible="false" />
         <Label id="heroSubtitleLabel" text="" font="font:SmallSystemFont" color="#BBBBBB" width="600" maxLines="1" visible="false" />
-        <!-- Title and subtitle below poster -->
+        <!-- Title below poster -->
         <Label
             id="titleLabel"
             text=""
@@ -55,17 +66,18 @@
             width="200"
             maxLines="1"
             ellipsizeOnBoundary="true"
-            translation="[0, 310]"
+            translation="[0, 308]"
         />
+        <!-- Subtitle below title -->
         <Label
             id="subtitleLabel"
             text=""
             font="font:SmallestSystemFont"
-            color="#666666"
+            color="#555555"
             width="200"
             maxLines="1"
             ellipsizeOnBoundary="true"
-            translation="[0, 332]"
+            translation="[0, 328]"
         />
     </children>
 </component>
