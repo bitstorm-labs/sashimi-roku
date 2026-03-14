@@ -1,5 +1,6 @@
 sub init()
     m.cardBg = m.top.findNode("cardBg")
+    m.posterMask = m.top.findNode("posterMask")
     m.posterImage = m.top.findNode("posterImage")
     m.circularMask = m.top.findNode("circularMask")
     m.circularPoster = m.top.findNode("circularPoster")
@@ -45,6 +46,8 @@ sub onSizeChanged()
         m.heroSubtitleLabel.visible = true
         m.heroSubtitleLabel.translation = [40, m.posterHeight - 50]
         m.heroSubtitleLabel.width = w * 0.5
+        ' Hero doesn't use mask (too large)
+        m.posterMask.maskUri = ""
     else if w > 250
         m.isHero = false
         m.posterHeight = Int(w * 0.5625)
@@ -52,6 +55,9 @@ sub onSizeChanged()
         m.heroTitleLabel.visible = false
         m.heroSubtitleLabel.visible = false
         m.titleLabel.visible = true
+        ' Wide mask
+        m.posterMask.maskUri = "pkg:/images/wide_mask.png"
+        m.posterMask.maskSize = [w, m.posterHeight]
     else
         m.isHero = false
         m.posterHeight = Int(w * 1.5)
@@ -59,6 +65,9 @@ sub onSizeChanged()
         m.heroTitleLabel.visible = false
         m.heroSubtitleLabel.visible = false
         m.titleLabel.visible = true
+        ' Portrait mask
+        m.posterMask.maskUri = "pkg:/images/poster_mask.png"
+        m.posterMask.maskSize = [w, m.posterHeight]
     end if
 
     m.cardBg.width = w
@@ -69,7 +78,6 @@ sub onSizeChanged()
     m.posterImage.height = m.posterHeight
     m.posterImage.loadWidth = w
     m.posterImage.loadHeight = m.posterHeight
-    m.posterImage.scaleRotateCenter = [w / 2, m.posterHeight / 2]
     ' Focus border edges
     m.focusTop.width = w
     m.focusBottom.width = w
@@ -105,10 +113,9 @@ sub onItemContentChanged()
     m.dimOverlay.opacity = 0.25
 
     if m.isCircular
-        m.posterImage.visible = false
+        m.posterMask.visible = false
         m.circularMask.visible = true
         m.cardBg.visible = false
-        m.dimOverlay.visible = false
         m.focusTop.visible = false
         m.focusBottom.visible = false
         m.focusLeft.visible = false
@@ -122,10 +129,13 @@ sub onItemContentChanged()
         m.progressBg.visible = false
         m.progressBar.visible = false
     else
-        m.posterImage.visible = true
+        m.posterMask.visible = true
         m.circularMask.visible = false
         m.cardBg.visible = true
-        m.dimOverlay.visible = true
+        m.focusTop.visible = true
+        m.focusBottom.visible = true
+        m.focusLeft.visible = true
+        m.focusRight.visible = true
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.posterImage.uri = content.HDPosterUrl
         end if
@@ -176,16 +186,20 @@ sub onFocusChanged()
         scale = 1.0 + (fp * 0.08)
         m.circularMask.scale = [scale, scale]
     else if m.isHero
-        scale = 1.0 + (fp * 0.015)
-        m.posterImage.scale = [scale, scale]
         m.dimOverlay.opacity = 0.2 - (fp * 0.15)
     else
         m.dimOverlay.opacity = 0.25 - (fp * 0.25)
-        ' Focus border edges
-        m.focusTop.opacity = fp
-        m.focusBottom.opacity = fp
-        m.focusLeft.opacity = fp
-        m.focusRight.opacity = fp
+        if fp > 0.1
+            m.focusTop.opacity = fp
+            m.focusBottom.opacity = fp
+            m.focusLeft.opacity = fp
+            m.focusRight.opacity = fp
+        else
+            m.focusTop.opacity = 0.0
+            m.focusBottom.opacity = 0.0
+            m.focusLeft.opacity = 0.0
+            m.focusRight.opacity = 0.0
+        end if
     end if
 
     if fp > 0.5
@@ -199,7 +213,6 @@ end sub
 
 sub onRowFocusChanged()
     rfp = m.top.rowFocusPercent
-    ' When row loses focus, dim all items and hide any border
     if rfp < 0.5
         m.focusTop.opacity = 0.0
         m.focusBottom.opacity = 0.0

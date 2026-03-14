@@ -10,16 +10,19 @@
     <children>
         <!-- Card background -->
         <Rectangle id="cardBg" width="200" height="300" color="#121215" />
-        <!-- Poster image -->
-        <Poster
-            id="posterImage"
-            width="200"
-            height="300"
-            loadWidth="200"
-            loadHeight="300"
-            loadDisplayMode="scaleToZoom"
-            scaleRotateCenter="[100, 150]"
-        />
+        <!-- Portrait poster with rounded corners -->
+        <MaskGroup id="posterMask" maskUri="pkg:/images/poster_mask.png" maskSize="[200, 300]">
+            <Poster
+                id="posterImage"
+                width="200"
+                height="300"
+                loadWidth="200"
+                loadHeight="300"
+                loadDisplayMode="scaleToZoom"
+            />
+            <!-- Dim overlay inside mask for rounded corners -->
+            <Rectangle id="dimOverlay" width="200" height="300" color="#000000" opacity="0.25" />
+        </MaskGroup>
         <!-- Circular poster (YouTube channels) -->
         <MaskGroup id="circularMask" maskUri="pkg:/images/circle_mask.png" maskSize="[180, 180]" visible="false">
             <Poster
@@ -31,9 +34,7 @@
                 loadDisplayMode="scaleToZoom"
             />
         </MaskGroup>
-        <!-- Dim overlay -->
-        <Rectangle id="dimOverlay" width="200" height="300" color="#000000" opacity="0.25" />
-        <!-- Focus border (4 edge rectangles rendered ON TOP of poster) -->
+        <!-- Focus border (4 edge rectangles on top of poster) -->
         <Rectangle id="focusTop" width="200" height="4" color="#5BADE6" opacity="0.0" />
         <Rectangle id="focusBottom" width="200" height="4" color="#5BADE6" opacity="0.0" translation="[0, 296]" />
         <Rectangle id="focusLeft" width="4" height="300" color="#5BADE6" opacity="0.0" />
