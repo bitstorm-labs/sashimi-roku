@@ -23,6 +23,8 @@ sub init()
 
     ' Observe row selection
     m.rowList.observeFieldScoped("rowItemSelected", "onRowItemSelected")
+    m.rowList.observeFieldScoped("rowItemFocused", "onRowItemFocused")
+    m.backdrop = m.top.findNode("backdrop")
 
     ' Start loading
     loadHomeData()
@@ -163,6 +165,12 @@ sub addRow(title as string, items as object)
         ' Store full item JSON for selection
         child.addFields({ itemJson: "" })
         child.itemJson = FormatJSON(item)
+
+        ' Store progress percentage for the item renderer
+        if item.UserData <> invalid and item.UserData.PlayedPercentage <> invalid
+            child.addFields({ playedPercentage: 0 })
+            child.playedPercentage = item.UserData.PlayedPercentage
+        end if
     end for
 end sub
 
@@ -196,6 +204,41 @@ sub onRowItemSelected()
         itemData = ParseJSON(item.itemJson)
         if itemData <> invalid
             m.top.selectedItem = itemData
+        end if
+    end if
+end sub
+
+sub onRowItemFocused()
+    focusedIndex = m.rowList.rowItemFocused
+    if focusedIndex = invalid or focusedIndex.count() < 2 then return
+
+    rowIndex = focusedIndex[0]
+    itemIndex = focusedIndex[1]
+
+    if m.rowContent = invalid then return
+    row = m.rowContent.getChild(rowIndex)
+    if row = invalid then return
+    item = row.getChild(itemIndex)
+    if item = invalid then return
+
+    ' Update backdrop with focused item's image
+    if item.itemJson <> invalid and item.itemJson <> ""
+        itemData = ParseJSON(item.itemJson)
+        if itemData <> invalid
+            itemId = ""
+            if itemData.Id <> invalid then itemId = itemData.Id
+            if itemId <> ""
+                ' Try backdrop first, fall back to primary
+                if itemData.BackdropImageTags <> invalid and itemData.BackdropImageTags.count() > 0
+                    m.backdrop.uri = ImageUrl.backdrop(itemId, 960)
+                else if itemData.ParentBackdropItemId <> invalid
+                    m.backdrop.uri = ImageUrl.backdrop(itemData.ParentBackdropItemId, 960)
+                else if itemData.ImageTags <> invalid and itemData.ImageTags.Primary <> invalid
+                    m.backdrop.uri = ImageUrl.primary(itemId, 960)
+                else if itemData.SeriesId <> invalid
+                    m.backdrop.uri = ImageUrl.backdrop(itemData.SeriesId, 960)
+                end if
+            end if
         end if
     end if
 end sub

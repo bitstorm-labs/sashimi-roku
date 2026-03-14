@@ -1,0 +1,39 @@
+sub init()
+    m.posterImage = m.top.findNode("posterImage")
+    m.dimOverlay = m.top.findNode("dimOverlay")
+    m.focusBorder = m.top.findNode("focusBorder")
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.subtitleLabel = m.top.findNode("subtitleLabel")
+end sub
+
+sub onItemContentChanged()
+    content = m.top.itemContent
+    if content = invalid then return
+
+    if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
+        m.posterImage.uri = content.HDPosterUrl
+    end if
+
+    if content.shortDescriptionLine1 <> invalid
+        m.titleLabel.text = content.shortDescriptionLine1
+    else if content.title <> invalid
+        m.titleLabel.text = content.title
+    end if
+
+    if content.shortDescriptionLine2 <> invalid
+        m.subtitleLabel.text = content.shortDescriptionLine2
+    end if
+end sub
+
+sub onFocusChanged()
+    fp = m.top.focusPercent
+    scale = 1.0 + (fp * 0.08)
+    m.posterImage.scale = [scale, scale]
+    m.dimOverlay.opacity = 0.3 - (fp * 0.3)
+    m.focusBorder.opacity = fp * 0.6
+    if fp > 0.5
+        m.titleLabel.color = "0xFFFFFFFF"
+    else
+        m.titleLabel.color = "0xAAAAAAFF"
+    end if
+end sub

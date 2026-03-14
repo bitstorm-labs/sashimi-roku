@@ -9,7 +9,7 @@
         <!-- Background -->
         <Rectangle width="1920" height="1080" color="#0e0e1a" />
 
-        <!-- Backdrop image — full screen, heavily dimmed -->
+        <!-- Full-screen backdrop -->
         <Poster
             id="backdropImage"
             width="1920"
@@ -17,23 +17,24 @@
             loadWidth="960"
             loadHeight="540"
             loadDisplayMode="scaleToZoom"
-            opacity="0.25"
+            opacity="0.2"
         />
-        <!-- Dark gradient overlay from left (content area) to right (image area) -->
-        <Rectangle id="backdropGradient" width="1100" height="1080" color="#0e0e1a" opacity="0.7" />
+        <!-- Strong left gradient for text readability -->
+        <Rectangle width="900" height="1080" color="#0e0e1a" opacity="0.85" />
+        <Rectangle width="400" height="1080" color="#0e0e1a" opacity="0.4" translation="[900, 0]" />
 
-        <!-- Poster image — left side -->
+        <!-- Poster -->
         <Poster
             id="posterImage"
-            translation="[96, 100]"
-            width="280"
-            height="420"
-            loadWidth="280"
-            loadHeight="420"
+            translation="[96, 80]"
+            width="320"
+            height="480"
+            loadWidth="320"
+            loadHeight="480"
             loadDisplayMode="scaleToZoom"
         />
 
-        <!-- Content area — right of poster -->
+        <!-- Title area -->
         <Label
             id="titleLabel"
             text=""
@@ -41,7 +42,7 @@
             color="#FFFFFF"
             width="1400"
             maxLines="2"
-            translation="[420, 100]"
+            translation="[460, 80]"
         />
         <Label
             id="subtitleLabel"
@@ -49,60 +50,60 @@
             font="font:MediumSystemFont"
             color="#AAAAAA"
             width="1400"
-            translation="[420, 180]"
+            translation="[460, 165]"
         />
         <Label
             id="metadataLabel"
             text=""
             font="font:SmallSystemFont"
-            color="#888888"
+            color="#777777"
             width="1400"
-            translation="[420, 225]"
+            translation="[460, 210]"
         />
         <Label
             id="overviewLabel"
             text=""
             font="font:SmallSystemFont"
             color="#BBBBBB"
-            width="1100"
-            maxLines="5"
+            width="1050"
+            maxLines="6"
             wrap="true"
-            translation="[420, 270]"
+            translation="[460, 260]"
         />
 
-        <!-- Action buttons — horizontal row below content -->
+        <!-- Action buttons -->
         <ButtonGroup
             id="actionButtons"
-            translation="[420, 430]"
-            minWidth="220"
-            buttonHeight="56"
+            translation="[460, 440]"
+            minWidth="200"
+            buttonHeight="52"
             itemSpacings="[12]"
             layoutDirection="horiz"
             textFont="font:SmallSystemFont"
             focusedTextFont="font:SmallBoldSystemFont"
-            textColor="#AAAAAA"
+            textColor="#888888"
             focusedTextColor="#FFFFFF"
             focusBitmapUri="pkg:/images/button_focus.png"
             focusFootprintBitmapUri="pkg:/images/button_unfocus.png"
         />
 
-        <!-- Related content rows — bottom section -->
+        <!-- Related content -->
         <RowList
             id="relatedContent"
             translation="[96, 530]"
-            itemSize="[1728, 400]"
+            itemSize="[1728, 410]"
             numRows="2"
-            itemSpacing="[0, 20]"
-            rowItemSize="[[240, 380]]"
-            rowItemSpacing="[[24, 0]]"
+            itemSpacing="[0, 10]"
+            rowItemSize="[[240, 390]]"
+            rowItemSpacing="[[20, 0]]"
             showRowLabel="[true]"
             showRowCounter="[false]"
+            drawFocusFeedback="false"
             rowLabelFont="font:MediumBoldSystemFont"
             rowLabelColor="#FFFFFF"
-            rowLabelOffset="[[0, 10]]"
+            rowLabelOffset="[[0, 8]]"
             rowFocusAnimationStyle="fixedFocusWrap"
-            focusBitmapUri=""
-            focusFootprintBitmapUri=""
+            itemComponentName="HomeItem"
             visible="false"
         />
 
@@ -111,7 +112,7 @@
             id="loadingLabel"
             text="Loading..."
             font="font:MediumSystemFont"
-            color="#888888"
+            color="#666666"
             horizAlign="center"
             width="1920"
             translation="[0, 480]"

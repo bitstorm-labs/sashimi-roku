@@ -1,0 +1,60 @@
+sub init()
+    m.posterImage = m.top.findNode("posterImage")
+    m.dimOverlay = m.top.findNode("dimOverlay")
+    m.focusBorder = m.top.findNode("focusBorder")
+    m.progressBg = m.top.findNode("progressBg")
+    m.progressBar = m.top.findNode("progressBar")
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.subtitleLabel = m.top.findNode("subtitleLabel")
+end sub
+
+sub onItemContentChanged()
+    content = m.top.itemContent
+    if content = invalid then return
+
+    ' Set poster
+    if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
+        m.posterImage.uri = content.HDPosterUrl
+    end if
+
+    ' Set title
+    if content.title <> invalid
+        m.titleLabel.text = content.title
+    end if
+
+    ' Set subtitle
+    if content.description <> invalid
+        m.subtitleLabel.text = content.description
+    end if
+
+    ' Check for progress data stored in custom fields
+    if content.doesExist("playedPercentage")
+        pct = content.playedPercentage
+        if pct > 0 and pct < 100
+            m.progressBg.visible = true
+            m.progressBar.visible = true
+            m.progressBar.width = 240 * (pct / 100.0)
+        end if
+    end if
+end sub
+
+sub onFocusChanged()
+    fp = m.top.focusPercent
+
+    ' Scale poster from 1.0 to 1.08 on focus
+    scale = 1.0 + (fp * 0.08)
+    m.posterImage.scale = [scale, scale]
+
+    ' Fade dim overlay from 0.3 to 0.0 on focus
+    m.dimOverlay.opacity = 0.3 - (fp * 0.3)
+
+    ' Show focus border
+    m.focusBorder.opacity = fp * 0.6
+
+    ' Brighten title on focus
+    if fp > 0.5
+        m.titleLabel.color = "0xFFFFFFFF"
+    else
+        m.titleLabel.color = "0xAAAAAAFF"
+    end if
+end sub

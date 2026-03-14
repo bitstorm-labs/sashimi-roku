@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="HomeItem" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="onItemContentChanged" />
+        <field id="focusPercent" type="float" onChange="onFocusChanged" />
+    </interface>
+    <children>
+        <!-- Dim overlay (fades out on focus) -->
+        <Rectangle id="dimOverlay" width="240" height="360" color="#000000" opacity="0.3" />
+        <!-- Poster image -->
+        <Poster
+            id="posterImage"
+            width="240"
+            height="360"
+            loadWidth="240"
+            loadHeight="360"
+            loadDisplayMode="scaleToZoom"
+            scaleRotateCenter="[120, 180]"
+        />
+        <!-- Focus border -->
+        <Rectangle id="focusBorder" width="244" height="364" translation="[-2, -2]" color="#FFFFFF" opacity="0.0" />
+        <!-- Progress bar -->
+        <Rectangle id="progressBg" translation="[0, 352]" width="240" height="8" color="#333333" visible="false" />
+        <Rectangle id="progressBar" translation="[0, 352]" width="0" height="8" color="#00CC66" visible="false" />
+        <!-- Title -->
+        <Label
+            id="titleLabel"
+            text=""
+            font="font:SmallestSystemFont"
+            color="#AAAAAA"
+            width="240"
+            maxLines="1"
+            ellipsizeOnBoundary="true"
+            translation="[0, 366]"
+        />
+        <!-- Subtitle -->
+        <Label
+            id="subtitleLabel"
+            text=""
+            font="font:SmallestSystemFont"
+            color="#666666"
+            width="240"
+            maxLines="1"
+            ellipsizeOnBoundary="true"
+            translation="[0, 386]"
+        />
+    </children>
+</component>

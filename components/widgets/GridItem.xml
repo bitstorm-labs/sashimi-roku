@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="GridItem" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="onItemContentChanged" />
+        <field id="focusPercent" type="float" onChange="onFocusChanged" />
+    </interface>
+    <children>
+        <Rectangle id="dimOverlay" width="210" height="315" color="#000000" opacity="0.3" />
+        <Poster
+            id="posterImage"
+            width="210"
+            height="315"
+            loadWidth="210"
+            loadHeight="315"
+            loadDisplayMode="scaleToZoom"
+            scaleRotateCenter="[105, 157]"
+        />
+        <Rectangle id="focusBorder" width="214" height="319" translation="[-2, -2]" color="#FFFFFF" opacity="0.0" />
+        <Label
+            id="titleLabel"
+            text=""
+            font="font:SmallestSystemFont"
+            color="#AAAAAA"
+            width="210"
+            maxLines="2"
+            ellipsizeOnBoundary="true"
+            translation="[0, 320]"
+        />
+        <Label
+            id="subtitleLabel"
+            text=""
+            font="font:SmallestSystemFont"
+            color="#666666"
+            width="210"
+            maxLines="1"
+            translation="[0, 350]"
+        />
+    </children>
+</component>

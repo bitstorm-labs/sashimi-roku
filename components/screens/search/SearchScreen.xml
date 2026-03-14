@@ -33,18 +33,15 @@
         />
 
         <!-- Results grid (right area) -->
-        <PosterGrid
+        <MarkupGrid
             id="resultsGrid"
             translation="[570, 120]"
-            basePosterSize="[210, 315]"
-            itemSpacing="[30, 60]"
+            itemSize="[240, 380]"
+            itemSpacing="[30, 40]"
             numColumns="5"
             numRows="3"
-            caption1NumLines="2"
-            caption1Font="font:SmallestSystemFont"
-            caption1Color="#CCCCCC"
-            caption2Font="font:SmallestSystemFont"
-            caption2Color="#888888"
+            drawFocusFeedback="false"
+            itemComponentName="GridItem"
             visible="false"
         />
 

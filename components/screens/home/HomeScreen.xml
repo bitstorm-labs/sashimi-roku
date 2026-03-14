@@ -9,42 +9,55 @@
         <!-- Background -->
         <Rectangle width="1920" height="1080" color="#0e0e1a" />
 
-        <!-- Header bar -->
-        <Rectangle id="headerBg" width="1920" height="90" color="#101420" />
+        <!-- Dynamic backdrop (updates with focused item) -->
+        <Poster
+            id="backdrop"
+            width="1920"
+            height="1080"
+            loadWidth="960"
+            loadHeight="540"
+            loadDisplayMode="scaleToZoom"
+            opacity="0.15"
+        />
+        <!-- Left gradient for readability -->
+        <Rectangle width="800" height="1080" color="#0e0e1a" opacity="0.8" />
+
+        <!-- Header -->
+        <Rectangle id="headerBg" width="1920" height="80" color="#0e0e1a" opacity="0.85" />
         <Label
             id="headerTitle"
             text="Sashimi"
             font="font:LargeBoldSystemFont"
             color="#FFFFFF"
-            translation="[96, 18]"
+            translation="[96, 14]"
         />
         <Label
             id="headerUser"
             text=""
             font="font:SmallSystemFont"
-            color="#666666"
+            color="#555555"
             horizAlign="right"
             width="1728"
-            translation="[96, 30]"
+            translation="[96, 28]"
         />
 
-        <!-- Main content rows -->
+        <!-- Content rows -->
         <RowList
             id="rowList"
-            translation="[96, 120]"
-            itemSize="[1728, 420]"
+            translation="[96, 95]"
+            itemSize="[1728, 430]"
             numRows="3"
-            itemSpacing="[0, 30]"
-            focusBitmapUri=""
-            focusFootprintBitmapUri=""
-            rowItemSize="[[240, 400]]"
-            rowItemSpacing="[[24, 0]]"
+            itemSpacing="[0, 10]"
+            rowItemSize="[[240, 410]]"
+            rowItemSpacing="[[20, 0]]"
             showRowLabel="[true]"
             showRowCounter="[false]"
+            drawFocusFeedback="false"
             rowLabelFont="font:MediumBoldSystemFont"
             rowLabelColor="#FFFFFF"
-            rowLabelOffset="[[0, 10]]"
+            rowLabelOffset="[[0, 8]]"
             rowFocusAnimationStyle="fixedFocusWrap"
+            itemComponentName="HomeItem"
             visible="false"
         />
 
@@ -53,10 +66,10 @@
             id="loadingLabel"
             text="Loading your library..."
             font="font:MediumSystemFont"
-            color="#888888"
+            color="#666666"
             horizAlign="center"
             width="1920"
-            translation="[0, 480]"
+            translation="[0, 500]"
             visible="true"
         />
 
@@ -65,10 +78,10 @@
             id="emptyLabel"
             text=""
             font="font:MediumSystemFont"
-            color="#888888"
+            color="#666666"
             horizAlign="center"
             width="1920"
-            translation="[0, 480]"
+            translation="[0, 500]"
             visible="false"
         />
 
