@@ -35,11 +35,8 @@
             />
             <Rectangle id="circularDim" width="180" height="180" color="#000000" opacity="0.2" />
         </MaskGroup>
-        <!-- Circular focus ring (for YouTube items) -->
-        <MaskGroup id="circularFocusRing" maskUri="pkg:/images/circle_mask.png" maskSize="[190, 190]"
-                   translation="[-5, -5]" visible="false">
-            <Rectangle width="190" height="190" color="#5BADE6" opacity="0.0" />
-        </MaskGroup>
+        <!-- Circular focus glow (subtle background circle) -->
+        <Rectangle id="circularGlow" width="190" height="190" translation="[-5, -5]" color="#5BADE6" opacity="0.0" visible="false" />
         <!-- Rectangular focus border -->
         <Rectangle id="focusTop" width="200" height="4" color="#5BADE6" opacity="0.0" />
         <Rectangle id="focusBottom" width="200" height="4" color="#5BADE6" opacity="0.0" translation="[0, 296]" />

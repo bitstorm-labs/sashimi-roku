@@ -19,10 +19,14 @@ sub init()
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
 
-    ' User avatar
-    m.headerAvatar = m.top.findNode("headerAvatar")
-    avatarUrl = m.global.serverUrl + "/Users/" + m.global.userId + "/Images/Primary?maxWidth=100&quality=90&autoOrient=true"
-    m.headerAvatar.uri = avatarUrl
+    ' User avatar - show initial
+    m.avatarLabel = m.top.findNode("avatarLabel")
+    userName = Registry.getUserName()
+    if userName <> "" and userName <> invalid
+        m.avatarLabel.text = UCase(Left(userName, 1))
+    else
+        m.avatarLabel.text = "?"
+    end if
 
     ' Observe row selection
     m.rowList.observeFieldScoped("rowItemSelected", "onRowItemSelected")
@@ -116,11 +120,6 @@ sub onNextUpLoaded(response as object)
 
     m.rowContent = CreateObject("roSGNode", "ContentNode")
     m.heroRowIndex = invalid
-
-    ' Add hero row with featured items from Continue Watching
-    if m.continueWatchingItems.count() > 0
-        addHeroRow()
-    end if
 
     if m.continueWatchingItems.count() > 0
         addContinueWatchingRow(m.continueWatchingItems)
@@ -386,11 +385,7 @@ sub showRows()
     itemSpacings = []
     for i = 0 to rowCount - 1
         iKey = str(i).Trim()
-        if m.heroRowIndex <> invalid and i = m.heroRowIndex
-            ' Hero row: very wide, tall items
-            itemSizes.push([1600, 420])
-            itemSpacings.push([30, 0])
-        else if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
+        if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
             ' Continue Watching: wide landscape items (400x225 image + labels)
             itemSizes.push([400, 290])
             itemSpacings.push([30, 0])

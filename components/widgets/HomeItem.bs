@@ -5,7 +5,7 @@ sub init()
     m.circularMask = m.top.findNode("circularMask")
     m.circularPoster = m.top.findNode("circularPoster")
     m.circularDim = m.top.findNode("circularDim")
-    m.circularFocusRing = m.top.findNode("circularFocusRing")
+    m.circularGlow = m.top.findNode("circularGlow")
     m.dimOverlay = m.top.findNode("dimOverlay")
     m.focusTop = m.top.findNode("focusTop")
     m.focusBottom = m.top.findNode("focusBottom")
@@ -89,9 +89,9 @@ sub onSizeChanged()
     m.progressBg.translation = [0, m.posterHeight - 5]
     m.progressBar.translation = [0, m.posterHeight - 5]
     m.titleLabel.width = w
-    m.titleLabel.translation = [0, m.posterHeight + 8]
+    m.titleLabel.translation = [0, m.posterHeight + 10]
     m.subtitleLabel.width = w
-    m.subtitleLabel.translation = [0, m.posterHeight + 26]
+    m.subtitleLabel.translation = [0, m.posterHeight + 32]
 end sub
 
 sub onItemContentChanged()
@@ -116,7 +116,7 @@ sub onItemContentChanged()
     if m.isCircular
         m.posterMask.visible = false
         m.circularMask.visible = true
-        m.circularFocusRing.visible = true
+        m.circularGlow.visible = true
         m.cardBg.visible = false
         m.focusTop.visible = false
         m.focusBottom.visible = false
@@ -131,7 +131,7 @@ sub onItemContentChanged()
     else
         m.posterMask.visible = true
         m.circularMask.visible = false
-        m.circularFocusRing.visible = false
+        m.circularGlow.visible = false
         m.cardBg.visible = true
         m.focusTop.visible = true
         m.focusBottom.visible = true
@@ -194,17 +194,14 @@ sub onFocusChanged()
     fp = m.top.focusPercent
 
     if m.isCircular
-        scale = 1.0 + (fp * 0.08)
+        scale = 1.0 + (fp * 0.1)
         m.circularMask.scale = [scale, scale]
         m.circularDim.opacity = 0.2 - (fp * 0.2)
-        ' Circular focus ring
-        ringNode = m.circularFocusRing.getChild(0)
-        if ringNode <> invalid
-            if fp > 0.1
-                ringNode.opacity = fp * 0.8
-            else
-                ringNode.opacity = 0.0
-            end if
+        ' Glow behind circle
+        if fp > 0.1
+            m.circularGlow.opacity = fp * 0.4
+        else
+            m.circularGlow.opacity = 0.0
         end if
     else if m.isHero
         m.dimOverlay.opacity = 0.2 - (fp * 0.15)
@@ -242,8 +239,7 @@ sub onRowFocusChanged()
         m.dimOverlay.opacity = 0.4
         if m.isCircular
             m.circularDim.opacity = 0.3
-            ringNode = m.circularFocusRing.getChild(0)
-            if ringNode <> invalid then ringNode.opacity = 0.0
+            m.circularGlow.opacity = 0.0
         end if
         m.titleLabel.color = "0x888888FF"
         m.subtitleLabel.color = "0x444444FF"
