@@ -117,6 +117,7 @@ sub onItemContentChanged()
         m.posterMask.visible = false
         m.circularMask.visible = true
         m.circularGlow.visible = true
+        m.circularGlow.opacity = 0.0
         m.cardBg.visible = false
         m.focusTop.visible = false
         m.focusBottom.visible = false
@@ -126,7 +127,12 @@ sub onItemContentChanged()
             m.circularPoster.uri = content.HDPosterUrl
         end if
         m.titleLabel.horizAlign = "center"
-        m.titleLabel.translation = [0, 188]
+        m.titleLabel.translation = [0, 190]
+        ' Use smaller font for circular titles
+        smallFont = CreateObject("roSGNode", "Font")
+        smallFont.uri = "font:SystemFontFile"
+        smallFont.size = 18
+        m.titleLabel.font = smallFont
         m.subtitleLabel.visible = false
     else
         m.posterMask.visible = true
@@ -194,15 +200,17 @@ sub onFocusChanged()
     fp = m.top.focusPercent
 
     if m.isCircular
-        scale = 1.0 + (fp * 0.1)
-        m.circularMask.scale = [scale, scale]
-        m.circularDim.opacity = 0.2 - (fp * 0.2)
-        ' Glow behind circle
-        if fp > 0.1
-            m.circularGlow.opacity = fp * 0.4
+        ' No scale — just glow ring + title color change
+        m.circularDim.opacity = 0.25 - (fp * 0.25)
+        ' Glow ring behind circle
+        m.circularGlow.opacity = fp * 0.9
+        ' Title stays white on focus (not blue)
+        if fp > 0.5
+            m.titleLabel.color = "0xFFFFFFFF"
         else
-            m.circularGlow.opacity = 0.0
+            m.titleLabel.color = "0xAAAAAAFF"
         end if
+        return
     else if m.isHero
         m.dimOverlay.opacity = 0.2 - (fp * 0.15)
     else

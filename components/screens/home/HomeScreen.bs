@@ -344,7 +344,15 @@ sub addRow(title as string, items as object, isYouTube = false as boolean)
             child.isCircular = true
             if item.SeriesId <> invalid and item.SeriesId <> ""
                 child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 200)
-                if item.SeriesName <> invalid then child.title = item.SeriesName
+                if item.SeriesName <> invalid
+                    ' Clean YouTube channel names: strip " - Videos", " - Shorts", etc.
+                    channelName = item.SeriesName
+                    dashPos = Instr(1, channelName, " - ")
+                    if dashPos > 0
+                        channelName = Left(channelName, dashPos - 1)
+                    end if
+                    child.title = channelName
+                end if
             else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
                 child.HDPosterUrl = ImageUrl.primary(itemId, 200)
             end if
