@@ -61,7 +61,7 @@
             rowLabelFont="font:MediumBoldSystemFont"
             rowLabelColor="#FFFFFF"
             rowLabelOffset="[[0, 12]]"
-            rowFocusAnimationStyle="fixedFocusWrap"
+            rowFocusAnimationStyle="fixedFocus"
             itemComponentName="HomeItem"
             visible="false"
         />

@@ -1,10 +1,13 @@
 sub init()
     m.cardBg = m.top.findNode("cardBg")
-    m.focusRing = m.top.findNode("focusRing")
     m.posterImage = m.top.findNode("posterImage")
     m.circularMask = m.top.findNode("circularMask")
     m.circularPoster = m.top.findNode("circularPoster")
     m.dimOverlay = m.top.findNode("dimOverlay")
+    m.focusTop = m.top.findNode("focusTop")
+    m.focusBottom = m.top.findNode("focusBottom")
+    m.focusLeft = m.top.findNode("focusLeft")
+    m.focusRight = m.top.findNode("focusRight")
     m.progressBg = m.top.findNode("progressBg")
     m.progressBar = m.top.findNode("progressBar")
     m.titleLabel = m.top.findNode("titleLabel")
@@ -27,12 +30,10 @@ sub onSizeChanged()
     if m.isCircular then return
 
     if w > 800
-        ' Hero mode
         m.isHero = true
         m.posterHeight = 380
         m.titleLabel.visible = false
         m.subtitleLabel.visible = false
-        m.focusRing.visible = false
         m.heroGradient.visible = true
         m.heroGradient.width = w
         m.heroGradient.height = 180
@@ -45,7 +46,6 @@ sub onSizeChanged()
         m.heroSubtitleLabel.translation = [40, m.posterHeight - 50]
         m.heroSubtitleLabel.width = w * 0.5
     else if w > 250
-        ' Landscape (Continue Watching)
         m.isHero = false
         m.posterHeight = Int(w * 0.5625)
         m.heroGradient.visible = false
@@ -53,7 +53,6 @@ sub onSizeChanged()
         m.heroSubtitleLabel.visible = false
         m.titleLabel.visible = true
     else
-        ' Portrait
         m.isHero = false
         m.posterHeight = Int(w * 1.5)
         m.heroGradient.visible = false
@@ -64,9 +63,6 @@ sub onSizeChanged()
 
     m.cardBg.width = w
     m.cardBg.height = m.posterHeight
-    m.focusRing.width = w + 6
-    m.focusRing.height = m.posterHeight + 6
-    m.focusRing.translation = [-3, -3]
     m.dimOverlay.width = w
     m.dimOverlay.height = m.posterHeight
     m.posterImage.width = w
@@ -74,9 +70,18 @@ sub onSizeChanged()
     m.posterImage.loadWidth = w
     m.posterImage.loadHeight = m.posterHeight
     m.posterImage.scaleRotateCenter = [w / 2, m.posterHeight / 2]
+    ' Focus border edges
+    m.focusTop.width = w
+    m.focusBottom.width = w
+    m.focusBottom.translation = [0, m.posterHeight - 4]
+    m.focusLeft.height = m.posterHeight
+    m.focusRight.height = m.posterHeight
+    m.focusRight.translation = [w - 4, 0]
+    ' Progress bar
     m.progressBg.width = w
     m.progressBg.translation = [0, m.posterHeight - 6]
     m.progressBar.translation = [0, m.posterHeight - 6]
+    ' Title
     m.titleLabel.width = w
     m.titleLabel.translation = [0, m.posterHeight + 10]
     m.subtitleLabel.width = w
@@ -97,7 +102,11 @@ sub onItemContentChanged()
         m.circularMask.visible = true
         m.cardBg.visible = false
         m.dimOverlay.visible = false
-        m.focusRing.visible = false
+        ' Hide focus edges for circular
+        m.focusTop.visible = false
+        m.focusBottom.visible = false
+        m.focusLeft.visible = false
+        m.focusRight.visible = false
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.circularPoster.uri = content.HDPosterUrl
         end if
@@ -111,9 +120,6 @@ sub onItemContentChanged()
         m.circularMask.visible = false
         m.cardBg.visible = true
         m.dimOverlay.visible = true
-        if not m.isHero
-            m.focusRing.visible = true
-        end if
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.posterImage.uri = content.HDPosterUrl
         end if
@@ -171,10 +177,11 @@ sub onFocusChanged()
         scale = 1.0 + (fp * 0.05)
         m.posterImage.scale = [scale, scale]
         m.dimOverlay.opacity = 0.25 - (fp * 0.25)
-        ' Focus ring: make visible by setting opacity
-        if m.focusRing.visible
-            m.focusRing.opacity = fp
-        end if
+        ' Focus border edges
+        m.focusTop.opacity = fp
+        m.focusBottom.opacity = fp
+        m.focusLeft.opacity = fp
+        m.focusRight.opacity = fp
     end if
 
     if fp > 0.5

@@ -7,11 +7,9 @@
         <field id="height" type="float" onChange="onSizeChanged" />
     </interface>
     <children>
-        <!-- Layer 1: Focus ring (largest, behind everything) -->
-        <Rectangle id="focusRing" width="206" height="306" translation="[-3, -3]" color="#5BADE6" visible="false" />
-        <!-- Layer 2: Card background (shows while image loads) -->
-        <Rectangle id="cardBg" width="200" height="300" color="#1a1a2a" />
-        <!-- Layer 3: Poster image -->
+        <!-- Card background -->
+        <Rectangle id="cardBg" width="200" height="300" color="#121215" />
+        <!-- Poster image -->
         <Poster
             id="posterImage"
             width="200"
@@ -21,7 +19,7 @@
             loadDisplayMode="scaleToZoom"
             scaleRotateCenter="[100, 150]"
         />
-        <!-- Layer 3b: Circular poster (YouTube, hidden by default) -->
+        <!-- Circular poster (YouTube channels) -->
         <MaskGroup id="circularMask" maskUri="pkg:/images/circle_mask.png" maskSize="[180, 180]" visible="false">
             <Poster
                 id="circularPoster"
@@ -32,16 +30,21 @@
                 loadDisplayMode="scaleToZoom"
             />
         </MaskGroup>
-        <!-- Layer 4: Dim overlay on poster -->
+        <!-- Dim overlay -->
         <Rectangle id="dimOverlay" width="200" height="300" color="#000000" opacity="0.25" />
-        <!-- Layer 5: Progress bar at bottom of poster -->
+        <!-- Focus border (4 edge rectangles rendered ON TOP of poster) -->
+        <Rectangle id="focusTop" width="200" height="4" color="#5BADE6" opacity="0.0" />
+        <Rectangle id="focusBottom" width="200" height="4" color="#5BADE6" opacity="0.0" translation="[0, 296]" />
+        <Rectangle id="focusLeft" width="4" height="300" color="#5BADE6" opacity="0.0" />
+        <Rectangle id="focusRight" width="4" height="300" color="#5BADE6" opacity="0.0" translation="[196, 0]" />
+        <!-- Progress bar -->
         <Rectangle id="progressBg" translation="[0, 294]" width="200" height="6" color="#333333" visible="false" />
         <Rectangle id="progressBar" translation="[0, 294]" width="0" height="6" color="#5BADE6" visible="false" />
-        <!-- Layer 6: Hero gradient + text (hidden by default) -->
+        <!-- Hero overlay -->
         <Rectangle id="heroGradient" width="700" height="180" color="#121215" opacity="0.0" visible="false" />
         <Label id="heroTitleLabel" text="" font="font:LargeBoldSystemFont" color="#FFFFFF" width="600" maxLines="2" visible="false" />
         <Label id="heroSubtitleLabel" text="" font="font:SmallSystemFont" color="#BBBBBB" width="600" maxLines="1" visible="false" />
-        <!-- Layer 7: Title and subtitle below poster -->
+        <!-- Title and subtitle below poster -->
         <Label
             id="titleLabel"
             text=""

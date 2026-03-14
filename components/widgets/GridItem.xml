@@ -6,8 +6,9 @@
     </interface>
     <children>
         <!-- Focus ring (behind poster, slightly larger) -->
-        <Rectangle id="focusRing" width="216" height="321" translation="[-3, -3]" color="#5BADE6" opacity="0.0" />
-        <Rectangle id="dimOverlay" width="210" height="315" color="#000000" opacity="0.3" />
+        <Rectangle id="focusRing" width="220" height="325" translation="[-5, -5]" color="#5BADE6" opacity="0.0" />
+        <Rectangle id="cardBg" width="210" height="315" color="#121215" />
+        <Rectangle id="dimOverlay" width="210" height="315" color="#000000" opacity="0.25" />
         <Poster
             id="posterImage"
             width="210"
@@ -20,8 +21,8 @@
         <Label
             id="titleLabel"
             text=""
-            font="font:SmallSystemFont"
-            color="#AAAAAA"
+            font="font:SmallestBoldSystemFont"
+            color="#BBBBBB"
             width="210"
             maxLines="2"
             ellipsizeOnBoundary="true"

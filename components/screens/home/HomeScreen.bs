@@ -21,7 +21,7 @@ sub init()
 
     ' User avatar
     m.headerAvatar = m.top.findNode("headerAvatar")
-    avatarUrl = m.global.serverUrl + "/Users/" + m.global.userId + "/Images/Primary?maxWidth=70"
+    avatarUrl = m.global.serverUrl + "/Users/" + m.global.userId + "/Images/Primary?maxWidth=100&format=Png"
     m.headerAvatar.uri = avatarUrl
 
     ' Observe row selection
