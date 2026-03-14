@@ -9,9 +9,13 @@ sub init()
     m.progressBar = m.top.findNode("progressBar")
     m.titleLabel = m.top.findNode("titleLabel")
     m.subtitleLabel = m.top.findNode("subtitleLabel")
-    m.itemWidth = 180
-    m.posterHeight = 270
+    m.heroGradient = m.top.findNode("heroGradient")
+    m.heroTitleLabel = m.top.findNode("heroTitleLabel")
+    m.heroSubtitleLabel = m.top.findNode("heroSubtitleLabel")
+    m.itemWidth = 200
+    m.posterHeight = 300
     m.isCircular = false
+    m.isHero = false
 end sub
 
 sub onSizeChanged()
@@ -23,13 +27,48 @@ sub onSizeChanged()
     ' Skip resize if circular — fixed 180x180
     if m.isCircular then return
 
-    ' Determine if wide (landscape) or portrait based on aspect ratio
-    if w > 250
+    if w > 800
+        ' Hero mode: large landscape banner with text overlay
+        m.isHero = true
+        m.posterHeight = 380
+
+        ' Hide regular title/subtitle labels
+        m.titleLabel.visible = false
+        m.subtitleLabel.visible = false
+
+        ' Show hero elements
+        m.heroGradient.visible = true
+        m.heroGradient.width = 700
+        m.heroGradient.height = 200
+        m.heroGradient.translation = [0, m.posterHeight - 200]
+        m.heroGradient.opacity = 0.8
+
+        m.heroTitleLabel.visible = true
+        m.heroTitleLabel.translation = [40, m.posterHeight - 140]
+        m.heroTitleLabel.width = 600
+
+        m.heroSubtitleLabel.visible = true
+        m.heroSubtitleLabel.translation = [40, m.posterHeight - 60]
+        m.heroSubtitleLabel.width = 600
+
+        ' Hide focus ring for hero items
+        m.focusRing.visible = false
+    else if w > 250
         ' Wide/landscape item (Continue Watching)
+        m.isHero = false
         m.posterHeight = w * 0.5625  ' 16:9 ratio
+        m.heroGradient.visible = false
+        m.heroTitleLabel.visible = false
+        m.heroSubtitleLabel.visible = false
+        m.titleLabel.visible = true
     else
         ' Portrait poster
+        m.isHero = false
         m.posterHeight = w * 1.5  ' 2:3 ratio
+        m.heroGradient.visible = false
+        m.heroTitleLabel.visible = false
+        m.heroSubtitleLabel.visible = false
+        m.titleLabel.visible = true
     end if
 
     ' Resize all elements to match
@@ -85,7 +124,9 @@ sub onItemContentChanged()
         m.circularMask.visible = false
         m.cardBg.visible = true
         m.dimOverlay.visible = true
-        m.focusRing.visible = true
+        if not m.isHero
+            m.focusRing.visible = true
+        end if
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.posterImage.uri = content.HDPosterUrl
         end if
@@ -97,9 +138,26 @@ sub onItemContentChanged()
 
     if content.description <> invalid
         m.subtitleLabel.text = content.description
-        m.subtitleLabel.visible = not m.isCircular and content.description <> ""
+        m.subtitleLabel.visible = not m.isCircular and not m.isHero and content.description <> ""
     else
         m.subtitleLabel.visible = false
+    end if
+
+    ' Hero mode: set overlay text
+    if m.isHero
+        if content.doesExist("isHero") and content.isHero = true
+            heroTitle = ""
+            if content.description <> invalid and content.description <> ""
+                heroTitle = content.description
+            else if content.title <> invalid
+                heroTitle = content.title
+            end if
+            m.heroTitleLabel.text = heroTitle
+            m.heroSubtitleLabel.text = ""
+            if content.title <> invalid and content.title <> "" and content.title <> heroTitle
+                m.heroSubtitleLabel.text = content.title
+            end if
+        end if
     end if
 
     if not m.isCircular and content.doesExist("playedPercentage")
@@ -119,6 +177,11 @@ sub onFocusChanged()
 
     if m.isCircular
         m.circularMask.scale = [scale, scale]
+    else if m.isHero
+        ' Hero mode: subtle scale, brighten on focus
+        heroScale = 1.0 + (fp * 0.02)
+        m.posterImage.scale = [heroScale, heroScale]
+        m.dimOverlay.opacity = 0.2 - (fp * 0.15)
     else
         m.posterImage.scale = [scale, scale]
         m.dimOverlay.opacity = 0.3 - (fp * 0.3)

@@ -15,6 +15,7 @@ sub init()
     m.libraries = []
     m.continueWatchingItems = []
     m.rowContent = invalid
+    m.heroRowIndex = invalid
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
 
@@ -35,6 +36,7 @@ sub loadHomeData()
     m.rowList.visible = false
     m.emptyLabel.visible = false
     m.wideRowIndices = {}
+    m.heroRowIndex = invalid
     m.apiTask.request = { action: "getLibraryViews" }
 end sub
 
@@ -113,6 +115,12 @@ sub onNextUpLoaded(response as object)
     end if
 
     m.rowContent = CreateObject("roSGNode", "ContentNode")
+    m.heroRowIndex = invalid
+
+    ' Add hero row with featured items from Continue Watching
+    if m.continueWatchingItems.count() > 0
+        addHeroRow()
+    end if
 
     if m.continueWatchingItems.count() > 0
         addContinueWatchingRow(m.continueWatchingItems)
@@ -148,6 +156,52 @@ sub onLatestMediaLoaded(response as object)
     else
         showRows()
     end if
+end sub
+
+sub addHeroRow()
+    if m.rowContent = invalid then return
+
+    m.heroRowIndex = m.rowContent.getChildCount()
+    row = m.rowContent.createChild("ContentNode")
+    row.title = ""  ' No label for hero row
+
+    ' Add first few continue watching items as hero items
+    maxHero = 5
+    if maxHero > m.continueWatchingItems.count() then maxHero = m.continueWatchingItems.count()
+
+    for i = 0 to maxHero - 1
+        item = m.continueWatchingItems[i]
+        child = row.createChild("ContentNode")
+
+        child.title = ""
+        if item.Name <> invalid then child.title = item.Name
+
+        ' Description used for the series/movie name on the hero
+        description = ""
+        if item.SeriesName <> invalid and item.SeriesName <> ""
+            description = item.SeriesName
+        else if item.Name <> invalid
+            description = item.Name
+        end if
+        child.description = description
+
+        ' Use backdrop image for hero
+        itemId = ""
+        if item.Id <> invalid then itemId = item.Id
+        if item.ParentBackdropItemId <> invalid
+            child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 1200)
+        else if item.SeriesId <> invalid and item.SeriesId <> ""
+            child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 1200)
+        else if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
+            child.HDPosterUrl = ImageUrl.backdrop(itemId, 1200)
+        else if itemId <> ""
+            child.HDPosterUrl = ImageUrl.primary(itemId, 1200)
+        end if
+
+        child.addFields({ itemJson: "", isHero: false })
+        child.itemJson = FormatJSON(item)
+        child.isHero = true
+    end for
 end sub
 
 sub addContinueWatchingRow(items as object)
@@ -293,9 +347,9 @@ sub addRow(title as string, items as object, isYouTube = false as boolean)
             end if
         else if item.SeriesId <> invalid and item.SeriesId <> ""
             ' TV show episode: always use series poster
-            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 180)
+            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 200)
         else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primary(itemId, 180)
+            child.HDPosterUrl = ImageUrl.primary(itemId, 200)
         end if
 
         ' Store full item JSON for selection
@@ -319,13 +373,17 @@ sub showRows()
         return
     end if
 
-    ' Set per-row item sizes: wide for Continue Watching and YouTube, portrait for other library rows
+    ' Set per-row item sizes: hero for featured, wide for Continue Watching and YouTube, portrait for other library rows
     rowCount = m.rowContent.getChildCount()
     itemSizes = []
     itemSpacings = []
     for i = 0 to rowCount - 1
         iKey = str(i).Trim()
-        if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
+        if m.heroRowIndex <> invalid and i = m.heroRowIndex
+            ' Hero row: very wide, tall items
+            itemSizes.push([1600, 420])
+            itemSpacings.push([30, 0])
+        else if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
             ' Continue Watching: wide landscape items (400x225 image + labels)
             itemSizes.push([400, 290])
             itemSpacings.push([30, 0])
@@ -334,9 +392,9 @@ sub showRows()
             itemSizes.push([200, 230])
             itemSpacings.push([16, 0])
         else
-            ' Library rows: portrait posters (180x270 image + labels)
-            itemSizes.push([180, 330])
-            itemSpacings.push([30, 0])
+            ' Library rows: portrait posters
+            itemSizes.push([200, 360])
+            itemSpacings.push([20, 0])
         end if
     end for
     m.rowList.rowItemSize = itemSizes
