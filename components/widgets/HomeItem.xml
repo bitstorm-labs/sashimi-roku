@@ -8,43 +8,54 @@
     </interface>
     <children>
         <!-- Card background -->
-        <Rectangle id="cardBg" width="220" height="330" color="#181830" />
-        <!-- Dim overlay (fades out on focus) -->
-        <Rectangle id="dimOverlay" width="220" height="330" color="#000000" opacity="0.4" />
-        <!-- Poster image -->
+        <Rectangle id="cardBg" width="180" height="270" color="#181830" />
+        <!-- Standard poster (portrait/landscape) -->
         <Poster
             id="posterImage"
-            width="220"
-            height="330"
-            loadWidth="220"
-            loadHeight="330"
+            width="180"
+            height="270"
+            loadWidth="180"
+            loadHeight="270"
             loadDisplayMode="scaleToZoom"
-            scaleRotateCenter="[110, 165]"
+            scaleRotateCenter="[90, 135]"
         />
+        <!-- Circular poster (YouTube channels) -->
+        <MaskGroup id="circularMask" maskUri="pkg:/images/circle_mask.png" maskSize="[180, 180]" visible="false">
+            <Poster
+                id="circularPoster"
+                width="180"
+                height="180"
+                loadWidth="180"
+                loadHeight="180"
+                loadDisplayMode="scaleToZoom"
+            />
+        </MaskGroup>
+        <!-- Dim overlay -->
+        <Rectangle id="dimOverlay" width="180" height="270" color="#000000" opacity="0.3" />
         <!-- Progress bar -->
-        <Rectangle id="progressBg" translation="[0, 322]" width="220" height="8" color="#333333" visible="false" />
-        <Rectangle id="progressBar" translation="[0, 322]" width="0" height="8" color="#00CC66" visible="false" />
+        <Rectangle id="progressBg" translation="[0, 262]" width="180" height="6" color="#333333" visible="false" />
+        <Rectangle id="progressBar" translation="[0, 262]" width="0" height="6" color="#5BADE6" visible="false" />
         <!-- Title -->
         <Label
             id="titleLabel"
             text=""
             font="font:SmallestSystemFont"
             color="#AAAAAA"
-            width="220"
+            width="180"
             maxLines="2"
             ellipsizeOnBoundary="true"
-            translation="[0, 336]"
+            translation="[0, 276]"
         />
         <!-- Subtitle -->
         <Label
             id="subtitleLabel"
             text=""
             font="font:SmallestSystemFont"
-            color="#555555"
-            width="220"
+            color="#666666"
+            width="180"
             maxLines="1"
             ellipsizeOnBoundary="true"
-            translation="[0, 370]"
+            translation="[0, 306]"
         />
     </children>
 </component>

@@ -1,24 +1,29 @@
 sub init()
     m.cardBg = m.top.findNode("cardBg")
     m.posterImage = m.top.findNode("posterImage")
+    m.circularMask = m.top.findNode("circularMask")
+    m.circularPoster = m.top.findNode("circularPoster")
     m.dimOverlay = m.top.findNode("dimOverlay")
     m.progressBg = m.top.findNode("progressBg")
     m.progressBar = m.top.findNode("progressBar")
     m.titleLabel = m.top.findNode("titleLabel")
     m.subtitleLabel = m.top.findNode("subtitleLabel")
-    m.itemWidth = 220
-    m.posterHeight = 330
+    m.itemWidth = 180
+    m.posterHeight = 270
+    m.isCircular = false
 end sub
 
 sub onSizeChanged()
     w = m.top.width
     h = m.top.height
     if w = 0 or h = 0 then return
-
     m.itemWidth = w
 
+    ' Skip resize if circular — fixed 180x180
+    if m.isCircular then return
+
     ' Determine if wide (landscape) or portrait based on aspect ratio
-    if w > 300
+    if w > 250
         ' Wide/landscape item (Continue Watching)
         m.posterHeight = w * 0.5625  ' 16:9 ratio
     else
@@ -37,20 +42,47 @@ sub onSizeChanged()
     m.posterImage.loadHeight = m.posterHeight
     m.posterImage.scaleRotateCenter = [w / 2, m.posterHeight / 2]
     m.progressBg.width = w
-    m.progressBg.translation = [0, m.posterHeight - 8]
-    m.progressBar.translation = [0, m.posterHeight - 8]
+    m.progressBg.translation = [0, m.posterHeight - 6]
+    m.progressBar.translation = [0, m.posterHeight - 6]
     m.titleLabel.width = w
-    m.titleLabel.translation = [0, m.posterHeight + 6]
+    m.titleLabel.translation = [0, m.posterHeight + 8]
     m.subtitleLabel.width = w
-    m.subtitleLabel.translation = [0, m.posterHeight + 30]
+    m.subtitleLabel.translation = [0, m.posterHeight + 32]
 end sub
 
 sub onItemContentChanged()
     content = m.top.itemContent
     if content = invalid then return
 
-    if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
-        m.posterImage.uri = content.HDPosterUrl
+    ' Check if this is a circular YouTube item
+    m.isCircular = false
+    if content.doesExist("isCircular") and content.isCircular = true
+        m.isCircular = true
+    end if
+
+    if m.isCircular
+        ' Circular mode: show circular poster, hide standard
+        m.posterImage.visible = false
+        m.circularMask.visible = true
+        m.cardBg.visible = false
+        m.dimOverlay.visible = false
+        if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
+            m.circularPoster.uri = content.HDPosterUrl
+        end if
+        m.titleLabel.horizAlign = "center"
+        m.titleLabel.translation = [0, 188]
+        m.subtitleLabel.visible = false
+        m.progressBg.visible = false
+        m.progressBar.visible = false
+    else
+        ' Standard mode
+        m.posterImage.visible = true
+        m.circularMask.visible = false
+        m.cardBg.visible = true
+        m.dimOverlay.visible = true
+        if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
+            m.posterImage.uri = content.HDPosterUrl
+        end if
     end if
 
     if content.title <> invalid
@@ -59,9 +91,12 @@ sub onItemContentChanged()
 
     if content.description <> invalid
         m.subtitleLabel.text = content.description
+        m.subtitleLabel.visible = not m.isCircular and content.description <> ""
+    else
+        m.subtitleLabel.visible = false
     end if
 
-    if content.doesExist("playedPercentage")
+    if not m.isCircular and content.doesExist("playedPercentage")
         pct = content.playedPercentage
         if pct > 0 and pct < 100
             m.progressBg.visible = true
@@ -75,15 +110,19 @@ sub onFocusChanged()
     fp = m.top.focusPercent
 
     scale = 1.0 + (fp * 0.06)
-    m.posterImage.scale = [scale, scale]
 
-    m.dimOverlay.opacity = 0.4 - (fp * 0.4)
+    if m.isCircular
+        m.circularMask.scale = [scale, scale]
+    else
+        m.posterImage.scale = [scale, scale]
+        m.dimOverlay.opacity = 0.3 - (fp * 0.3)
+    end if
 
     if fp > 0.5
         m.titleLabel.color = "0xFFFFFFFF"
         m.subtitleLabel.color = "0xAAAAAAFF"
     else
         m.titleLabel.color = "0xAAAAAAFF"
-        m.subtitleLabel.color = "0x555555FF"
+        m.subtitleLabel.color = "0x666666FF"
     end if
 end sub

@@ -6,7 +6,7 @@
     </interface>
     <children>
         <!-- Background -->
-        <Rectangle width="1920" height="1080" color="#0e0e1a" />
+        <Rectangle width="1920" height="1080" color="#121215" />
 
         <!-- Header -->
         <Rectangle width="1920" height="90" color="#101420" />

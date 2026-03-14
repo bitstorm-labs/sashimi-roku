@@ -5,7 +5,7 @@
     </interface>
     <children>
         <!-- Background -->
-        <Rectangle width="1920" height="1080" color="#0e0e1a" />
+        <Rectangle width="1920" height="1080" color="#121215" />
 
         <!-- Centered title -->
         <Label

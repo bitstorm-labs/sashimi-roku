@@ -7,7 +7,7 @@
     </interface>
     <children>
         <!-- Background -->
-        <Rectangle width="1920" height="1080" color="#0e0e1a" />
+        <Rectangle width="1920" height="1080" color="#121215" />
 
         <!-- Full-screen backdrop -->
         <Poster
@@ -20,8 +20,8 @@
             opacity="0.2"
         />
         <!-- Strong left gradient for text readability -->
-        <Rectangle width="900" height="1080" color="#0e0e1a" opacity="0.85" />
-        <Rectangle width="400" height="1080" color="#0e0e1a" opacity="0.4" translation="[900, 0]" />
+        <Rectangle width="900" height="1080" color="#121215" opacity="0.85" />
+        <Rectangle width="400" height="1080" color="#121215" opacity="0.4" translation="[900, 0]" />
 
         <!-- Poster -->
         <Poster

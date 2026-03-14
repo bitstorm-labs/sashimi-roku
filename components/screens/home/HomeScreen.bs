@@ -157,18 +157,45 @@ sub addContinueWatchingRow(items as object)
     for each item in items
         child = row.createChild("ContentNode")
 
-        ' Title: episode name or movie name
-        child.title = ""
-        if item.Name <> invalid then child.title = item.Name
-
-        ' Use landscape Backdrop image (matching tvOS Continue Watching)
         itemId = ""
         if item.Id <> invalid then itemId = item.Id
         itemType = ""
         if item.Type <> invalid then itemType = item.Type
 
-        if itemType = "Episode"
-            ' Episodes: use series backdrop
+        ' Detect YouTube items
+        isYouTubeItem = false
+        if item.doesExist("Path") and item.Path <> invalid
+            if Instr(1, LCase(item.Path), "youtube") > 0 then isYouTubeItem = true
+        end if
+        if not isYouTubeItem and item.doesExist("SeriesName") and item.SeriesName <> invalid
+            if Instr(1, LCase(item.SeriesName), "youtube") > 0 then isYouTubeItem = true
+        end if
+
+        if isYouTubeItem
+            ' YouTube: use episode primary image (thumbnail)
+            if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+            end if
+            ' Title: series name (channel), no subtitle
+            if item.SeriesName <> invalid and item.SeriesName <> ""
+                child.title = item.SeriesName
+            else if item.Name <> invalid
+                child.title = item.Name
+            else
+                child.title = ""
+            end if
+            child.description = ""
+        else if itemType = "Episode"
+            ' TV Episodes: title = series name, subtitle = "S1:E5 - Episode Name"
+            if item.SeriesName <> invalid and item.SeriesName <> ""
+                child.title = item.SeriesName
+            else if item.Name <> invalid
+                child.title = item.Name
+            else
+                child.title = ""
+            end if
+
+            ' Use series backdrop image
             if item.ParentBackdropItemId <> invalid
                 child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 400)
             else if item.SeriesId <> invalid and item.SeriesId <> ""
@@ -176,26 +203,40 @@ sub addContinueWatchingRow(items as object)
             else if itemId <> ""
                 child.HDPosterUrl = ImageUrl.primary(itemId, 400)
             end if
+
+            ' Subtitle: "S1:E5 - Episode Name"
+            description = ""
+            if item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+                description = "S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim()
+                if item.Name <> invalid and item.Name <> ""
+                    description += " - " + item.Name
+                end if
+            else if item.Name <> invalid
+                description = item.Name
+            end if
+            child.description = description
         else
-            ' Movies: use item backdrop
+            ' Movies: title = movie name, subtitle = year
+            if item.Name <> invalid
+                child.title = item.Name
+            else
+                child.title = ""
+            end if
+
+            ' Use item backdrop
             if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
                 child.HDPosterUrl = ImageUrl.backdrop(itemId, 400)
             else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
                 child.HDPosterUrl = ImageUrl.primary(itemId, 400)
             end if
-        end if
 
-        ' Subtitle: series name or year
-        description = ""
-        if item.SeriesName <> invalid and item.SeriesName <> ""
-            description = item.SeriesName
-            if item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
-                description += " - S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim()
+            ' Subtitle: year
+            description = ""
+            if item.ProductionYear <> invalid
+                description = str(item.ProductionYear).Trim()
             end if
-        else if item.ProductionYear <> invalid
-            description = str(item.ProductionYear).Trim()
+            child.description = description
         end if
-        child.description = description
 
         child.addFields({ itemJson: "" })
         child.itemJson = FormatJSON(item)
@@ -238,17 +279,20 @@ sub addRow(title as string, items as object, isYouTube = false as boolean)
         if item.Id <> invalid then itemId = item.Id
 
         if isYouTube
-            ' YouTube: use episode primary (landscape thumbnail)
-            if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+            ' YouTube: circular channel avatar — use series poster (channel avatar)
+            child.addFields({ isCircular: false })
+            child.isCircular = true
+            if item.SeriesId <> invalid and item.SeriesId <> ""
+                child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 200)
+                if item.SeriesName <> invalid then child.title = item.SeriesName
+            else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+                child.HDPosterUrl = ImageUrl.primary(itemId, 200)
             end if
-            ' For YouTube, show the video title not the series name
-            if item.Name <> invalid then child.title = item.Name
         else if item.SeriesId <> invalid and item.SeriesId <> ""
             ' TV show episode: always use series poster
-            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 220)
+            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 180)
         else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primary(itemId, 220)
+            child.HDPosterUrl = ImageUrl.primary(itemId, 180)
         end if
 
         ' Store full item JSON for selection
@@ -279,17 +323,17 @@ sub showRows()
     for i = 0 to rowCount - 1
         iKey = str(i).Trim()
         if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
-            ' Continue Watching: wide landscape items
+            ' Continue Watching: wide landscape items (400x225 image + labels)
             itemSizes.push([400, 290])
-            itemSpacings.push([20, 0])
+            itemSpacings.push([30, 0])
         else if m.wideRowIndices.DoesExist(iKey)
-            ' YouTube: wide landscape items
-            itemSizes.push([400, 290])
-            itemSpacings.push([20, 0])
+            ' YouTube: circular avatar items
+            itemSizes.push([200, 230])
+            itemSpacings.push([16, 0])
         else
-            ' Library rows: portrait posters
-            itemSizes.push([220, 440])
-            itemSpacings.push([20, 0])
+            ' Library rows: portrait posters (180x270 image + labels)
+            itemSizes.push([180, 330])
+            itemSpacings.push([30, 0])
         end if
     end for
     m.rowList.rowItemSize = itemSizes
