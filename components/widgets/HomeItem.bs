@@ -1,4 +1,5 @@
 sub init()
+    m.cardBg = m.top.findNode("cardBg")
     m.posterImage = m.top.findNode("posterImage")
     m.dimOverlay = m.top.findNode("dimOverlay")
     m.focusBorder = m.top.findNode("focusBorder")
@@ -6,34 +7,69 @@ sub init()
     m.progressBar = m.top.findNode("progressBar")
     m.titleLabel = m.top.findNode("titleLabel")
     m.subtitleLabel = m.top.findNode("subtitleLabel")
+    m.itemWidth = 220
+    m.posterHeight = 330
+end sub
+
+sub onSizeChanged()
+    w = m.top.width
+    h = m.top.height
+    if w = 0 or h = 0 then return
+
+    m.itemWidth = w
+
+    ' Determine if wide (landscape) or portrait based on aspect ratio
+    if w > 300
+        ' Wide/landscape item (Continue Watching)
+        m.posterHeight = w * 0.5625  ' 16:9 ratio
+    else
+        ' Portrait poster
+        m.posterHeight = w * 1.5  ' 2:3 ratio
+    end if
+
+    ' Resize all elements to match
+    m.cardBg.width = w
+    m.cardBg.height = m.posterHeight
+    m.dimOverlay.width = w
+    m.dimOverlay.height = m.posterHeight
+    m.posterImage.width = w
+    m.posterImage.height = m.posterHeight
+    m.posterImage.loadWidth = w
+    m.posterImage.loadHeight = m.posterHeight
+    m.posterImage.scaleRotateCenter = [w / 2, m.posterHeight / 2]
+    m.focusBorder.width = w + 4
+    m.focusBorder.height = m.posterHeight + 4
+    m.progressBg.width = w
+    m.progressBg.translation = [0, m.posterHeight - 8]
+    m.progressBar.translation = [0, m.posterHeight - 8]
+    m.titleLabel.width = w
+    m.titleLabel.translation = [0, m.posterHeight + 6]
+    m.subtitleLabel.width = w
+    m.subtitleLabel.translation = [0, m.posterHeight + 30]
 end sub
 
 sub onItemContentChanged()
     content = m.top.itemContent
     if content = invalid then return
 
-    ' Set poster
     if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
         m.posterImage.uri = content.HDPosterUrl
     end if
 
-    ' Set title
     if content.title <> invalid
         m.titleLabel.text = content.title
     end if
 
-    ' Set subtitle
     if content.description <> invalid
         m.subtitleLabel.text = content.description
     end if
 
-    ' Check for progress data stored in custom fields
     if content.doesExist("playedPercentage")
         pct = content.playedPercentage
         if pct > 0 and pct < 100
             m.progressBg.visible = true
             m.progressBar.visible = true
-            m.progressBar.width = 220 * (pct / 100.0)
+            m.progressBar.width = m.itemWidth * (pct / 100.0)
         end if
     end if
 end sub
@@ -41,17 +77,12 @@ end sub
 sub onFocusChanged()
     fp = m.top.focusPercent
 
-    ' Scale poster from 1.0 to 1.1 on focus
-    scale = 1.0 + (fp * 0.1)
+    scale = 1.0 + (fp * 0.06)
     m.posterImage.scale = [scale, scale]
 
-    ' Fade dim overlay from 0.4 to 0.0 on focus
     m.dimOverlay.opacity = 0.4 - (fp * 0.4)
-
-    ' Show focus border (bright white)
     m.focusBorder.opacity = fp * 0.9
 
-    ' Brighten title on focus
     if fp > 0.5
         m.titleLabel.color = "0xFFFFFFFF"
         m.subtitleLabel.color = "0xAAAAAAFF"

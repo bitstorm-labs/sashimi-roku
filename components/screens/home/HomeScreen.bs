@@ -72,8 +72,22 @@ end sub
 
 sub onResumeItemsLoaded(response as object)
     if response.success and response.items <> invalid
-        m.continueWatchingItems = response.items
-        print "[Home] Loaded " + str(response.items.count()) + " resume items"
+        ' Dedup resume items by series — keep only the most recent per series
+        seenSeries = {}
+        deduped = []
+        for each item in response.items
+            seriesId = ""
+            if item.SeriesId <> invalid then seriesId = item.SeriesId
+            if seriesId = ""
+                ' Not a series item (movie etc) — always include
+                deduped.push(item)
+            else if not seenSeries.DoesExist(seriesId)
+                seenSeries[seriesId] = true
+                deduped.push(item)
+            end if
+        end for
+        m.continueWatchingItems = deduped
+        print "[Home] Loaded " + str(deduped.count()) + " resume items (deduped from " + str(response.items.count()) + ")"
     end if
     m.apiTask.request = { action: "getNextUp", limit: 20 }
 end sub
@@ -135,29 +149,49 @@ end sub
 
 sub addContinueWatchingRow(items as object)
     if m.rowContent = invalid then return
+    m.continueWatchingRowIndex = m.rowContent.getChildCount()
 
     row = m.rowContent.createChild("ContentNode")
     row.title = "Continue Watching"
 
     for each item in items
         child = row.createChild("ContentNode")
+
+        ' Title: episode name or movie name
         child.title = ""
         if item.Name <> invalid then child.title = item.Name
 
-        ' For episodes, use series poster (looks much better than cropped landscape thumbnail)
+        ' Use landscape Backdrop image (matching tvOS Continue Watching)
         itemId = ""
         if item.Id <> invalid then itemId = item.Id
-        if item.SeriesId <> invalid and item.SeriesId <> ""
-            ' Use series poster for episodes
-            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 220)
-        else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primary(itemId, 220)
+        itemType = ""
+        if item.Type <> invalid then itemType = item.Type
+
+        if itemType = "Episode"
+            ' Episodes: use series backdrop
+            if item.ParentBackdropItemId <> invalid
+                child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 400)
+            else if item.SeriesId <> invalid and item.SeriesId <> ""
+                child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 400)
+            else if itemId <> ""
+                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+            end if
+        else
+            ' Movies: use item backdrop
+            if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
+                child.HDPosterUrl = ImageUrl.backdrop(itemId, 400)
+            else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+            end if
         end if
 
-        ' Subtitle: show series name + episode info
+        ' Subtitle: series name or year
         description = ""
         if item.SeriesName <> invalid and item.SeriesName <> ""
             description = item.SeriesName
+            if item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+                description += " - S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim()
+            end if
         else if item.ProductionYear <> invalid
             description = str(item.ProductionYear).Trim()
         end if
@@ -222,6 +256,24 @@ sub showRows()
         m.emptyLabel.visible = true
         return
     end if
+
+    ' Set per-row item sizes: wide for Continue Watching, portrait for library rows
+    rowCount = m.rowContent.getChildCount()
+    itemSizes = []
+    itemSpacings = []
+    for i = 0 to rowCount - 1
+        if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
+            ' Continue Watching: wide landscape items
+            itemSizes.push([400, 290])
+            itemSpacings.push([20, 0])
+        else
+            ' Library rows: portrait posters
+            itemSizes.push([220, 440])
+            itemSpacings.push([20, 0])
+        end if
+    end for
+    m.rowList.rowItemSize = itemSizes
+    m.rowList.rowItemSpacing = itemSpacings
 
     m.rowList.content = m.rowContent
     m.rowList.visible = true

@@ -3,8 +3,12 @@
     <interface>
         <field id="itemContent" type="node" onChange="onItemContentChanged" />
         <field id="focusPercent" type="float" onChange="onFocusChanged" />
+        <field id="width" type="float" onChange="onSizeChanged" />
+        <field id="height" type="float" onChange="onSizeChanged" />
     </interface>
     <children>
+        <!-- Card background -->
+        <Rectangle id="cardBg" width="220" height="330" color="#181830" />
         <!-- Dim overlay (fades out on focus) -->
         <Rectangle id="dimOverlay" width="220" height="330" color="#000000" opacity="0.4" />
         <!-- Poster image -->
