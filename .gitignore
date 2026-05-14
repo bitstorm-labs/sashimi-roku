@@ -3,3 +3,4 @@ out/
 *.zip
 .roku-deploy-staging/
 .env
+.DS_Store
