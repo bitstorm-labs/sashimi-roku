@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="SettingsScreen" extends="Group">
+    <interface>
+        <field id="signOut" type="boolean" value="false" alwaysNotify="true" />
+    </interface>
+    <children>
+        <!-- Background gradient (matches Home) -->
+        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+
+        <!-- Section header -->
+        <Label
+            text="Settings"
+            color="#FFFFFF"
+            translation="[560, 124]"
+        >
+            <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="40" />
+        </Label>
+
+        <!-- Rows built in code (tvOS SettingsView: maxWidth 800 cards) -->
+        <Group id="rowsGroup" translation="[560, 196]" />
+    </children>
+</component>

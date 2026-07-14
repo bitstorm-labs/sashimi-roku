@@ -1,0 +1,46 @@
+import "pkg:/source/utils/Registry.bs"
+
+' Persisted app settings (Registry section "settings") with tvOS defaults.
+' Playback (Pass 4) reads these; SettingsScreen writes them.
+namespace AppSettings
+
+    function read(key as string, defaultValue as string) as string
+        v = Registry.read("settings", key)
+        if v = "" then return defaultValue
+        return v
+    end function
+
+    sub write(key as string, value as string)
+        Registry.write("settings", key, value)
+    end sub
+
+    ' 0 = Auto; otherwise max bitrate in Mbps
+    function maxBitrateMbps() as integer
+        return Val(read("maxBitrateMbps", "0")).ToStr().ToInt()
+    end function
+
+    function forceDirectPlay() as boolean
+        return read("forceDirectPlay", "false") = "true"
+    end function
+
+    function autoPlayNextEpisode() as boolean
+        return read("autoPlayNextEpisode", "true") = "true"
+    end function
+
+    function autoSkipIntro() as boolean
+        return read("autoSkipIntro", "false") = "true"
+    end function
+
+    function autoSkipCredits() as boolean
+        return read("autoSkipCredits", "false") = "true"
+    end function
+
+    function resumeThresholdSeconds() as integer
+        return Val(read("resumeThresholdSeconds", "30")).ToStr().ToInt()
+    end function
+
+    function use24HourTime() as boolean
+        return read("use24HourTime", "false") = "true"
+    end function
+
+end namespace

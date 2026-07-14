@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="LibraryListScreen" extends="Group">
+    <interface>
+        <field id="selectedLibrary" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <!-- Background gradient (matches Home) -->
+        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+
+        <!-- Library rows built in code (tvOS LibraryView: maxWidth 800, centered, spacing 24) -->
+        <Group id="rowsGroup" translation="[560, 150]" />
+
+        <Label
+            id="loadingLabel"
+            text="Loading libraries..."
+            font="font:MediumSystemFont"
+            color="#8C8C8C"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 480]"
+        />
+
+        <JellyfinApi id="apiTask" />
+    </children>
+</component>

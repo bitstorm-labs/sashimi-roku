@@ -3,10 +3,14 @@ import "pkg:/source/utils/ImageUrl.bs"
 
 sub init()
     m.rowList = m.top.findNode("rowList")
+    ' tvOS row titles: 40 bold
+    rowFont = CreateObject("roSGNode", "Font")
+    rowFont.uri = "pkg:/fonts/Roboto-Bold.ttf"
+    rowFont.size = 40
+    m.rowList.rowLabelFont = rowFont
     m.loadingLabel = m.top.findNode("loadingLabel")
     m.emptyLabel = m.top.findNode("emptyLabel")
     m.apiTask = m.top.findNode("apiTask")
-    m.toast = m.top.findNode("toast")
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
@@ -35,13 +39,30 @@ sub init()
     userId = Registry.getUserId()
     if userId <> "" and m.global.serverUrl <> invalid and m.global.serverUrl <> ""
         m.avatarImage.uri = m.global.serverUrl + "/Users/" + userId + "/Images/Primary?maxWidth=140&quality=90"
+        ' Roku ignores EXIF orientation — photo is stored rotated; correct 90 CCW
+        m.avatarImage.scaleRotateCenter = [35, 35]
+        m.avatarImage.rotation = 1.5708
     end if
 
     ' Observe row selection
     m.rowList.observeFieldScoped("rowItemSelected", "onRowItemSelected")
 
+    ' Delegate focus to content when the screen group itself receives it
+    ' (tab bar "descend" focuses the screen node, not its children)
+    m.top.observeField("focusedChild", "onFocusDelegate")
+
     ' Start loading
     loadHomeData()
+end sub
+
+sub onFocusDelegate()
+    if m.top.hasFocus()
+        if m.heroBanner.visible
+            m.heroBanner.setFocus(true)
+        else if m.rowList.visible
+            m.rowList.setFocus(true)
+        end if
+    end if
 end sub
 
 sub loadHomeData()
@@ -538,24 +559,12 @@ function onKeyEvent(key as string, press as boolean) as boolean
     return false
 end function
 
+' Navigation now lives in the top tab bar (tvOS parity); options = refresh only.
 sub showOptionsDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Menu"
     dialog.message = [""]
-
-    buttons = ["Search", "Refresh"]
-
-    ' Add library buttons
-    m.optionLibraries = []
-    for each lib in m.libraries
-        buttons.push(lib.Name)
-        m.optionLibraries.push(lib)
-    end for
-
-    buttons.push("Sign Out")
-    buttons.push("Cancel")
-
-    dialog.buttons = buttons
+    dialog.buttons = ["Refresh", "Cancel"]
     dialog.observeFieldScoped("buttonSelected", "onOptionsButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -567,23 +576,7 @@ sub onOptionsButton()
     dialog.close = true
 
     if index = 0
-        ' Search
-        m.top.openSearch = true
-    else if index = 1
-        ' Refresh
         loadHomeData()
-    else if index >= 2 and index < 2 + m.optionLibraries.count()
-        ' Library selected
-        libIndex = index - 2
-        lib = m.optionLibraries[libIndex]
-        m.top.selectedLibrary = { id: lib.Id, name: lib.Name }
-    else if index = 2 + m.optionLibraries.count()
-        ' Sign Out
-        Registry.clearAuth()
-        m.global.serverUrl = ""
-        m.global.authToken = ""
-        m.global.userId = ""
-        m.top.signOut = true
     end if
 
     if m.heroBanner.visible and m.heroBanner.isInFocusChain()

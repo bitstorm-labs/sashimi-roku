@@ -1,0 +1,172 @@
+import "pkg:/source/utils/ImageUrl.bs"
+
+' tvOS Library tab: vertical list of library rows — 120x70 image, name 32
+' semibold, chevron, r16 cardBackground rows, focus = accent tint + border.
+
+sub init()
+    m.rowsGroup = m.top.findNode("rowsGroup")
+    m.loadingLabel = m.top.findNode("loadingLabel")
+    m.apiTask = m.top.findNode("apiTask")
+
+    m.libraries = []
+    m.rows = []
+    m.focusIndex = 0
+    m.rowW = 800
+    m.rowH = 102       ' 70 image + 16 pad top/bottom
+    m.rowSpacing = 24
+
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.apiTask.request = { action: "getLibraryViews" }
+
+    m.top.observeField("focusedChild", "onFocusGained")
+end sub
+
+sub onApiResponse()
+    response = m.apiTask.response
+    if response = invalid or response.action <> "getLibraryViews" then return
+    if not response.success then return
+
+    m.libraries = []
+    for each lib in response.items
+        collectionType = ""
+        if lib.CollectionType <> invalid then collectionType = LCase(lib.CollectionType)
+        if collectionType = "movies" or collectionType = "tvshows" or collectionType = "music" or collectionType = ""
+            m.libraries.push(lib)
+        end if
+    end for
+
+    m.loadingLabel.visible = false
+    buildRows()
+end sub
+
+sub buildRows()
+    while m.rowsGroup.getChildCount() > 0
+        m.rowsGroup.removeChildIndex(0)
+    end while
+    m.rows = []
+
+    y = 0
+    for i = 0 to m.libraries.count() - 1
+        lib = m.libraries[i]
+
+        row = CreateObject("roSGNode", "Group")
+        row.translation = [0, y]
+
+        bg = CreateObject("roSGNode", "Poster")
+        bg.uri = "pkg:/images/card_r16.9.png"
+        bg.width = m.rowW
+        bg.height = m.rowH
+        row.appendChild(bg)
+
+        ' Fallback tile behind the image: dark card + library initial
+        tile = CreateObject("roSGNode", "Rectangle")
+        tile.width = 120
+        tile.height = 70
+        tile.translation = [24, 16]
+        tile.color = "#2A2A2E"
+        row.appendChild(tile)
+        tileLabel = CreateObject("roSGNode", "Label")
+        tileLabel.text = UCase(Left(lib.Name, 1))
+        tileLabel.width = 120
+        tileLabel.height = 70
+        tileLabel.translation = [24, 16]
+        tileLabel.horizAlign = "center"
+        tileLabel.vertAlign = "center"
+        tileLabel.color = "#8C8C8C"
+        tlf = CreateObject("roSGNode", "Font")
+        tlf.uri = "pkg:/fonts/Roboto-Bold.ttf"
+        tlf.size = 32
+        tileLabel.font = tlf
+        row.appendChild(tileLabel)
+        ' Library primary image 120x70 (covers the fallback when it loads)
+        img = CreateObject("roSGNode", "Poster")
+        img.width = 120
+        img.height = 70
+        img.translation = [24, 16]
+        img.loadDisplayMode = "scaleToZoom"
+        if lib.Id <> invalid then img.uri = ImageUrl.primary(lib.Id, 240)
+        row.appendChild(img)
+
+        ' Name 32 semibold
+        name = CreateObject("roSGNode", "Label")
+        name.text = lib.Name
+        name.translation = [172, 0]
+        name.height = m.rowH
+        name.width = m.rowW - 172 - 70
+        name.vertAlign = "center"
+        name.color = "#FFFFFF"
+        f = CreateObject("roSGNode", "Font")
+        f.uri = "pkg:/fonts/Roboto-Bold.ttf"
+        f.size = 32
+        name.font = f
+        row.appendChild(name)
+
+        ' Chevron
+        chev = CreateObject("roSGNode", "Label")
+        chev.text = Chr(8250)   ' ›
+        chev.translation = [m.rowW - 56, 0]
+        chev.height = m.rowH
+        chev.width = 32
+        chev.vertAlign = "center"
+        chev.color = "#8C8C8C"
+        cf = CreateObject("roSGNode", "Font")
+        cf.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        cf.size = 40
+        chev.font = cf
+        row.appendChild(chev)
+
+        m.rowsGroup.appendChild(row)
+        m.rows.push({ bg: bg, group: row })
+        y += m.rowH + m.rowSpacing
+    end for
+
+    updateFocus()
+end sub
+
+sub onFocusGained()
+    updateFocus()
+end sub
+
+sub updateFocus()
+    hasFocus = m.top.isInFocusChain()
+    for i = 0 to m.rows.count() - 1
+        r = m.rows[i]
+        if hasFocus and i = m.focusIndex
+            r.bg.uri = "pkg:/images/card_r16_focus.9.png"
+            r.group.scale = [1.02, 1.02]
+            r.group.scaleRotateCenter = [m.rowW / 2, m.rowH / 2]
+        else
+            r.bg.uri = "pkg:/images/card_r16.9.png"
+            r.group.scale = [1.0, 1.0]
+        end if
+    end for
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if m.rows.count() = 0 then return false
+
+    if key = "down"
+        if m.focusIndex < m.rows.count() - 1
+            m.focusIndex = m.focusIndex + 1
+            updateFocus()
+            return true
+        end if
+        return true   ' consume at bottom
+    else if key = "up"
+        if m.focusIndex > 0
+            m.focusIndex = m.focusIndex - 1
+            updateFocus()
+            return true
+        end if
+        return false  ' bubble up to tab bar
+    else if key = "OK"
+        lib = m.libraries[m.focusIndex]
+        if lib <> invalid
+            m.top.selectedLibrary = { id: lib.Id, name: lib.Name }
+        end if
+        return true
+    end if
+    return false
+end function

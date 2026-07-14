@@ -13,11 +13,11 @@
         <!-- Header (tvOS AppHeader: logo artwork left, avatar top-right, no bar) -->
         <Poster
             id="headerLogo"
-            translation="[80, 8]"
-            width="70"
-            height="105"
-            loadWidth="140"
-            loadHeight="210"
+            translation="[30, 22]"
+            width="93"
+            height="70"
+            loadWidth="186"
+            loadHeight="140"
             uri="pkg:/images/wordmark.png"
             loadDisplayMode="scaleToFit"
         />
@@ -39,7 +39,7 @@
             color="#FFFFFF"
             text=""
         >
-            <Font role="font" uri="font:SystemFontFileBold" size="28" />
+            <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="28" />
         </Label>
         <MaskGroup
             id="avatarImageMask"
@@ -109,6 +109,5 @@
         />
 
         <JellyfinApi id="apiTask" />
-        <ToastOverlay id="toast" />
     </children>
 </component>

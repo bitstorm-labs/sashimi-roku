@@ -7,11 +7,14 @@
     "source/**/*",
     "components/**/*",
     "images/**/*",
-    "locale/**/*"
+    "locale/**/*",
+    "fonts/**/*"
   ],
   "autoImportComponentScript": true,
   "sourceMap": true,
   "diagnosticFilters": [
-    { "src": "tests/**/*" }
+    {
+      "src": "tests/**/*"
+    }
   ]
 }

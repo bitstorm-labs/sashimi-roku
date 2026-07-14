@@ -72,14 +72,14 @@ sub onSizeChanged()
         m.cwScrim.width = w
         m.cwScrim.height = 60
         m.cwScrim.translation = [0, m.posterHeight - 60]
-        m.playGlyph.translation = [16, m.posterHeight - 44]
+        m.playGlyph.translation = [16, m.posterHeight - 42]
         m.remainingLabel.translation = [42, m.posterHeight - 44]
         m.progressBg.width = w - 32
         m.progressBg.translation = [16, m.posterHeight - 19]
         m.progressBar.translation = [16, m.posterHeight - 19]
         ' Title 28 semibold left-aligned + subtitle 20 (tvOS ContinueWatchingCard)
         m.titleLabel.horizAlign = "left"
-        setLabelFont(m.titleLabel, "font:SystemFontFileBold", 28)
+        setLabelFont(m.titleLabel, "pkg:/fonts/Roboto-Bold.ttf", 28)
         m.titleLabel.translation = [0, m.posterHeight + 12]
         m.subtitleLabel.translation = [0, m.posterHeight + 52]
     else
@@ -90,7 +90,7 @@ sub onSizeChanged()
         m.progressBar.translation = [0, m.posterHeight - 5]
         ' Centered single caption (tvOS MediaPosterButton: 22 medium centered)
         m.titleLabel.horizAlign = "center"
-        setLabelFont(m.titleLabel, "font:SystemFontFile", 22)
+        setLabelFont(m.titleLabel, "pkg:/fonts/Roboto-Medium.ttf", 22)
         m.titleLabel.translation = [0, m.posterHeight + 12]
         m.subtitleLabel.translation = [0, m.posterHeight + 44]
     end if
@@ -143,7 +143,7 @@ sub onItemContentChanged()
         end if
         ' tvOS circular caption: 20 medium centered
         m.titleLabel.horizAlign = "center"
-        setLabelFont(m.titleLabel, "font:SystemFontFile", 20)
+        setLabelFont(m.titleLabel, "pkg:/fonts/Roboto-Medium.ttf", 20)
         m.titleLabel.translation = [0, 212]
         m.titleLabel.width = 200
         m.subtitleLabel.visible = false
@@ -221,15 +221,9 @@ sub onItemContentChanged()
     end if
 end sub
 
-sub onFocusChanged()
-    fp = m.top.focusPercent
-
-    ' tvOS: scale 1.05 on focus (all card types except circular use ring only)
-    if not m.isCircular
-        s = 1.0 + (fp * 0.05)
-        m.scaleGroup.scale = [s, s]
-    end if
-
+sub applyFocusVisuals(fp as float)
+    ' No scale on row cards: RowList's fixedFocus clipping cuts scaled edges
+    ' (accepted deviation from tvOS scaleEffect 1.05).
     if m.isCircular
         m.circularGlow.opacity = fp * 0.9
         return
@@ -249,14 +243,18 @@ sub onFocusChanged()
     end if
 end sub
 
+sub onFocusChanged()
+    applyFocusVisuals(m.top.focusPercent)
+end sub
+
 sub onRowFocusChanged()
-    ' tvOS does not dim unfocused rows — clear any focus borders when the row loses focus
+    ' Row lost focus: clear. Row (re)gained focus: re-apply from focusPercent —
+    ' RowList doesn't always re-fire focusPercent when the row regains focus,
+    ' which left the focused card with no visible highlight.
     rfp = m.top.rowFocusPercent
     if rfp < 0.5
-        m.focusTop.opacity = 0.0
-        m.focusBottom.opacity = 0.0
-        m.focusLeft.opacity = 0.0
-        m.focusRight.opacity = 0.0
-        if m.isCircular then m.circularGlow.opacity = 0.0
+        applyFocusVisuals(0.0)
+    else
+        applyFocusVisuals(m.top.focusPercent)
     end if
 end sub

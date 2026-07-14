@@ -2,6 +2,7 @@ import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/ImageUrl.bs"
 
 sub init()
+
     m.searchButtons = m.top.findNode("searchButtons")
     m.resultsGrid = m.top.findNode("resultsGrid")
     m.statusLabel = m.top.findNode("statusLabel")
@@ -18,6 +19,7 @@ sub init()
 
     loadSearchButtons()
     m.searchButtons.setFocus(true)
+    m.top.observeField("focusedChild", "onFocusDelegate")
 end sub
 
 sub loadSearchButtons()
@@ -181,6 +183,12 @@ sub onResultSelected()
         if itemData <> invalid
             m.top.selectedItem = itemData
         end if
+    end if
+end sub
+
+sub onFocusDelegate()
+    if m.top.hasFocus()
+        m.searchButtons.setFocus(true)
     end if
 end sub
 

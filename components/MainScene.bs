@@ -1,23 +1,42 @@
 import "pkg:/source/utils/Registry.bs"
 
+' tvOS-parity navigation: persistent top TabBar (Home/Library/Search/Settings)
+' with root screens kept alive, plus a push stack for detail/grid screens.
+' Back: pop stack -> non-Home tab returns Home -> Home exits app (tvOS Menu behavior).
+
 sub init()
     m.navStack = []
     m.currentScreen = invalid
+    m.rootScreens = {}
+    m.activeTab = 0
+    m.tabNames = ["home", "library", "search", "settings"]
 
     m.global.addFields({
         serverUrl: ""
         authToken: ""
         userId: ""
         deviceId: ""
+        toastMessage: {}
     })
 
     initDeviceId()
 
+    ' Tab bar (created up front, shown after login)
+    m.tabBar = createObject("roSGNode", "TabBar")
+    m.tabBar.translation = [0, 24]
+    m.tabBar.visible = false
+    m.tabBar.observeFieldScoped("tabSelected", "onTabSelected")
+    m.tabBar.observeFieldScoped("descend", "onTabDescend")
+
+    ' Global toast overlay (always on top)
+    m.toast = createObject("roSGNode", "ToastOverlay")
+    m.global.observeFieldScoped("toastMessage", "onGlobalToast")
+
     if hasSavedSession()
         restoreSession()
-        showScreen("HomeScreen")
+        enterMainUI()
     else
-        showScreen("ServerConnectionScreen")
+        showAuthScreen()
     end if
 end sub
 
@@ -40,97 +59,168 @@ sub restoreSession()
     m.global.userId = Registry.getUserId()
 end sub
 
-sub showScreen(screenName as string)
-    screen = createObject("roSGNode", screenName)
-    if screen = invalid
-        #if DEBUG
-            print "ERROR: Could not create screen: " + screenName
-        #end if
-        return
+sub onGlobalToast()
+    msg = m.global.toastMessage
+    if msg <> invalid and msg.message <> invalid and msg.message <> ""
+        m.toast.showToast = msg
     end if
+end sub
 
-    if m.currentScreen <> invalid
-        m.currentScreen.visible = false
-    end if
+' ---------- Auth ----------
 
+sub showAuthScreen()
+    clearAllScreens()
+    screen = createObject("roSGNode", "ServerConnectionScreen")
+    screen.observeFieldScoped("loginSuccess", "onLoginSuccess")
     m.top.appendChild(screen)
-    m.navStack.push(screen)
-    m.currentScreen = screen
+    m.authScreen = screen
     screen.setFocus(true)
-
-    ' Wire up screen-specific observers
-    if screenName = "ServerConnectionScreen"
-        screen.observeFieldScoped("loginSuccess", "onLoginSuccess")
-    else if screenName = "HomeScreen"
-        screen.observeFieldScoped("signOut", "onSignOut")
-        screen.observeFieldScoped("selectedItem", "onItemSelected")
-        screen.observeFieldScoped("openSearch", "onOpenSearch")
-        screen.observeFieldScoped("selectedLibrary", "onLibrarySelected")
-    else if screenName = "LibraryScreen"
-        screen.observeFieldScoped("selectedItem", "onItemSelected")
-    else if screenName = "SearchScreen"
-        screen.observeFieldScoped("selectedItem", "onSearchItemSelected")
-    end if
 end sub
 
 sub onLoginSuccess()
-    navigateToHome()
+    if m.authScreen <> invalid
+        m.top.removeChild(m.authScreen)
+        m.authScreen = invalid
+    end if
+    enterMainUI()
 end sub
 
 sub onSignOut()
-    navigateToAuth()
+    showAuthScreen()
 end sub
 
-sub onOpenSearch()
-    showScreen("SearchScreen")
+' ---------- Main tabbed UI ----------
+
+sub enterMainUI()
+    m.activeTab = 0
+    m.tabBar.selectedIndex = 0
+    switchTab(0)
+
+    liftOverlays()
+    m.tabBar.visible = true
+
+    screen = m.rootScreens["home"]
+    if screen <> invalid then screen.setFocus(true)
 end sub
 
-sub onLibrarySelected()
-    if m.currentScreen <> invalid and m.currentScreen.selectedLibrary <> invalid
-        lib = m.currentScreen.selectedLibrary
-        showScreen("LibraryScreen")
-        m.currentScreen.libraryData = lib
+function getOrCreateRootScreen(index as integer) as object
+    name = m.tabNames[index]
+    if m.rootScreens.DoesExist(name) then return m.rootScreens[name]
+
+    screen = invalid
+    if name = "home"
+        screen = createObject("roSGNode", "HomeScreen")
+        screen.observeFieldScoped("signOut", "onSignOut")
+        screen.observeFieldScoped("selectedItem", "onItemSelected")
+        screen.observeFieldScoped("openSearch", "onOpenSearchTab")
+        screen.observeFieldScoped("selectedLibrary", "onLibrarySelected")
+    else if name = "library"
+        screen = createObject("roSGNode", "LibraryListScreen")
+        screen.observeFieldScoped("selectedLibrary", "onLibrarySelected")
+    else if name = "search"
+        screen = createObject("roSGNode", "SearchScreen")
+        screen.observeFieldScoped("selectedItem", "onItemSelected")
+    else if name = "settings"
+        screen = createObject("roSGNode", "SettingsScreen")
+        screen.observeFieldScoped("signOut", "onSignOut")
     end if
-end sub
 
-sub onSearchItemSelected()
-    if m.currentScreen <> invalid
-        item = m.currentScreen.selectedItem
-        if item <> invalid
-            showDetailScreen(item)
+    if screen <> invalid
+        ' Append above the OS scene background (never insert at 0 — the OS
+        ' background poster lives there and would cover the app)
+        m.top.appendChild(screen)
+        m.rootScreens[name] = screen
+        liftOverlays()
+    end if
+    return screen
+end function
+
+sub switchTab(index as integer)
+    m.activeTab = index
+    for each name in m.tabNames
+        if m.rootScreens.DoesExist(name)
+            m.rootScreens[name].visible = false
         end if
+    end for
+    screen = getOrCreateRootScreen(index)
+    if screen <> invalid
+        screen.visible = true
+        m.currentScreen = screen
     end if
 end sub
 
-sub onItemSelected()
-    if m.currentScreen <> invalid
-        item = m.currentScreen.selectedItem
-        if item <> invalid and item.Name <> invalid
-            print "[Nav] Item selected: " + item.Name
-            showDetailScreen(item)
-        end if
+' Keep tab bar + toast as the topmost scene children.
+' Re-parenting a focused node orphans remote focus — preserve and restore it.
+sub liftOverlays()
+    hadFocus = m.tabBar.isInFocusChain()
+    m.top.removeChild(m.tabBar)
+    m.top.appendChild(m.tabBar)
+    m.top.removeChild(m.toast)
+    m.top.appendChild(m.toast)
+    if hadFocus then m.tabBar.setFocus(true)
+end sub
+
+sub onTabSelected()
+    switchTab(m.tabBar.tabSelected)
+    ' User is browsing tabs — keep focus on the bar (descend via down/OK)
+    m.tabBar.setFocus(true)
+end sub
+
+sub onTabDescend()
+    screen = m.rootScreens[m.tabNames[m.activeTab]]
+    if screen <> invalid
+        screen.setFocus(true)
     end if
+end sub
+
+sub onOpenSearchTab()
+    m.tabBar.selectedIndex = 2
+    switchTab(2)
+    screen = m.rootScreens["search"]
+    if screen <> invalid then screen.setFocus(true)
+end sub
+
+' ---------- Push stack (grid + detail) ----------
+
+sub onLibrarySelected(event as object)
+    lib = event.getData()
+    if lib = invalid then return
+
+    screen = createObject("roSGNode", "LibraryScreen")
+    screen.observeFieldScoped("selectedItem", "onItemSelected")
+    pushScreen(screen)
+    screen.libraryData = lib
+end sub
+
+sub onItemSelected(event as object)
+    item = event.getData()
+    if item <> invalid and item.Name <> invalid
+        print "[Nav] Item selected: " + item.Name
+        showDetailScreen(item)
+    end if
+end sub
+
+sub pushScreen(screen as object)
+    if m.currentScreen <> invalid
+        m.currentScreen.visible = false
+    end if
+    m.tabBar.visible = false
+    m.top.appendChild(screen)
+    m.navStack.push(screen)
+    liftOverlays()
+    m.currentScreen = screen
+    screen.setFocus(true)
 end sub
 
 sub showDetailScreen(itemData as object)
     screen = createObject("roSGNode", "MediaDetailScreen")
     if screen = invalid then return
 
-    if m.currentScreen <> invalid
-        m.currentScreen.visible = false
-    end if
-
-    m.top.appendChild(screen)
-    m.navStack.push(screen)
-    m.currentScreen = screen
-
-    ' Wire up detail screen observers
     screen.observeFieldScoped("selectedItem", "onItemSelected")
     screen.observeFieldScoped("playItem", "onPlayItem")
 
-    ' Set item data to trigger loading
+    pushScreen(screen)
     screen.itemData = itemData
-    screen.setFocus(true)
 end sub
 
 sub onPlayItem()
@@ -144,42 +234,64 @@ sub onPlayItem()
 end sub
 
 sub popScreen()
-    if m.navStack.count() <= 1
-        return
+    if m.navStack.count() = 0 then return
+
+    screen = m.navStack.pop()
+    m.top.removeChild(screen)
+
+    if m.navStack.count() > 0
+        m.currentScreen = m.navStack.peek()
+    else
+        m.currentScreen = m.rootScreens[m.tabNames[m.activeTab]]
+        m.tabBar.visible = true
     end if
-
-    currentScreen = m.navStack.pop()
-    m.top.removeChild(currentScreen)
-
-    m.currentScreen = m.navStack.peek()
-    m.currentScreen.visible = true
-    m.currentScreen.setFocus(true)
+    if m.currentScreen <> invalid
+        m.currentScreen.visible = true
+        m.currentScreen.setFocus(true)
+    end if
 end sub
 
-sub navigateToHome()
+sub clearAllScreens()
     while m.navStack.count() > 0
         screen = m.navStack.pop()
         m.top.removeChild(screen)
     end while
+    for each name in m.rootScreens
+        m.top.removeChild(m.rootScreens[name])
+    end for
+    m.rootScreens = {}
     m.currentScreen = invalid
-    showScreen("HomeScreen")
-end sub
-
-sub navigateToAuth()
-    while m.navStack.count() > 0
-        screen = m.navStack.pop()
-        m.top.removeChild(screen)
-    end while
-    m.currentScreen = invalid
-    showScreen("ServerConnectionScreen")
+    m.tabBar.visible = false
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
-    if press and key = "back"
-        if m.navStack.count() > 1
+    if not press then return false
+
+    if key = "back"
+        if m.navStack.count() > 0
             popScreen()
+            return true
+        else if m.tabBar.visible and m.tabBar.isInFocusChain()
+            ' From tab bar, back drops into content
+            onTabDescend()
+            return true
+        else if m.activeTab <> 0 and m.tabBar.visible
+            ' tvOS: Menu on a non-Home tab returns to Home
+            m.tabBar.selectedIndex = 0
+            switchTab(0)
+            screen = m.rootScreens["home"]
+            if screen <> invalid then screen.setFocus(true)
+            return true
+        end if
+        ' On Home root: let the OS exit the channel
+        return false
+    else if key = "up"
+        ' Unconsumed Up from a root screen focuses the tab bar
+        if m.tabBar.visible and m.navStack.count() = 0 and not m.tabBar.isInFocusChain()
+            m.tabBar.setFocus(true)
             return true
         end if
     end if
     return false
 end function
+' build 1784043445
