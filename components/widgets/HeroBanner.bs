@@ -8,6 +8,8 @@ sub init()
     m.heroMeta = m.top.findNode("heroMeta")
     m.heroOverview = m.top.findNode("heroOverview")
     m.dotsGroup = m.top.findNode("dotsGroup")
+    m.dotFill = m.top.findNode("dotFill")
+    m.dotAnim = m.top.findNode("dotAnim")
     m.focusTop = m.top.findNode("focusTop")
     m.focusBottom = m.top.findNode("focusBottom")
     m.focusLeft = m.top.findNode("focusLeft")
@@ -17,6 +19,10 @@ sub init()
     m.items = []
     m.currentIndex = 0
     m.hasFocus = false
+    m.dotPositions = []
+
+    ' tvOS: scale 1.01 on focus, from center
+    m.top.scaleRotateCenter = [910, 256]
 
     m.advanceTimer.observeFieldScoped("fire", "onAdvanceTimer")
 
@@ -40,32 +46,51 @@ sub onContentChanged()
         m.items.push(item)
     end for
 
-    ' Build page indicator dots
-    m.dotsGroup.removeChildrenIndex(m.dotsGroup.getChildCount(), 0)
-    for i = 0 to m.items.count() - 1
-        dot = CreateObject("roSGNode", "Rectangle")
-        if i = 0
-            dot.width = 40
-        else
-            dot.width = 10
-        end if
-        dot.height = 6
-        dot.color = "#FFFFFF"
-        if i = 0
-            dot.opacity = 0.9
-        else
-            dot.opacity = 0.3
-        end if
-        m.dotsGroup.appendChild(dot)
-    end for
-
-    ' Center dots
-    totalWidth = m.items.count() * 10 + (m.items.count() - 1) * 8 + 30
-    m.dotsGroup.translation = [864 - totalWidth / 2, 400]
-
+    buildDots(0)
     m.currentIndex = 0
     showItem(0)
     m.advanceTimer.control = "start"
+end sub
+
+' tvOS page indicators: left-aligned row — active track 48x5, others 12x5.
+' Viewed dots at 70% white, upcoming at 30%. Active dot fills white over the 6s slide.
+sub buildDots(activeIndex as integer)
+    ' Clear existing dots
+    while m.dotsGroup.getChildCount() > 0
+        m.dotsGroup.removeChildIndex(0)
+    end while
+    m.dotPositions = []
+
+    if m.items.count() <= 1
+        m.dotFill.visible = false
+        return
+    end if
+    m.dotFill.visible = true
+
+    x = 0
+    for i = 0 to m.items.count() - 1
+        dot = CreateObject("roSGNode", "Rectangle")
+        dot.height = 5
+        dot.color = "#FFFFFF"
+        dot.translation = [x, 0]
+        if i = activeIndex
+            dot.width = 48
+            dot.opacity = 0.3   ' track; fill rect animates on top
+            m.dotPositions.push(x)
+            x += 48
+        else
+            dot.width = 12
+            if i < activeIndex
+                dot.opacity = 0.7   ' viewed
+            else
+                dot.opacity = 0.3   ' upcoming
+            end if
+            m.dotPositions.push(x)
+            x += 12
+        end if
+        x += 10
+        m.dotsGroup.appendChild(dot)
+    end for
 end sub
 
 sub showItem(index as integer)
@@ -73,15 +98,15 @@ sub showItem(index as integer)
 
     item = m.items[index]
 
-    ' Set backdrop image
+    ' Set backdrop image (tvOS requests large, fits right 70%)
     itemId = ""
     if item.Id <> invalid then itemId = item.Id
     if item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
-        m.heroImage.uri = ImageUrl.backdrop(itemId, 960)
+        m.heroImage.uri = ImageUrl.backdrop(itemId, 1280)
     else if item.ParentBackdropItemId <> invalid
-        m.heroImage.uri = ImageUrl.backdrop(item.ParentBackdropItemId, 960)
+        m.heroImage.uri = ImageUrl.backdrop(item.ParentBackdropItemId, 1280)
     else if item.SeriesId <> invalid and item.SeriesId <> ""
-        m.heroImage.uri = ImageUrl.backdrop(item.SeriesId, 960)
+        m.heroImage.uri = ImageUrl.backdrop(item.SeriesId, 1280)
     else if item.HDPosterUrl <> invalid and item.HDPosterUrl <> ""
         m.heroImage.uri = item.HDPosterUrl
     end if
@@ -95,11 +120,10 @@ sub showItem(index as integer)
         isYouTube = true
     end if
 
-    ' Set title (series name for episodes, item name for movies)
+    ' Title (tvOS displayTitle: series/channel name for episodes, else item name)
     title = ""
     if item.SeriesName <> invalid and item.SeriesName <> ""
         title = item.SeriesName
-        ' Clean YouTube suffixes
         if isYouTube
             dashPos = Instr(1, title, " - ")
             if dashPos > 0 then title = Left(title, dashPos - 1)
@@ -109,38 +133,40 @@ sub showItem(index as integer)
     end if
     m.heroTitle.text = title
 
-    ' Set subtitle
+    ' Episode subline (tvOS: "S{n} E{n} • {name}" / YouTube: video title)
     subtitle = ""
     if isYouTube
-        ' YouTube: show video title
         if item.Name <> invalid then subtitle = item.Name
     else if item.SeriesName <> invalid and item.SeriesName <> ""
-        ' TV episode: show S:E info
         if item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
             subtitle = "S" + str(item.ParentIndexNumber).Trim() + " E" + str(item.IndexNumber).Trim()
-            if item.Name <> invalid then subtitle += " - " + item.Name
+            if item.Name <> invalid then subtitle += " " + Chr(8226) + " " + item.Name
         else if item.Name <> invalid
             subtitle = item.Name
         end if
     end if
     m.heroSubtitle.text = subtitle
 
-    ' Set metadata
+    ' Metadata row (tvOS: TMDB logo + rating, critic %, year + runtime; YouTube: date + "YouTube")
     meta = ""
     if item.CommunityRating <> invalid
         rating = Int(item.CommunityRating * 10) / 10.0
         meta += str(rating).Trim()
     end if
     if item.CriticRating <> invalid
-        if meta <> "" then meta += "   "
+        if meta <> "" then meta += "    "
         meta += str(item.CriticRating).Trim() + "%"
     end if
     if isYouTube
-        if meta <> "" then meta += "   "
+        if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 10
+            if meta <> "" then meta += "    "
+            meta += Left(item.PremiereDate, 10)
+        end if
+        if meta <> "" then meta += "    "
         meta += "YouTube"
     else
         if item.ProductionYear <> invalid
-            if meta <> "" then meta += "   "
+            if meta <> "" then meta += "    "
             meta += str(item.ProductionYear).Trim()
         end if
         if item.RunTimeTicks <> invalid
@@ -148,7 +174,7 @@ sub showItem(index as integer)
             if minutes > 0
                 hours = Int(minutes / 60)
                 mins = minutes mod 60
-                if meta <> "" then meta += "   "
+                if meta <> "" then meta += "    "
                 if hours > 0
                     meta += str(hours).Trim() + "h " + str(mins).Trim() + "m"
                 else
@@ -158,33 +184,30 @@ sub showItem(index as integer)
         end if
     end if
     m.heroMeta.text = meta
-    ' Show TMDB logo if we have a community rating
+    ' Show TMDB logo when we have a community rating (tvOS: logo h24 before number)
     if item.CommunityRating <> invalid
         m.tmdbLogo.visible = true
-        m.heroMeta.translation = [116, 305]
+        m.heroMeta.translation = [126, 340]
     else
         m.tmdbLogo.visible = false
-        m.heroMeta.translation = [50, 305]
+        m.heroMeta.translation = [80, 340]
     end if
 
-    ' Set overview
+    ' Overview (tvOS: 22pt @75% white, 2 lines)
     overview = ""
     if item.Overview <> invalid and item.Overview <> ""
         overview = item.Overview
     end if
     m.heroOverview.text = overview
 
-    ' Update dots
-    for i = 0 to m.dotsGroup.getChildCount() - 1
-        dot = m.dotsGroup.getChild(i)
-        if i = index
-            dot.width = 40
-            dot.opacity = 0.9
-        else
-            dot.width = 10
-            dot.opacity = 0.3
-        end if
-    end for
+    ' Rebuild dots for this index and restart the active-dot progress fill
+    buildDots(index)
+    if m.items.count() > 1 and index < m.dotPositions.count()
+        m.dotAnim.control = "stop"
+        m.dotFill.width = 0
+        m.dotFill.translation = [80 + m.dotPositions[index], 470]
+        m.dotAnim.control = "start"
+    end if
 end sub
 
 sub onAdvanceTimer()
@@ -196,22 +219,24 @@ end sub
 sub onFocusChanged()
     m.hasFocus = m.top.isInFocusChain()
     if m.hasFocus
-        m.focusTop.opacity = 1.0
-        m.focusBottom.opacity = 1.0
-        m.focusLeft.opacity = 1.0
-        m.focusRight.opacity = 1.0
+        ' tvOS: accent stroke @60% + scale 1.01
+        m.focusTop.opacity = 0.6
+        m.focusBottom.opacity = 0.6
+        m.focusLeft.opacity = 0.6
+        m.focusRight.opacity = 0.6
+        m.top.scale = [1.01, 1.01]
     else
         m.focusTop.opacity = 0.0
         m.focusBottom.opacity = 0.0
         m.focusLeft.opacity = 0.0
         m.focusRight.opacity = 0.0
+        m.top.scale = [1.0, 1.0]
     end if
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if press
         if key = "right"
-            ' Next item
             if m.items.count() > 0
                 m.currentIndex = (m.currentIndex + 1) mod m.items.count()
                 showItem(m.currentIndex)
@@ -220,7 +245,6 @@ function onKeyEvent(key as string, press as boolean) as boolean
             end if
             return true
         else if key = "left"
-            ' Previous item
             if m.items.count() > 0
                 m.currentIndex = m.currentIndex - 1
                 if m.currentIndex < 0 then m.currentIndex = m.items.count() - 1
@@ -230,7 +254,6 @@ function onKeyEvent(key as string, press as boolean) as boolean
             end if
             return true
         else if key = "OK"
-            ' Select current item
             if m.currentIndex >= 0 and m.currentIndex < m.items.count()
                 m.top.selectedItem = m.items[m.currentIndex]
             end if

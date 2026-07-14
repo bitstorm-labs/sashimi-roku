@@ -1,28 +1,29 @@
 sub init()
+    m.scaleGroup = m.top.findNode("scaleGroup")
     m.cardBg = m.top.findNode("cardBg")
     m.posterMask = m.top.findNode("posterMask")
     m.posterImage = m.top.findNode("posterImage")
+    m.cwScrim = m.top.findNode("cwScrim")
+    m.playGlyph = m.top.findNode("playGlyph")
+    m.remainingLabel = m.top.findNode("remainingLabel")
     m.circularMask = m.top.findNode("circularMask")
     m.circularPoster = m.top.findNode("circularPoster")
-    m.circularDim = m.top.findNode("circularDim")
     m.circularGlow = m.top.findNode("circularGlow")
-    m.dimOverlay = m.top.findNode("dimOverlay")
     m.focusTop = m.top.findNode("focusTop")
     m.focusBottom = m.top.findNode("focusBottom")
     m.focusLeft = m.top.findNode("focusLeft")
     m.focusRight = m.top.findNode("focusRight")
     m.watchedBadge = m.top.findNode("watchedBadge")
+    m.newBadge = m.top.findNode("newBadge")
+    m.newBadgeLabel = m.top.findNode("newBadgeLabel")
     m.progressBg = m.top.findNode("progressBg")
     m.progressBar = m.top.findNode("progressBar")
     m.titleLabel = m.top.findNode("titleLabel")
     m.subtitleLabel = m.top.findNode("subtitleLabel")
-    m.heroGradient = m.top.findNode("heroGradient")
-    m.heroTitleLabel = m.top.findNode("heroTitleLabel")
-    m.heroSubtitleLabel = m.top.findNode("heroSubtitleLabel")
-    m.itemWidth = 200
-    m.posterHeight = 300
+    m.itemWidth = 220
+    m.posterHeight = 330
     m.isCircular = false
-    m.isHero = false
+    m.isLandscape = false
 end sub
 
 sub onSizeChanged()
@@ -33,47 +34,22 @@ sub onSizeChanged()
 
     if m.isCircular then return
 
-    if w > 800
-        m.isHero = true
-        m.posterHeight = 380
-        m.titleLabel.visible = false
-        m.subtitleLabel.visible = false
-        m.heroGradient.visible = true
-        m.heroGradient.width = w
-        m.heroGradient.height = 180
-        m.heroGradient.translation = [0, m.posterHeight - 180]
-        m.heroGradient.opacity = 0.75
-        m.heroTitleLabel.visible = true
-        m.heroTitleLabel.translation = [40, m.posterHeight - 130]
-        m.heroTitleLabel.width = w * 0.5
-        m.heroSubtitleLabel.visible = true
-        m.heroSubtitleLabel.translation = [40, m.posterHeight - 50]
-        m.heroSubtitleLabel.width = w * 0.5
-        m.posterMask.maskUri = ""
-    else if w > 250
-        m.isHero = false
+    if w > 250
+        ' Continue Watching landscape card (tvOS: 440x248, radius 16)
+        m.isLandscape = true
         m.posterHeight = Int(w * 0.5625)
-        m.heroGradient.visible = false
-        m.heroTitleLabel.visible = false
-        m.heroSubtitleLabel.visible = false
-        m.titleLabel.visible = true
-        m.posterMask.maskUri = "pkg:/images/wide_mask.png"
+        m.posterMask.maskUri = "pkg:/images/wide_mask_r16.png"
         m.posterMask.maskSize = [w, m.posterHeight]
     else
-        m.isHero = false
+        ' Portrait poster (tvOS: 220x330, radius 12)
+        m.isLandscape = false
         m.posterHeight = Int(w * 1.5)
-        m.heroGradient.visible = false
-        m.heroTitleLabel.visible = false
-        m.heroSubtitleLabel.visible = false
-        m.titleLabel.visible = true
-        m.posterMask.maskUri = "pkg:/images/poster_mask.png"
+        m.posterMask.maskUri = "pkg:/images/poster_mask_r12.png"
         m.posterMask.maskSize = [w, m.posterHeight]
     end if
 
     m.cardBg.width = w
     m.cardBg.height = m.posterHeight
-    m.dimOverlay.width = w
-    m.dimOverlay.height = m.posterHeight
     m.posterImage.width = w
     m.posterImage.height = m.posterHeight
     m.posterImage.loadWidth = w
@@ -84,14 +60,49 @@ sub onSizeChanged()
     m.focusLeft.height = m.posterHeight
     m.focusRight.height = m.posterHeight
     m.focusRight.translation = [w - 4, 0]
-    m.watchedBadge.translation = [w - 32, 4]
-    m.progressBg.width = w
-    m.progressBg.translation = [0, m.posterHeight - 5]
-    m.progressBar.translation = [0, m.posterHeight - 5]
+    m.watchedBadge.translation = [w - 35, 6]
+    m.newBadge.translation = [w - 48, 6]
+    m.newBadgeLabel.translation = [w - 48, 6]
+
+    ' Scale from card center (tvOS scaleEffect anchors center)
+    m.scaleGroup.scaleRotateCenter = [w / 2, m.posterHeight / 2]
+
+    if m.isLandscape
+        ' CW card internals (tvOS: pad H16/bottom14, progress under time-left row)
+        m.cwScrim.width = w
+        m.cwScrim.height = 60
+        m.cwScrim.translation = [0, m.posterHeight - 60]
+        m.playGlyph.translation = [16, m.posterHeight - 44]
+        m.remainingLabel.translation = [42, m.posterHeight - 44]
+        m.progressBg.width = w - 32
+        m.progressBg.translation = [16, m.posterHeight - 19]
+        m.progressBar.translation = [16, m.posterHeight - 19]
+        ' Title 28 semibold left-aligned + subtitle 20 (tvOS ContinueWatchingCard)
+        m.titleLabel.horizAlign = "left"
+        setLabelFont(m.titleLabel, "font:SystemFontFileBold", 28)
+        m.titleLabel.translation = [0, m.posterHeight + 12]
+        m.subtitleLabel.translation = [0, m.posterHeight + 52]
+    else
+        ' Poster: full-width progress at bottom (tvOS landscape rows only show
+        ' progress on landscape cards, but resume posters keep it readable)
+        m.progressBg.width = w
+        m.progressBg.translation = [0, m.posterHeight - 5]
+        m.progressBar.translation = [0, m.posterHeight - 5]
+        ' Centered single caption (tvOS MediaPosterButton: 22 medium centered)
+        m.titleLabel.horizAlign = "center"
+        setLabelFont(m.titleLabel, "font:SystemFontFile", 22)
+        m.titleLabel.translation = [0, m.posterHeight + 12]
+        m.subtitleLabel.translation = [0, m.posterHeight + 44]
+    end if
     m.titleLabel.width = w
-    m.titleLabel.translation = [0, m.posterHeight + 10]
     m.subtitleLabel.width = w
-    m.subtitleLabel.translation = [0, m.posterHeight + 38]
+end sub
+
+sub setLabelFont(label as object, uri as string, size as integer)
+    f = CreateObject("roSGNode", "Font")
+    f.uri = uri
+    f.size = size
+    label.font = f
 end sub
 
 sub onItemContentChanged()
@@ -103,15 +114,19 @@ sub onItemContentChanged()
         m.isCircular = true
     end if
 
-    ' Reset focus
+    ' Reset state
     m.focusTop.opacity = 0.0
     m.focusBottom.opacity = 0.0
     m.focusLeft.opacity = 0.0
     m.focusRight.opacity = 0.0
-    m.dimOverlay.opacity = 0.25
     m.watchedBadge.visible = false
+    m.newBadge.visible = false
+    m.newBadgeLabel.visible = false
     m.progressBg.visible = false
     m.progressBar.visible = false
+    m.cwScrim.visible = false
+    m.playGlyph.visible = false
+    m.remainingLabel.visible = false
 
     if m.isCircular
         m.posterMask.visible = false
@@ -126,13 +141,11 @@ sub onItemContentChanged()
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.circularPoster.uri = content.HDPosterUrl
         end if
+        ' tvOS circular caption: 20 medium centered
         m.titleLabel.horizAlign = "center"
-        m.titleLabel.translation = [0, 190]
-        ' Use smaller font for circular titles
-        smallFont = CreateObject("roSGNode", "Font")
-        smallFont.uri = "font:SystemFontFile"
-        smallFont.size = 18
-        m.titleLabel.font = smallFont
+        setLabelFont(m.titleLabel, "font:SystemFontFile", 20)
+        m.titleLabel.translation = [0, 212]
+        m.titleLabel.width = 200
         m.subtitleLabel.visible = false
     else
         m.posterMask.visible = true
@@ -152,46 +165,58 @@ sub onItemContentChanged()
         m.titleLabel.text = content.title
     end if
 
-    if content.description <> invalid and content.description <> ""
+    ' Subtitle only on Continue Watching (landscape) cards — tvOS posters are title-only
+    if m.isLandscape and content.description <> invalid and content.description <> ""
         m.subtitleLabel.text = content.description
-        m.subtitleLabel.visible = not m.isCircular and not m.isHero
+        m.subtitleLabel.visible = true
     else
         m.subtitleLabel.visible = false
     end if
 
-    ' Hero text
-    if m.isHero
-        if content.doesExist("isHero") and content.isHero = true
-            heroTitle = ""
-            if content.description <> invalid and content.description <> ""
-                heroTitle = content.description
-            else if content.title <> invalid
-                heroTitle = content.title
-            end if
-            m.heroTitleLabel.text = heroTitle
-            heroSub = ""
-            if content.title <> invalid and content.title <> "" and content.title <> heroTitle
-                heroSub = content.title
-            end if
-            m.heroSubtitleLabel.text = heroSub
-        end if
-    end if
-
-    ' Watched badge
-    if content.doesExist("isPlayed") and content.isPlayed = true
+    ' "X new" badge (tvOS: only when unplayed count > 1; supersedes watched check)
+    badgeCount = 0
+    if content.doesExist("badgeCount") then badgeCount = content.badgeCount
+    if badgeCount > 1
+        m.newBadgeLabel.text = str(badgeCount).Trim() + " new"
+        ' Size capsule to text (approx 11px/char at 19pt bold + padding)
+        bw = 24 + Len(m.newBadgeLabel.text) * 11
+        m.newBadge.width = bw
+        m.newBadgeLabel.width = bw
+        m.newBadge.translation = [m.itemWidth - bw - 6, 6]
+        m.newBadgeLabel.translation = [m.itemWidth - bw - 6, 6]
+        m.newBadge.visible = true
+        m.newBadgeLabel.visible = true
+    else if content.doesExist("isPlayed") and content.isPlayed = true
+        ' Watched badge (tvOS: 29px circle, 26 circular, top-trailing)
         m.watchedBadge.visible = true
         if m.isCircular
-            m.watchedBadge.translation = [148, 0]
+            m.watchedBadge.width = 26
+            m.watchedBadge.height = 26
+            m.watchedBadge.translation = [166, 8]
+        else
+            m.watchedBadge.width = 29
+            m.watchedBadge.height = 29
+            m.watchedBadge.translation = [m.itemWidth - 35, 6]
         end if
     end if
 
-    ' Progress bar
+    ' Progress bar + CW overlay
     if not m.isCircular and content.doesExist("playedPercentage")
         pct = content.playedPercentage
         if pct > 0 and pct < 100
             m.progressBg.visible = true
             m.progressBar.visible = true
-            m.progressBar.width = m.itemWidth * (pct / 100.0)
+            if m.isLandscape
+                m.progressBar.width = (m.itemWidth - 32) * (pct / 100.0)
+                m.cwScrim.visible = true
+                m.playGlyph.visible = true
+                if content.doesExist("remainingText") and content.remainingText <> ""
+                    m.remainingLabel.text = content.remainingText
+                    m.remainingLabel.visible = true
+                end if
+            else
+                m.progressBar.width = m.itemWidth * (pct / 100.0)
+            end if
         end if
     end if
 end sub
@@ -199,61 +224,39 @@ end sub
 sub onFocusChanged()
     fp = m.top.focusPercent
 
-    if m.isCircular
-        ' No scale — just glow ring + title color change
-        m.circularDim.opacity = 0.25 - (fp * 0.25)
-        ' Glow ring behind circle
-        m.circularGlow.opacity = fp * 0.9
-        ' Title stays white on focus (not blue)
-        if fp > 0.5
-            m.titleLabel.color = "0xFFFFFFFF"
-        else
-            m.titleLabel.color = "0xAAAAAAFF"
-        end if
-        return
-    else if m.isHero
-        m.dimOverlay.opacity = 0.2 - (fp * 0.15)
-    else
-        m.dimOverlay.opacity = 0.25 - (fp * 0.25)
-        if fp > 0.1
-            m.focusTop.opacity = fp
-            m.focusBottom.opacity = fp
-            m.focusLeft.opacity = fp
-            m.focusRight.opacity = fp
-        else
-            m.focusTop.opacity = 0.0
-            m.focusBottom.opacity = 0.0
-            m.focusLeft.opacity = 0.0
-            m.focusRight.opacity = 0.0
-        end if
+    ' tvOS: scale 1.05 on focus (all card types except circular use ring only)
+    if not m.isCircular
+        s = 1.0 + (fp * 0.05)
+        m.scaleGroup.scale = [s, s]
     end if
 
-    if fp > 0.5
-        m.titleLabel.color = "0xFFFFFFFF"
-        m.subtitleLabel.color = "0xBBBBBBFF"
+    if m.isCircular
+        m.circularGlow.opacity = fp * 0.9
+        return
+    end if
+
+    ' tvOS: accent stroke fades in with focus; no dimming of unfocused cards
+    if fp > 0.1
+        m.focusTop.opacity = fp
+        m.focusBottom.opacity = fp
+        m.focusLeft.opacity = fp
+        m.focusRight.opacity = fp
     else
-        m.titleLabel.color = "0xBBBBBBFF"
-        m.subtitleLabel.color = "0x555555FF"
+        m.focusTop.opacity = 0.0
+        m.focusBottom.opacity = 0.0
+        m.focusLeft.opacity = 0.0
+        m.focusRight.opacity = 0.0
     end if
 end sub
 
 sub onRowFocusChanged()
+    ' tvOS does not dim unfocused rows — clear any focus borders when the row loses focus
     rfp = m.top.rowFocusPercent
     if rfp < 0.5
         m.focusTop.opacity = 0.0
         m.focusBottom.opacity = 0.0
         m.focusLeft.opacity = 0.0
         m.focusRight.opacity = 0.0
-        m.dimOverlay.opacity = 0.4
-        if m.isCircular
-            m.circularDim.opacity = 0.3
-            m.circularGlow.opacity = 0.0
-        end if
-        m.titleLabel.color = "0x888888FF"
-        m.subtitleLabel.color = "0x444444FF"
-    else
-        m.dimOverlay.opacity = 0.25
-        if m.isCircular then m.circularDim.opacity = 0.2
-        m.titleLabel.color = "0xBBBBBBFF"
+        if m.isCircular then m.circularGlow.opacity = 0.0
     end if
 end sub

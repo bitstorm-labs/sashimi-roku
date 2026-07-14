@@ -18,17 +18,23 @@ sub init()
     ' State
     m.libraries = []
     m.continueWatchingItems = []
+    m.heroPool = []
     m.rowContent = invalid
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
 
-    ' User avatar - show initial in circle
+    ' User avatar (tvOS: user image on accent circle, initial as fallback)
     m.avatarLabel = m.top.findNode("avatarLabel")
+    m.avatarImage = m.top.findNode("avatarImage")
     userName = Registry.getUserName()
     if userName <> "" and userName <> invalid
         m.avatarLabel.text = UCase(Left(userName, 1))
     else
         m.avatarLabel.text = "?"
+    end if
+    userId = Registry.getUserId()
+    if userId <> "" and m.global.serverUrl <> invalid and m.global.serverUrl <> ""
+        m.avatarImage.uri = m.global.serverUrl + "/Users/" + userId + "/Images/Primary?maxWidth=140&quality=90"
     end if
 
     ' Observe row selection
@@ -43,6 +49,7 @@ sub loadHomeData()
     m.rowList.visible = false
     m.emptyLabel.visible = false
     m.wideRowIndices = {}
+    m.heroPool = []
     m.heroBanner.visible = false
     m.apiTask.request = { action: "getLibraryViews" }
 end sub
@@ -123,37 +130,6 @@ sub onNextUpLoaded(response as object)
 
     m.rowContent = CreateObject("roSGNode", "ContentNode")
 
-    ' Build hero content from continue watching items
-    if m.continueWatchingItems.count() > 0
-        heroContent = CreateObject("roSGNode", "ContentNode")
-        maxHero = 5
-        if maxHero > m.continueWatchingItems.count() then maxHero = m.continueWatchingItems.count()
-        for i = 0 to maxHero - 1
-            item = m.continueWatchingItems[i]
-            child = heroContent.createChild("ContentNode")
-            child.title = ""
-            if item.Name <> invalid then child.title = item.Name
-            child.description = ""
-            if item.SeriesName <> invalid then child.description = item.SeriesName
-
-            ' Use backdrop image
-            itemId = ""
-            if item.Id <> invalid then itemId = item.Id
-            if item.ParentBackdropItemId <> invalid
-                child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 960)
-            else if item.SeriesId <> invalid and item.SeriesId <> ""
-                child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 960)
-            else if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
-                child.HDPosterUrl = ImageUrl.backdrop(itemId, 960)
-            end if
-
-            child.addFields({ itemJson: "" })
-            child.itemJson = FormatJSON(item)
-        end for
-        m.heroBanner.content = heroContent
-        m.heroBanner.visible = true
-    end if
-
     if m.continueWatchingItems.count() > 0
         addContinueWatchingRow(m.continueWatchingItems)
     end if
@@ -161,7 +137,7 @@ sub onNextUpLoaded(response as object)
     if m.libraries.count() > 0
         m.currentLibraryIndex = 0
         lib = m.libraries[0]
-        m.apiTask.request = { action: "getLatestMedia", parentId: lib.Id, limit: 16 }
+        m.apiTask.request = { action: "getLatestMedia", parentId: lib.Id, limit: 30 }
     else
         showRows()
     end if
@@ -178,17 +154,53 @@ sub onLatestMediaLoaded(response as object)
         end for
         ' Detect YouTube libraries by name
         isYouTube = Instr(1, LCase(libName), "youtube") > 0
-        addRow(libName, response.items, isYouTube)
+
+        ' Clean YouTube library names for row titles (strip " - Videos" etc.)
+        displayName = libName
+        if isYouTube
+            dashPos = Instr(1, displayName, " - ")
+            if dashPos > 0 then displayName = Left(displayName, dashPos - 1)
+        end if
+
+        ' tvOS hero pool: first 5 latest items per library, shuffled later
+        heroCount = 0
+        for each item in response.items
+            if heroCount >= 5 then exit for
+            m.heroPool.push(item)
+            heroCount = heroCount + 1
+        end for
+
+        ' tvOS row title: "Recently Added {Library}"
+        addRow("Recently Added " + displayName, response.items, isYouTube)
     end if
 
     m.currentLibraryIndex = m.currentLibraryIndex + 1
     if m.currentLibraryIndex < m.libraries.count()
         lib = m.libraries[m.currentLibraryIndex]
-        m.apiTask.request = { action: "getLatestMedia", parentId: lib.Id, limit: 16 }
+        m.apiTask.request = { action: "getLatestMedia", parentId: lib.Id, limit: 30 }
     else
         showRows()
     end if
 end sub
+
+' Format remaining playback time like tvOS: "1h 23m left" / "23m left"
+function formatRemaining(item as object) as string
+    if item.RunTimeTicks = invalid then return ""
+    positionTicks = 0
+    if item.UserData <> invalid and item.UserData.PlaybackPositionTicks <> invalid
+        positionTicks = item.UserData.PlaybackPositionTicks
+    end if
+    remainTicks = item.RunTimeTicks - positionTicks
+    if remainTicks <= 0 then return ""
+    minutes = Int(remainTicks / 600000000)
+    if minutes < 1 then return ""
+    hours = Int(minutes / 60)
+    mins = minutes mod 60
+    if hours > 0
+        return str(hours).Trim() + "h " + str(mins).Trim() + "m left"
+    end if
+    return str(mins).Trim() + "m left"
+end function
 
 sub addContinueWatchingRow(items as object)
     if m.rowContent = invalid then return
@@ -217,17 +229,26 @@ sub addContinueWatchingRow(items as object)
         if isYouTubeItem
             ' YouTube: use episode primary image (thumbnail)
             if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+                child.HDPosterUrl = ImageUrl.primary(itemId, 880)
             end if
-            ' Title: series name (channel), no subtitle
+            ' Title: channel name; subtitle: "{date} - {video title}" (tvOS)
+            channelName = ""
             if item.SeriesName <> invalid and item.SeriesName <> ""
-                child.title = item.SeriesName
+                channelName = item.SeriesName
+                dashPos = Instr(1, channelName, " - ")
+                if dashPos > 0 then channelName = Left(channelName, dashPos - 1)
             else if item.Name <> invalid
-                child.title = item.Name
-            else
-                child.title = ""
+                channelName = item.Name
             end if
-            child.description = ""
+            child.title = channelName
+            description = ""
+            if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 10
+                description = Left(item.PremiereDate, 10)
+                if item.Name <> invalid and item.Name <> "" then description += " - " + item.Name
+            else if item.Name <> invalid and item.Name <> channelName
+                description = item.Name
+            end if
+            child.description = description
         else if itemType = "Episode"
             ' TV Episodes: title = series name, subtitle = "S1:E5 - Episode Name"
             if item.SeriesName <> invalid and item.SeriesName <> ""
@@ -240,11 +261,11 @@ sub addContinueWatchingRow(items as object)
 
             ' Use series backdrop image
             if item.ParentBackdropItemId <> invalid
-                child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 400)
+                child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 880)
             else if item.SeriesId <> invalid and item.SeriesId <> ""
-                child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 400)
+                child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 880)
             else if itemId <> ""
-                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+                child.HDPosterUrl = ImageUrl.primary(itemId, 880)
             end if
 
             ' Subtitle: "S1:E5 - Episode Name"
@@ -268,9 +289,9 @@ sub addContinueWatchingRow(items as object)
 
             ' Use item backdrop
             if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
-                child.HDPosterUrl = ImageUrl.backdrop(itemId, 400)
+                child.HDPosterUrl = ImageUrl.backdrop(itemId, 880)
             else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+                child.HDPosterUrl = ImageUrl.primary(itemId, 880)
             end if
 
             ' Subtitle: year
@@ -281,8 +302,9 @@ sub addContinueWatchingRow(items as object)
             child.description = description
         end if
 
-        child.addFields({ itemJson: "", isPlayed: false, playedPercentage: 0 })
+        child.addFields({ itemJson: "", isPlayed: false, playedPercentage: 0, remainingText: "", badgeCount: 0 })
         child.itemJson = FormatJSON(item)
+        child.remainingText = formatRemaining(item)
 
         if item.UserData <> invalid
             if item.UserData.Played <> invalid and item.UserData.Played = true
@@ -300,7 +322,7 @@ sub addRow(title as string, items as object, isYouTube = false as boolean)
 
     rowIndex = m.rowContent.getChildCount()
 
-    ' YouTube rows use wide landscape layout
+    ' YouTube rows use circular channel layout
     if isYouTube
         m.wideRowIndices[str(rowIndex).Trim()] = true
     end if
@@ -308,10 +330,22 @@ sub addRow(title as string, items as object, isYouTube = false as boolean)
     row = m.rowContent.createChild("ContentNode")
     row.title = title
 
+    ' tvOS: dedupe by series, cap 20
+    seenSeries = {}
+    count = 0
     for each item in items
+        if count >= 20 then exit for
+        seriesId = ""
+        if item.SeriesId <> invalid then seriesId = item.SeriesId
+        if seriesId <> ""
+            if seenSeries.DoesExist(seriesId) then continue for
+            seenSeries[seriesId] = true
+        end if
+        count = count + 1
+
         child = row.createChild("ContentNode")
 
-        ' Title: use series name for TV items, otherwise item name. No subtitle for library rows.
+        ' Title: use series name for TV items, otherwise item name. Posters are title-only (tvOS).
         if item.SeriesName <> invalid and item.SeriesName <> ""
             child.title = item.SeriesName
         else if item.Name <> invalid
@@ -330,7 +364,7 @@ sub addRow(title as string, items as object, isYouTube = false as boolean)
             child.addFields({ isCircular: false })
             child.isCircular = true
             if item.SeriesId <> invalid and item.SeriesId <> ""
-                child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 200)
+                child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 400)
                 if item.SeriesName <> invalid
                     ' Clean YouTube channel names: strip " - Videos", " - Shorts", etc.
                     channelName = item.SeriesName
@@ -341,17 +375,17 @@ sub addRow(title as string, items as object, isYouTube = false as boolean)
                     child.title = channelName
                 end if
             else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-                child.HDPosterUrl = ImageUrl.primary(itemId, 200)
+                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
             end if
         else if item.SeriesId <> invalid and item.SeriesId <> ""
             ' TV show episode: always use series poster
-            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 200)
+            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 440)
         else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primary(itemId, 200)
+            child.HDPosterUrl = ImageUrl.primary(itemId, 440)
         end if
 
         ' Store item data
-        child.addFields({ itemJson: "", isPlayed: false, playedPercentage: 0 })
+        child.addFields({ itemJson: "", isPlayed: false, playedPercentage: 0, badgeCount: 0 })
         child.itemJson = FormatJSON(item)
 
         if item.UserData <> invalid
@@ -361,12 +395,64 @@ sub addRow(title as string, items as object, isYouTube = false as boolean)
             if item.UserData.PlayedPercentage <> invalid
                 child.playedPercentage = item.UserData.PlayedPercentage
             end if
+            ' tvOS "X new" badge: unplayed episode count on the series
+            if item.UserData.UnplayedItemCount <> invalid
+                child.badgeCount = item.UserData.UnplayedItemCount
+            end if
         end if
     end for
 end sub
 
+' Fisher-Yates shuffle (tvOS hero pool is .shuffled())
+sub shuffleArray(arr as object)
+    n = arr.count()
+    for i = n - 1 to 1 step -1
+        j = Rnd(i + 1) - 1
+        tmp = arr[i]
+        arr[i] = arr[j]
+        arr[j] = tmp
+    end for
+end sub
+
+' tvOS HeroSection: latest media, 5 per library, shuffled
+sub buildHeroContent()
+    if m.heroPool.count() = 0 then return
+
+    shuffleArray(m.heroPool)
+
+    heroContent = CreateObject("roSGNode", "ContentNode")
+    maxHero = 15
+    if maxHero > m.heroPool.count() then maxHero = m.heroPool.count()
+    for i = 0 to maxHero - 1
+        item = m.heroPool[i]
+        child = heroContent.createChild("ContentNode")
+        child.title = ""
+        if item.Name <> invalid then child.title = item.Name
+        child.description = ""
+        if item.SeriesName <> invalid then child.description = item.SeriesName
+
+        itemId = ""
+        if item.Id <> invalid then itemId = item.Id
+        if item.ParentBackdropItemId <> invalid
+            child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 1280)
+        else if item.SeriesId <> invalid and item.SeriesId <> ""
+            child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 1280)
+        else if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
+            child.HDPosterUrl = ImageUrl.backdrop(itemId, 1280)
+        end if
+
+        child.addFields({ itemJson: "" })
+        child.itemJson = FormatJSON(item)
+    end for
+    m.heroBanner.content = heroContent
+    m.heroBanner.visible = true
+end sub
+
 sub showRows()
     m.loadingLabel.visible = false
+
+    ' Hero built from the full latest-media pool (tvOS behavior)
+    buildHeroContent()
 
     if m.rowContent = invalid or m.rowContent.getChildCount() = 0
         m.emptyLabel.text = "No content found on this server."
@@ -374,24 +460,24 @@ sub showRows()
         return
     end if
 
-    ' Set per-row item sizes: hero for featured, wide for Continue Watching and YouTube, portrait for other library rows
+    ' Set per-row item sizes (tvOS: CW 440x248, posters 220x330, YouTube circles 200x200)
     rowCount = m.rowContent.getChildCount()
     itemSizes = []
     itemSpacings = []
     for i = 0 to rowCount - 1
         iKey = str(i).Trim()
         if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
-            ' Continue Watching: wide landscape items (400x225 image + labels)
-            itemSizes.push([400, 290])
-            itemSpacings.push([30, 0])
+            ' Continue Watching: 440x248 image + title 28 + subtitle 20
+            itemSizes.push([440, 330])
+            itemSpacings.push([40, 0])
         else if m.wideRowIndices.DoesExist(iKey)
-            ' YouTube: circular avatar items
-            itemSizes.push([200, 230])
-            itemSpacings.push([16, 0])
+            ' YouTube: circular avatars 200x200 + caption (tvOS spacing 24)
+            itemSizes.push([200, 250])
+            itemSpacings.push([24, 0])
         else
-            ' Library rows: portrait posters
-            itemSizes.push([200, 360])
-            itemSpacings.push([20, 0])
+            ' Library rows: portrait posters 220x330 + caption
+            itemSizes.push([220, 380])
+            itemSpacings.push([40, 0])
         end if
     end for
     m.rowList.rowItemSize = itemSizes

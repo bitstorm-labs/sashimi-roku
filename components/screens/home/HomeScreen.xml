@@ -7,71 +7,78 @@
         <field id="selectedLibrary" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
-        <!-- Background -->
-        <Rectangle width="1920" height="1080" color="#121215" />
+        <!-- Background (tvOS: vertical gradient background -> black) -->
+        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
 
-        <!-- Header -->
-        <Rectangle id="headerBg" width="1920" height="80" color="#121215" opacity="0.85" />
+        <!-- Header (tvOS AppHeader: logo artwork left, avatar top-right, no bar) -->
         <Poster
             id="headerLogo"
-            translation="[96, 16]"
-            width="53"
-            height="40"
-            loadWidth="80"
-            loadHeight="60"
-            uri="pkg:/images/logo.png"
+            translation="[80, 8]"
+            width="70"
+            height="105"
+            loadWidth="140"
+            loadHeight="210"
+            uri="pkg:/images/wordmark.png"
             loadDisplayMode="scaleToFit"
         />
-        <Label
-            id="headerTitle"
-            text="Sashimi"
-            font="font:MediumBoldSystemFont"
-            color="#FFFFFF"
-            translation="[158, 20]"
+        <!-- User avatar (tvOS: 70x70 accent-gradient circle, user image when available) -->
+        <Poster
+            id="avatarBg"
+            uri="pkg:/images/avatar_accent.png"
+            width="70"
+            height="70"
+            translation="[1820, 22]"
         />
-        <!-- User avatar (circular with image) -->
-        <!-- User avatar (circular background with initial) -->
-        <MaskGroup
-            translation="[1812, 22]"
-            maskUri="pkg:/images/avatar_mask.png"
-            maskSize="[40, 40]"
-        >
-            <Rectangle width="40" height="40" color="#3a3a5a" />
-        </MaskGroup>
         <Label
             id="avatarLabel"
-            translation="[1812, 22]"
-            width="40"
-            height="40"
+            translation="[1820, 22]"
+            width="70"
+            height="70"
             horizAlign="center"
             vertAlign="center"
-            font="font:SmallBoldSystemFont"
             color="#FFFFFF"
             text=""
-        />
+        >
+            <Font role="font" uri="font:SystemFontFileBold" size="28" />
+        </Label>
+        <MaskGroup
+            id="avatarImageMask"
+            translation="[1820, 22]"
+            maskUri="pkg:/images/circle_mask.png"
+            maskSize="[70, 70]"
+        >
+            <Poster
+                id="avatarImage"
+                width="70"
+                height="70"
+                loadWidth="140"
+                loadHeight="140"
+                loadDisplayMode="scaleToZoom"
+            />
+        </MaskGroup>
 
-        <!-- Hero Banner -->
+        <!-- Hero Banner (tvOS: 32:9 featured card) -->
         <HeroBanner
             id="heroBanner"
-            translation="[96, 80]"
+            translation="[50, 122]"
             visible="false"
         />
 
-        <!-- Content rows -->
+        <!-- Content rows (tvOS: H-pad 80 via 50 + RowList internal 30... items inset at 30) -->
         <RowList
             id="rowList"
-            translation="[96, 520]"
-            itemSize="[1728, 400]"
-            numRows="3"
-            itemSpacing="[0, 10]"
-            rowItemSize="[[180, 330]]"
-            rowItemSpacing="[[30, 0]]"
+            translation="[80, 674]"
+            itemSize="[1820, 450]"
+            numRows="2"
+            itemSpacing="[0, 30]"
+            rowItemSize="[[220, 400]]"
+            rowItemSpacing="[[40, 0]]"
             showRowLabel="[true]"
             showRowCounter="[false]"
             drawFocusFeedback="false"
-            rowLabelFont="font:MediumBoldSystemFont"
+            rowLabelFont="font:LargeBoldSystemFont"
             rowLabelColor="#FFFFFF"
-            rowLabelOffset="[[0, 12]]"
+            rowLabelOffset="[[0, 16]]"
             rowFocusAnimationStyle="fixedFocus"
             itemComponentName="HomeItem"
             visible="false"
@@ -82,7 +89,7 @@
             id="loadingLabel"
             text="Loading your library..."
             font="font:MediumSystemFont"
-            color="#666666"
+            color="#8C8C8C"
             horizAlign="center"
             width="1920"
             translation="[0, 500]"
@@ -94,7 +101,7 @@
             id="emptyLabel"
             text=""
             font="font:MediumSystemFont"
-            color="#666666"
+            color="#8C8C8C"
             horizAlign="center"
             width="1920"
             translation="[0, 500]"
