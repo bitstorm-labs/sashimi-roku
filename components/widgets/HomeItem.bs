@@ -244,7 +244,22 @@ sub applyFocusVisuals(fp as float)
 end sub
 
 sub onFocusChanged()
-    applyFocusVisuals(m.top.focusPercent)
+    ' focusPercent FREEZES at its last value when the RowList itself loses
+    ' focus (item 0 boots at 1.0) — itemHasFocus is the truthful gate, so a
+    ' ring never shows while the hero or another node owns focus.
+    if m.top.itemHasFocus
+        applyFocusVisuals(m.top.focusPercent)
+    else
+        applyFocusVisuals(0.0)
+    end if
+end sub
+
+sub onItemHasFocus()
+    if m.top.itemHasFocus
+        applyFocusVisuals(m.top.focusPercent)
+    else
+        applyFocusVisuals(0.0)
+    end if
 end sub
 
 sub onRowFocusChanged()

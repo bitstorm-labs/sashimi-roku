@@ -3,6 +3,7 @@
     <interface>
         <field id="itemContent" type="node" onChange="onContentChanged" />
         <field id="focusPercent" type="float" onChange="onFocusChanged" />
+        <field id="itemHasFocus" type="boolean" onChange="onFocusChanged" />
         <field id="rowFocusPercent" type="float" onChange="onRowFocusChanged" />
         <field id="width" type="float" />
         <field id="height" type="float" />
@@ -49,8 +50,9 @@
                    ellipsizeOnBoundary="true" translation="[0, 175]">
                 <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="20" />
             </Label>
-            <Animation id="epPulseAnim" duration="1" repeat="true" easeFunction="inOutQuad">
-                <FloatFieldInterpolator key="[0.0, 0.5, 1.0]" keyValue="[0.4, 1.0, 0.4]" fieldToInterp="epPulse.opacity" />
+            <!-- soft breathing (tvOS): slow, gentle opacity swell -->
+            <Animation id="epPulseAnim" duration="2.6" repeat="true" easeFunction="inOutQuad">
+                <FloatFieldInterpolator key="[0.0, 0.5, 1.0]" keyValue="[0.45, 0.85, 0.45]" fieldToInterp="epPulse.opacity" />
             </Animation>
         </Group>
 

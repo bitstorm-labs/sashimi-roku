@@ -33,6 +33,7 @@ sub init()
     m.osdPlayPause = m.top.findNode("osdPlayPause")
     m.osdScrubFill = m.top.findNode("osdScrubFill")
     m.osdScrubKnob = m.top.findNode("osdScrubKnob")
+    m.osdChapterTicks = m.top.findNode("osdChapterTicks")
     m.osdElapsed = m.top.findNode("osdElapsed")
     m.osdRemaining = m.top.findNode("osdRemaining")
     m.osdTimer = m.top.findNode("osdTimer")
@@ -89,6 +90,9 @@ sub init()
     m.qualityBps = 0          ' 0 = auto (settings)
     m.pendingStartSecs = -1
 
+    m.chapters = []           ' [{name, startSec}] from item Chapters
+    m.chapterTicksBuilt = false
+
     ' Intro Skipper segments
     m.segments = []
     m.curSegment = invalid
@@ -131,6 +135,19 @@ sub onItemDataChanged()
     m.statusLabel.text = "Loading..."
     m.startedReported = false
     m.stoppedReported = false
+    m.chapters = []
+    m.chapterTicksBuilt = false
+    if data.Chapters <> invalid and data.Chapters.count() > 1
+        for i = 0 to data.Chapters.count() - 1
+            ch = data.Chapters[i]
+            if ch.StartPositionTicks <> invalid
+                nm = ""
+                if ch.Name <> invalid then nm = ch.Name
+                if nm = "" then nm = "Chapter " + str(i + 1).Trim()
+                m.chapters.push({ name: nm, startSec: Int(ch.StartPositionTicks / 10000000&) })
+            end if
+        end for
+    end if
     populateInfoBar()
     requestStream(data)
 end sub
@@ -348,6 +365,7 @@ end sub
 ' ---------- OSD visibility ----------
 
 sub showOsd()
+    buildChapterTicks()
     updateScrubber()
     updateClock()
     if m.osdVisible
@@ -387,6 +405,24 @@ sub bumpOsd()
     m.osdTimer.control = "start"
 end sub
 
+' Thin markers on the scrub track at each chapter start (tvOS chapter dots)
+sub buildChapterTicks()
+    if m.chapterTicksBuilt then return
+    if m.chapters.count() < 2 or m.durationSecs <= 0 then return
+    m.chapterTicksBuilt = true
+    for each ch in m.chapters
+        if ch.startSec > 0 and ch.startSec < m.durationSecs
+            tick = CreateObject("roSGNode", "Rectangle")
+            tick.width = 4
+            tick.height = 12
+            tick.color = "#000000"
+            tick.opacity = 0.55
+            tick.translation = [Int(1760 * ch.startSec / m.durationSecs) - 2, 0]
+            m.osdChapterTicks.appendChild(tick)
+        end if
+    end for
+end sub
+
 ' ---------- Buttons (virtual highlight) ----------
 
 sub buildButtons()
@@ -404,6 +440,7 @@ sub buildButtons()
     defs.push({ kind: "restart", label: "Start Over" })
     defs.push({ kind: "subs", label: "Subtitles" })
     if m.audTracks.count() > 1 then defs.push({ kind: "audio", label: "Audio" })
+    if m.chapters.count() > 1 then defs.push({ kind: "chapters", label: "Chapters" })
     defs.push({ kind: "quality", label: "Quality" })
 
     x = 0
@@ -491,6 +528,8 @@ sub activateButton()
         openMenu("subs")
     else if kind = "audio"
         openMenu("audio")
+    else if kind = "chapters"
+        openMenu("chapters")
     else if kind = "quality"
         openMenu("quality")
     end if
@@ -518,6 +557,13 @@ sub openMenu(kind as string)
             if m.audTracks[i].index = m.curAudIdx then current = m.menuItems.count() - 1
         end for
         if m.curAudIdx = -1 then current = 0
+    else if kind = "chapters"
+        m.osdMenuTitle.text = "Chapters"
+        for i = 0 to m.chapters.count() - 1
+            ch = m.chapters[i]
+            m.menuItems.push({ label: ch.name + "  " + Chr(8226) + "  " + formatTime(ch.startSec), value: ch.startSec })
+            if m.video.position >= ch.startSec then current = i
+        end for
     else if kind = "quality"
         m.osdMenuTitle.text = "Quality"
         m.menuItems.push({ label: "Auto", value: 0 })
@@ -601,6 +647,7 @@ function isCurrentValue(value as integer) as boolean
     if m.menuKind = "subs" then return value = m.curSubIdx
     if m.menuKind = "audio" then return (value = m.curAudIdx) or (m.curAudIdx = -1 and m.menuItems.count() > 0 and m.menuItems[0].value = value)
     if m.menuKind = "quality" then return value = m.qualityBps
+    ' chapters are positions, not settings — no persistent bullet
     return false
 end function
 
@@ -621,7 +668,11 @@ sub applyMenuSelection()
     if m.menuIdx < 0 or m.menuIdx >= m.menuItems.count() then return
     value = m.menuItems[m.menuIdx].value
 
-    if m.menuKind = "subs"
+    if m.menuKind = "chapters"
+        m.seeking = false
+        m.video.seek = value
+        updateScrubber()
+    else if m.menuKind = "subs"
         if value <> m.curSubIdx
             m.curSubIdx = value
             restartStream()

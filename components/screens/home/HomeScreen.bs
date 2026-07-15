@@ -32,6 +32,7 @@ sub init()
     m.pendingRow = invalid
     m.heroEnabled = true
     m.cwEnabled = true
+    m.startOnRows = false
     m.chainBusy = false
     m.reloadPending = false
     m.currentLibraryIndex = 0
@@ -56,14 +57,43 @@ sub init()
 
     ' Observe row selection
     m.rowList.observeFieldScoped("rowItemSelected", "onRowItemSelected")
+    ' tvOS scroll feel: hero slides away when browsing past the first row
+    m.rowList.observeFieldScoped("rowItemFocused", "onRowFocusMoved")
 
     ' Delegate focus to content when the screen group itself receives it
     ' (tab bar "descend" focuses the screen node, not its children)
     m.top.observeField("focusedChild", "onFocusDelegate")
     m.lastLoadTime = 0
 
+    ' tvOS: home auto-refreshes every 30s so watch-state from other devices
+    ' shows up. Refresh only when it will not disrupt browsing.
+    m.autoRefreshTimer = CreateObject("roSGNode", "Timer")
+    m.autoRefreshTimer.repeat = true
+    m.autoRefreshTimer.duration = 30
+    m.autoRefreshTimer.observeFieldScoped("fire", "onAutoRefresh")
+    m.top.appendChild(m.autoRefreshTimer)
+    m.autoRefreshTimer.control = "start"
+
     ' Start loading
     loadHomeData()
+end sub
+
+sub onRowFocusMoved()
+    rf = m.rowList.rowItemFocused
+    if rf = invalid or rf.count() < 1 then return
+    if rf[0] >= 1
+        collapseHero()
+    else if m.heroCollapsed
+        expandHero()
+    end if
+end sub
+
+sub onAutoRefresh()
+    if m.chainBusy then return
+    ' Safe to reload when: user is elsewhere (another tab / pushed screen),
+    ' or parked on the hero. Never mid-row-browsing.
+    inRows = m.rowList.isInFocusChain()
+    if not inRows then loadHomeData()
 end sub
 
 sub onFocusDelegate()
@@ -81,10 +111,10 @@ sub onFocusDelegate()
                 return
             end if
         end if
-        if m.heroBanner.visible
-            m.heroBanner.setFocus(true)
-        else if m.rowList.visible
+        if m.rowList.visible
             m.rowList.setFocus(true)
+        else if m.heroBanner.visible
+            m.heroBanner.setFocus(true)
         end if
     end if
 end sub
@@ -230,20 +260,27 @@ end sub
 sub onNextUpLoaded(response as object)
     if response.success and response.items <> invalid
         print "[Home] Loaded " + str(response.items.count()) + " next up items"
+        ' tvOS merge order: NextUp first (a just-finished episode surfaces its
+        ' successor at the FRONT of the row), then Resume, deduped by series.
+        merged = []
         seenSeries = {}
-        for each item in m.continueWatchingItems
-            if item.SeriesId <> invalid
-                seenSeries[item.SeriesId] = true
-            end if
-        end for
         for each item in response.items
             seriesId = ""
             if item.SeriesId <> invalid then seriesId = item.SeriesId
             if seriesId = "" or not seenSeries.DoesExist(seriesId)
-                m.continueWatchingItems.push(item)
+                merged.push(item)
                 if seriesId <> "" then seenSeries[seriesId] = true
             end if
         end for
+        for each item in m.continueWatchingItems
+            seriesId = ""
+            if item.SeriesId <> invalid then seriesId = item.SeriesId
+            if seriesId = "" or not seenSeries.DoesExist(seriesId)
+                merged.push(item)
+                if seriesId <> "" then seenSeries[seriesId] = true
+            end if
+        end for
+        m.continueWatchingItems = merged
     end if
 
     m.rowContent = CreateObject("roSGNode", "ContentNode")
@@ -638,6 +675,7 @@ sub showRows()
         loadHomeData()
         return
     end if
+    m.startOnRows = true
     m.loadingLabel.visible = false
 
     ' Hero built from the full latest-media pool (tvOS behavior)
@@ -674,9 +712,10 @@ sub showRows()
 
     m.rowList.content = m.rowContent
     m.rowList.visible = true
-    if m.heroBanner.visible
-        m.heroBanner.setFocus(true)
-    else
+    ' Take focus only if home already owns it (background refreshes must
+    ' never steal the remote). Land on the CW row with the hero VISIBLE
+    ' above it; the hero collapses when scrolling into deeper rows.
+    if m.top.isInFocusChain()
         m.rowList.setFocus(true)
     end if
 end sub
@@ -753,9 +792,17 @@ sub onOptionsButton()
         loadHomeData()
     end if
 
-    if m.heroBanner.visible and m.heroBanner.isInFocusChain()
-        m.heroBanner.setFocus(true)
-    else
-        m.rowList.setFocus(true)
+    ' NEVER take focus from a background refresh — the 30s auto-reload was
+    ' yanking the remote away from pushed screens (detail felt frozen).
+    if m.top.isInFocusChain()
+        if m.startOnRows and m.rowList.visible
+            ' Default landing: first Continue Watching card (hero via Up)
+            collapseHero()
+            m.rowList.setFocus(true)
+        else if m.heroBanner.visible and m.heroBanner.isInFocusChain()
+            m.heroBanner.setFocus(true)
+        else
+            m.rowList.setFocus(true)
+        end if
     end if
 end sub

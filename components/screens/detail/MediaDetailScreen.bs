@@ -21,12 +21,20 @@ sub init()
     m.channelImage = m.top.findNode("channelImage")
     m.titleLabel = m.top.findNode("titleLabel")
     m.metaLabel = m.top.findNode("metaLabel")
+    m.endsAtLabel = m.top.findNode("endsAtLabel")
     m.ratingsGroup = m.top.findNode("ratingsGroup")
     m.tmdbLogo = m.top.findNode("tmdbLogo")
     m.tmdbScore = m.top.findNode("tmdbScore")
     m.tomatoIcon = m.top.findNode("tomatoIcon")
     m.tomatoScore = m.top.findNode("tomatoScore")
     m.badgesGroup = m.top.findNode("badgesGroup")
+    m.tagsGroup = m.top.findNode("tagsGroup")
+    m.titleFontBig = CreateObject("roSGNode", "Font")
+    m.titleFontBig.uri = "pkg:/fonts/Roboto-Bold.ttf"
+    m.titleFontBig.size = 52
+    m.titleFontStd = CreateObject("roSGNode", "Font")
+    m.titleFontStd.uri = "pkg:/fonts/Roboto-Bold.ttf"
+    m.titleFontStd.size = 38
     m.genresLabel = m.top.findNode("genresLabel")
     m.overviewLabel = m.top.findNode("overviewLabel")
     m.detailButtons = m.top.findNode("detailButtons")
@@ -138,7 +146,8 @@ sub onItemLoaded(response as object)
     setBackdrop(item)
     setHeader(item)
     setRatings(item)
-    setGenres(item)
+    m.genresLabel.visible = false
+    buildTags(item)
 
     overview = ""
     if item.Overview <> invalid then overview = item.Overview
@@ -149,6 +158,7 @@ sub onItemLoaded(response as object)
     m.rowContent = CreateObject("roSGNode", "ContentNode")
     m.rowKinds = []
     m.seasons = []
+    m.currentEpIndex = invalid
 
     if m.itemType = "Series"
         enqueue({ action: "getSeasons", seriesId: item.Id })
@@ -168,21 +178,26 @@ end sub
 ' the poster's y60-360 box, squishing everything together).
 sub layoutHeader()
     if m.itemType = "Movie"
-        m.titleLabel.translation = [300, 64]
-        m.metaLabel.translation = [300, 130]
-        m.ratingsGroup.translation = [300, 172]
-        m.badgesGroup.translation = [300, 214]
-        m.genresLabel.translation = [300, 266]
-        m.overviewLabel.translation = [300, 310]
-        m.overviewLabel.width = 820
-        m.overviewLabel.maxLines = 4
+        m.moviePosterMask.maskSize = [260, 390]
+        m.moviePoster.width = 260
+        m.moviePoster.height = 390
+        m.titleLabel.font = m.titleFontBig
+        m.titleLabel.translation = [360, 84]
+        m.metaLabel.translation = [360, 172]
+        m.ratingsGroup.translation = [360, 224]
+        m.tagsGroup.translation = [360, 274]
+        m.detailButtons.translation = [360, 398]   ' bottoms align with poster
+        m.overviewLabel.translation = [60, 478]
+        m.overviewLabel.width = 1200
+        m.overviewLabel.maxLines = 3
     else
-        m.titleLabel.translation = [60, 250]
-        m.metaLabel.translation = [60, 312]
-        m.ratingsGroup.translation = [60, 352]
-        m.badgesGroup.translation = [60, 394]
-        m.genresLabel.translation = [60, 448]
-        m.overviewLabel.translation = [60, 488]
+        m.titleLabel.font = m.titleFontStd
+        m.titleLabel.translation = [60, 296]
+        m.metaLabel.translation = [60, 358]
+        m.ratingsGroup.translation = [60, 398]
+        m.tagsGroup.translation = [60, 446]
+        m.detailButtons.translation = [60, 596]
+        m.overviewLabel.translation = [60, 500]
         m.overviewLabel.width = 940
         m.overviewLabel.maxLines = 2
     end if
@@ -217,6 +232,7 @@ sub setBackdrop(item as object)
 end sub
 
 sub setHeader(item as object)
+    m.endsAtText = ""
     m.logoImage.visible = false
     m.moviePosterMask.visible = false
     m.channelMask.visible = false
@@ -232,10 +248,27 @@ sub setHeader(item as object)
     end if
     m.titleLabel.text = title
 
+    ' tvOS meta line: date  -  runtime  -  Ends at H:MM
     meta = []
     if m.itemType = "Episode"
         if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 10 then meta.push(YT.formatDateLong(item.PremiereDate))
-        if item.SeriesName <> invalid then meta.push(YT.cleanTitle(item.SeriesName))
+        if item.RunTimeTicks <> invalid and item.RunTimeTicks > 0
+            mins = Int(item.RunTimeTicks / 600000000)
+            if mins > 0 then meta.push(str(mins).Trim() + " min")
+            dt = CreateObject("roDateTime")
+            dt.ToLocalTime()
+            totalMin = dt.GetHours() * 60 + dt.GetMinutes() + Int(item.RunTimeTicks / 600000000)
+            eh = (totalMin \ 60) mod 24
+            em = totalMin mod 60
+            ampm = "AM"
+            h12 = eh
+            if h12 >= 12 then ampm = "PM"
+            if h12 = 0 then h12 = 12
+            if h12 > 12 then h12 = h12 - 12
+            ems = em.toStr()
+            if em < 10 then ems = "0" + ems
+            m.endsAtText = "Ends at " + h12.toStr() + ":" + ems + " " + ampm
+        end if
     else if m.itemType = "Series"
         if item.ProductionYear <> invalid then meta.push(str(item.ProductionYear).Trim())
         if item.ChildCount <> invalid and item.ChildCount > 0
@@ -246,20 +279,32 @@ sub setHeader(item as object)
             end if
         end if
     else
-        if item.ProductionYear <> invalid then meta.push(str(item.ProductionYear).Trim())
-        if item.RunTimeTicks <> invalid
+        ' Movies: runtime + Ends at (year/cert live in the tags row now)
+        if item.RunTimeTicks <> invalid and item.RunTimeTicks > 0
             minutes = Int(item.RunTimeTicks / 600000000)
             if minutes > 0
                 hours = Int(minutes / 60)
-                mins = minutes mod 60
+                mins2 = minutes mod 60
                 if hours > 0
-                    meta.push(str(hours).Trim() + "h " + str(mins).Trim() + "m")
+                    meta.push(str(hours).Trim() + "h " + str(mins2).Trim() + "m")
                 else
-                    meta.push(str(mins).Trim() + "m")
+                    meta.push(str(mins2).Trim() + "m")
                 end if
             end if
+            dt2 = CreateObject("roDateTime")
+            dt2.ToLocalTime()
+            totalMin2 = dt2.GetHours() * 60 + dt2.GetMinutes() + Int(item.RunTimeTicks / 600000000)
+            eh2 = (totalMin2 \ 60) mod 24
+            em2 = totalMin2 mod 60
+            ampm2 = "AM"
+            h122 = eh2
+            if h122 >= 12 then ampm2 = "PM"
+            if h122 = 0 then h122 = 12
+            if h122 > 12 then h122 = h122 - 12
+            ems2 = em2.toStr()
+            if em2 < 10 then ems2 = "0" + ems2
+            m.endsAtText = "Ends at " + h122.toStr() + ":" + ems2 + " " + ampm2
         end if
-        if item.OfficialRating <> invalid and item.OfficialRating <> "" then meta.push(item.OfficialRating)
     end if
     metaStr = ""
     for i = 0 to meta.count() - 1
@@ -267,6 +312,16 @@ sub setHeader(item as object)
         metaStr += meta[i]
     end for
     m.metaLabel.text = metaStr
+    m.endsAtLabel.text = m.endsAtText
+    if m.endsAtText <> ""
+        r = m.metaLabel.boundingRect()
+        pad = 0
+        if metaStr <> "" then pad = 14
+        m.endsAtLabel.translation = [m.metaLabel.translation[0] + r.width + pad, m.metaLabel.translation[1]]
+        m.endsAtLabel.visible = true
+    else
+        m.endsAtLabel.visible = false
+    end if
 
     if m.itemType = "Movie"
         m.moviePosterMask.visible = true
@@ -315,13 +370,24 @@ sub setRatings(item as object)
             m.tomatoIcon.translation = [0, 0]
             m.tomatoScore.translation = [32, 0]
         else
-            m.tomatoIcon.translation = [140, 0]
-            m.tomatoScore.translation = [172, 0]
+            ' measured: tmdb logo(34) + score width + gap — not a fixed 140
+            tomX = 44 + Int(m.tmdbScore.boundingRect().width) + 24
+            m.tomatoIcon.translation = [tomX, 0]
+            m.tomatoScore.translation = [tomX + 32, 0]
         end if
     else
         m.tomatoIcon.visible = false
         m.tomatoScore.visible = false
     end if
+    ' Place badges right after the visible ratings — measured, not guessed
+    endX = 0
+    if critic <> invalid
+        endX = m.tomatoScore.translation[0] + m.tomatoScore.boundingRect().width + 20
+    else if community <> invalid
+        endX = 44 + m.tmdbScore.boundingRect().width + 20
+    end if
+    rt = m.ratingsGroup.translation
+    m.badgesGroup.translation = [rt[0] + endX, rt[1]]
 end sub
 
 sub setGenres(item as object)
@@ -364,6 +430,45 @@ sub onPlaybackInfoLoaded(response as object)
     end if
 end sub
 
+' Outlined chips: certification + up to 3 genres (tvOS tags row)
+sub buildTags(item as object)
+    while m.tagsGroup.getChildCount() > 0
+        m.tagsGroup.removeChildIndex(0)
+    end while
+    tags = []
+    if item.OfficialRating <> invalid and item.OfficialRating <> "" then tags.push(item.OfficialRating)
+    if item.Genres <> invalid
+        for each g in item.Genres
+            if tags.count() < 4 then tags.push(g)
+        end for
+    end if
+    tx = 0
+    for each t in tags
+        bw = 24 + Len(t) * 10
+        bg = CreateObject("roSGNode", "Poster")
+        bg.uri = "pkg:/images/badge_r6.9.png"
+        bg.width = bw
+        bg.height = 30
+        bg.opacity = 0.55
+        bg.translation = [tx, 0]
+        m.tagsGroup.appendChild(bg)
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = t
+        lbl.width = bw
+        lbl.height = 30
+        lbl.horizAlign = "center"
+        lbl.vertAlign = "center"
+        lbl.color = "#D9D9D9"
+        f = CreateObject("roSGNode", "Font")
+        f.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f.size = 17
+        lbl.font = f
+        lbl.translation = [tx, 0]
+        m.tagsGroup.appendChild(lbl)
+        tx += bw + 10
+    end for
+end sub
+
 sub buildBadges(src as object)
     while m.badgesGroup.getChildCount() > 0
         m.badgesGroup.removeChildIndex(0)
@@ -386,43 +491,68 @@ sub buildBadges(src as object)
             if st.Codec <> invalid then badges.push(formatCodec(st.Codec))
         end if
     end for
+    audioLogo = ""
     for each st in src.MediaStreams
         if st.Type = "Audio"
-            a = ""
-            if st.Codec <> invalid then a = formatCodec(st.Codec)
-            if st.Channels <> invalid
-                ch = formatChannels(st.Channels)
-                if ch <> "" then a += " " + ch
+            c = ""
+            if st.Codec <> invalid then c = UCase(st.Codec)
+            if c = "AC3"
+                audioLogo = "pkg:/images/dolby_digital.png"
+            else if c = "EAC3"
+                audioLogo = "pkg:/images/dolby_digital_plus.png"
+            else if c = "TRUEHD"
+                audioLogo = "pkg:/images/dolby_truehd.png"
             end if
-            if a <> "" then badges.push(a)
+            if audioLogo = ""
+                a = ""
+                if st.Codec <> invalid then a = formatCodec(st.Codec)
+                if st.Channels <> invalid
+                    ch = formatChannels(st.Channels)
+                    if ch <> "" then a += " " + ch
+                end if
+                if a <> "" then badges.push(a)
+            end if
             exit for
         end if
     end for
 
     x = 0
     for each text in badges
-        bw = 26 + Len(text) * 11
+        bw = 22 + Len(text) * 10
         bg = CreateObject("roSGNode", "Poster")
         bg.uri = "pkg:/images/badge_r6.9.png"
         bg.width = bw
-        bg.height = 38
+        bg.height = 24
         bg.translation = [x, 0]
         m.badgesGroup.appendChild(bg)
         lbl = CreateObject("roSGNode", "Label")
         lbl.text = text
         lbl.width = bw
-        lbl.height = 38
+        lbl.height = 24
         lbl.horizAlign = "center"
         lbl.vertAlign = "center"
         lbl.color = "#FFFFFF"
         f = CreateObject("roSGNode", "Font")
         f.uri = "pkg:/fonts/Roboto-Bold.ttf"
-        f.size = 18
+        f.size = 15
         lbl.font = f
         lbl.translation = [x, 0]
         m.badgesGroup.appendChild(lbl)
         x += bw + 14
     end for
+    if audioLogo <> ""
+        ' tvOS: real Dolby wordmark instead of a text capsule (assets are
+        ' ~4:1, render at 24px tall to match the chip line)
+        lw = 96
+        if Instr(1, audioLogo, "plus") > 0 then lw = 64
+        logo = CreateObject("roSGNode", "Poster")
+        logo.uri = audioLogo
+        logo.width = lw
+        logo.height = 24
+        logo.loadDisplayMode = "scaleToFit"
+        logo.translation = [x, 0]
+        m.badgesGroup.appendChild(logo)
+    end if
 end sub
 
 function formatCodec(codec as string) as string
@@ -473,6 +603,7 @@ sub buildButtons()
     if m.itemType = "Episode" and item.SeriesId <> invalid
         defs.push({ kind: "series", label: "Series", primary: false })
     end if
+    defs.push({ kind: "more", label: "More", primary: false })
     m.detailButtons.buttonDefs = defs
 end sub
 
@@ -487,7 +618,36 @@ sub onButtonActivated(event as object)
         enqueue({ action: kind, itemId: item.Id })
     else if kind = "series"
         enqueue({ action: "getItem", itemId: item.SeriesId })
+    else if kind = "more"
+        showMoreDialog()
     end if
+end sub
+
+' More menu: Favorite toggle (Trailer is not portable — Roku channels are
+' sandboxed and cannot launch the YouTube app for remote trailers)
+sub showMoreDialog()
+    favLabel = "Add to Favorites"
+    if m.item.UserData <> invalid and m.item.UserData.IsFavorite = true then favLabel = "Remove from Favorites"
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = m.item.Name
+    dialog.message = [""]
+    dialog.buttons = [favLabel, "Cancel"]
+    dialog.observeFieldScoped("buttonSelected", "onMoreDialogButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onMoreDialogButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    dialog.close = true
+    if idx = 0
+        act = "markFavorite"
+        if m.item.UserData <> invalid and m.item.UserData.IsFavorite = true then act = "removeFavorite"
+        enqueue({ action: act, itemId: m.item.Id })
+        enqueue({ action: "getItem", itemId: m.item.Id })
+    end if
+    focusZone("buttons")
 end sub
 
 sub onButtonsGoDown()
@@ -578,7 +738,10 @@ sub onEpisodesLoaded(response as object)
             if ep.UserData.Played <> invalid then child.isPlayed = ep.UserData.Played
             if ep.UserData.PlayedPercentage <> invalid then child.playedPercentage = ep.UserData.PlayedPercentage
         end if
-        if currentId <> "" and ep.Id = currentId then child.isCurrent = true
+        if currentId <> "" and ep.Id = currentId
+            child.isCurrent = true
+            m.currentEpIndex = erow.getChildCount() - 1
+        end if
     end for
     m.rowKinds.push("episode")
 

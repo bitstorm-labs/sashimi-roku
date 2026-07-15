@@ -18,7 +18,7 @@
                 width="1004" height="200" translation="[916, 440]" />
 
         <!-- ===== Fixed header ===== -->
-        <Poster id="logoImage" width="620" height="170" loadDisplayMode="scaleToFit"
+        <Poster id="logoImage" width="760" height="210" loadDisplayMode="scaleToFit"
                 translation="[60, 60]" visible="false" />
         <MaskGroup id="moviePosterMask" maskUri="pkg:/images/poster_mask_r12.png"
                    maskSize="[200, 300]" translation="[60, 60]" visible="false">
@@ -34,24 +34,28 @@
         <Label id="titleLabel" text="" color="#FFFFFF" width="1000" maxLines="2" translation="[60, 250]">
             <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="38" />
         </Label>
-        <Label id="metaLabel" text="" color="#BFBFBF" width="1000" maxLines="1" translation="[60, 312]">
+        <Label id="endsAtLabel" text="" color="#5BADE6" maxLines="1" translation="[60, 312]">
+            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
+        </Label>
+        <Label id="metaLabel" text="" color="#BFBFBF" maxLines="1" translation="[60, 312]">
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
         </Label>
 
         <Group id="ratingsGroup" translation="[60, 352]">
             <Poster id="tmdbLogo" uri="pkg:/images/tmdb_logo_tv.png" width="34" height="24"
                     loadDisplayMode="scaleToFit" visible="false" />
-            <Label id="tmdbScore" text="" color="#FFFFFF" translation="[44, 0]" visible="false">
+            <Label id="tmdbScore" text="" color="#FFFFFF" height="24" vertAlign="center" translation="[44, 0]" visible="false">
                 <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />
             </Label>
             <Poster id="tomatoIcon" uri="pkg:/images/tomato.png" width="24" height="24"
                     translation="[140, 0]" visible="false" />
-            <Label id="tomatoScore" text="" color="#FFFFFF" translation="[172, 0]" visible="false">
+            <Label id="tomatoScore" text="" color="#FFFFFF" height="24" vertAlign="center" translation="[172, 0]" visible="false">
                 <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />
             </Label>
         </Group>
 
-        <Group id="badgesGroup" translation="[60, 394]" />
+        <Group id="badgesGroup" translation="[280, 352]" />
+        <Group id="tagsGroup" translation="[60, 446]" />
 
         <Label id="genresLabel" text="" color="#BFBFBF" width="1000" maxLines="1" translation="[60, 448]">
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />

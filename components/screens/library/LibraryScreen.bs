@@ -45,6 +45,12 @@ end sub
 
 sub onFocusDelegate()
     if m.top.hasFocus()
+        ' Refresh watch-state when returning after >30s away
+        now = CreateObject("roDateTime").AsSeconds()
+        if m.lastLoadTime <> invalid and (now - m.lastLoadTime) > 30 and not m.isLoading
+            loadItems(0)
+            return
+        end if
         if m.posterGrid.visible
             m.posterGrid.setFocus(true)
         end if
@@ -81,6 +87,7 @@ end sub
 
 sub loadItems(startIndex as integer)
     m.isLoading = true
+    m.lastLoadTime = CreateObject("roDateTime").AsSeconds()
     if startIndex = 0
         m.loadingLabel.visible = true
         m.posterGrid.visible = false

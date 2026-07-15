@@ -102,6 +102,8 @@ end sub
 
 sub onFocusChanged()
     fp = m.top.focusPercent
+    ' focusPercent freezes when the RowList loses focus (item 0 boots at 1.0)
+    if not m.top.itemHasFocus then fp = 0.0
     if m.kind = "season"
         applyPillState(fp)
     else if m.kind = "episode"
