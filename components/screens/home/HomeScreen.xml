@@ -58,6 +58,7 @@
         </MaskGroup>
 
         <!-- Hero Banner (tvOS: 32:9 featured card) -->
+        <!-- Hero scale lives in HeroBanner.bs (m.baseScale) — one source of truth -->
         <HeroBanner
             id="heroBanner"
             translation="[50, 122]"
@@ -65,9 +66,10 @@
         />
 
         <!-- Content rows (tvOS: H-pad 80 via 50 + RowList internal 30... items inset at 30) -->
+        <!-- y=592: 40px under the 84%-scaled hero (122 + 512*0.84) -->
         <RowList
             id="rowList"
-            translation="[80, 674]"
+            translation="[80, 592]"
             itemSize="[1820, 450]"
             numRows="2"
             itemSpacing="[0, 30]"

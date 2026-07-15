@@ -223,14 +223,22 @@ sub showDetailScreen(itemData as object)
     screen.itemData = itemData
 end sub
 
-sub onPlayItem()
-    if m.currentScreen <> invalid
-        playData = m.currentScreen.playItem
-        if playData <> invalid
-            print "[Nav] Play requested: " + playData.action
-            ' TODO: Phase 4 will navigate to PlayerScreen
-        end if
-    end if
+sub onPlayItem(event as object)
+    playData = event.getData()
+    if playData = invalid or playData.item = invalid then return
+    print "[Nav] Play requested: " + playData.action
+
+    screen = createObject("roSGNode", "PlayerScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("done", "onPlayerDone")
+    pushScreen(screen)
+    screen.playAction = playData.action
+    screen.itemData = playData.item
+end sub
+
+sub onPlayerDone()
+    ' Pop the player; refresh the underlying detail item's progress via reload
+    popScreen()
 end sub
 
 sub popScreen()

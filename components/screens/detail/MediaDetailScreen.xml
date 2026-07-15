@@ -57,13 +57,13 @@
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
         </Label>
 
-        <Label id="overviewLabel" text="" color="#BFBFBF" width="940" maxLines="3"
+        <Label id="overviewLabel" text="" color="#BFBFBF" width="940" maxLines="2"
                wrap="true" translation="[60, 488]">
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="24" />
         </Label>
 
         <!-- Action buttons (focusable component) -->
-        <DetailButtons id="detailButtons" translation="[60, 600]" />
+        <DetailButtons id="detailButtons" translation="[60, 596]" />
 
         <!-- ===== One multi-row RowList: seasons / episodes / cast ===== -->
         <RowList

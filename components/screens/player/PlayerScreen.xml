@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="PlayerScreen" extends="Group">
+    <interface>
+        <field id="itemData" type="assocarray" onChange="onItemDataChanged" />
+        <field id="playAction" type="string" value="play" />
+        <field id="done" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="#000000" />
+        <Video id="video" width="1920" height="1080" translation="[0, 0]" />
+
+        <Label id="statusLabel" text="Loading..." color="#FFFFFF" horizAlign="center"
+               vertAlign="center" width="1920" height="1080">
+            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="32" />
+        </Label>
+
+        <!-- ============ OSD overlay ============
+             No child ever takes remote focus — the screen tracks a virtual
+             highlight (zone/btnIdx/menuIdx) and styles nodes itself. -->
+        <Group id="osd" opacity="0" visible="false">
+            <!-- Top scrim + info bar -->
+            <Poster uri="pkg:/images/player_scrim_top.png" width="1920" height="280" translation="[0,0]" />
+            <Poster id="osdLogo" width="360" height="72" loadDisplayMode="scaleToFit"
+                    translation="[80,30]" visible="false" />
+            <Poster id="osdChannelCircle" width="64" height="64" translation="[80,34]" visible="false" />
+            <Label id="osdChannelName" text="" color="#E6FFFFFF" width="1400" maxLines="1" translation="[156,44]" visible="false">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="30" />
+            </Label>
+            <Label id="osdTitle" text="" color="#FFFFFF" width="1500" maxLines="1" translation="[80,44]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="42" />
+            </Label>
+            <Label id="osdSubtitle" text="" color="#99FFFFFF" width="1500" maxLines="1" translation="[80,104]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+            </Label>
+            <Label id="osdClock" text="" color="#FFFFFF" width="240" horizAlign="right"
+                   translation="[1600,44]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="34" />
+            </Label>
+            <Label id="osdFinishes" text="" color="#80FFFFFF" width="400" horizAlign="right"
+                   translation="[1440,96]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="24" />
+            </Label>
+            <Group id="osdChips" translation="[80,146]" />
+
+            <!-- Bottom scrim + transport -->
+            <Poster uri="pkg:/images/player_scrim_bottom.png" width="1920" height="340" translation="[0,740]" />
+
+            <!-- Button row (virtual highlight) -->
+            <Group id="osdBtnRow" translation="[80, 876]" />
+
+            <!-- Scrubber -->
+            <Rectangle id="osdScrubTrack" width="1760" height="6" color="#40FFFFFF" translation="[80,1000]" />
+            <Rectangle id="osdScrubFill" width="0" height="6" color="#FFFFFF" translation="[80,1000]" />
+            <Rectangle id="osdScrubKnob" width="8" height="22" color="#FFFFFF" translation="[76,992]" />
+            <Label id="osdElapsed" text="0:00" color="#FFFFFF" width="200" translation="[80,1022]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+            </Label>
+            <Label id="osdRemaining" text="0:00" color="#FFFFFF" width="200" horizAlign="right" translation="[1640,1022]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+            </Label>
+            <Poster id="osdPlayPause" width="44" height="44" translation="[938,930]" uri="pkg:/images/osd_pause.png" visible="false" />
+        </Group>
+
+        <!-- Popup menu (subtitles / audio / quality) -->
+        <Group id="osdMenu" visible="false">
+            <Poster id="osdMenuBg" uri="pkg:/images/card_r16.9.png" width="560" height="400" translation="[80,400]" />
+            <Label id="osdMenuTitle" text="" color="#FFFFFF" width="480" translation="[116,430]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="30" />
+            </Label>
+            <Group id="osdMenuRows" translation="[104,486]" />
+        </Group>
+
+        <JellyfinApi id="apiTask" />
+        <Timer id="progressTimer" repeat="true" duration="5" />
+        <Timer id="osdTimer" repeat="false" duration="5" />
+        <Timer id="clockTimer" repeat="true" duration="15" />
+        <Timer id="seekTimer" repeat="false" duration="0.5" />
+        <Animation id="osdAnim" duration="0.25" easeFunction="outQuad">
+            <FloatFieldInterpolator id="osdInterp" key="[0.0,1.0]" keyValue="[0.0,1.0]" fieldToInterp="osd.opacity" />
+        </Animation>
+    </children>
+</component>

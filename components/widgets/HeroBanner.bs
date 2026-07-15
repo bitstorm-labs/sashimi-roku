@@ -1,4 +1,5 @@
 import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/YouTube.bs"
 
 sub init()
     m.tmdbLogo = m.top.findNode("tmdbLogo")
@@ -21,8 +22,13 @@ sub init()
     m.hasFocus = false
     m.dotPositions = []
 
-    ' tvOS: scale 1.01 on focus, from center
-    m.top.scaleRotateCenter = [910, 256]
+    ' Hero rendered at 84%, anchored top-CENTER so it stays
+    ' horizontally centered on screen (the banner spans 1820 with the group
+    ' at x=50, so local x=910 is the screen's midline). Top edge stays put;
+    ' the focus pop multiplies on top of this base.
+    m.baseScale = 0.84
+    m.top.scaleRotateCenter = [910, 0]
+    m.top.scale = [m.baseScale, m.baseScale]
 
     m.advanceTimer.observeFieldScoped("fire", "onAdvanceTimer")
 
@@ -111,23 +117,14 @@ sub showItem(index as integer)
         m.heroImage.uri = item.HDPosterUrl
     end if
 
-    ' Detect YouTube content
-    isYouTube = false
-    if item.Path <> invalid and Instr(1, LCase(item.Path), "youtube") > 0
-        isYouTube = true
-    end if
-    if not isYouTube and item.SeriesName <> invalid and Instr(1, LCase(item.SeriesName), "youtube") > 0
-        isYouTube = true
-    end if
+    ' Detect YouTube content (unified helper)
+    isYouTube = YT.isItem(item)
 
     ' Title (tvOS displayTitle: series/channel name for episodes, else item name)
     title = ""
     if item.SeriesName <> invalid and item.SeriesName <> ""
         title = item.SeriesName
-        if isYouTube
-            dashPos = Instr(1, title, " - ")
-            if dashPos > 0 then title = Left(title, dashPos - 1)
-        end if
+        if isYouTube then title = YT.cleanTitle(title)
     else if item.Name <> invalid
         title = item.Name
     end if
@@ -160,7 +157,7 @@ sub showItem(index as integer)
     if isYouTube
         if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 10
             if meta <> "" then meta += "    "
-            meta += Left(item.PremiereDate, 10)
+            meta += YT.formatDate(item.PremiereDate)
         end if
         if meta <> "" then meta += "    "
         meta += "YouTube"
@@ -224,13 +221,15 @@ sub onFocusChanged()
         m.focusBottom.opacity = 0.6
         m.focusLeft.opacity = 0.6
         m.focusRight.opacity = 0.6
-        m.top.scale = [1.01, 1.01]
+        ' Focus pop multiplies the 70% base — assigning 1.01 outright would
+        ' silently undo the scale-down (the hero is focused on load).
+        m.top.scale = [m.baseScale * 1.01, m.baseScale * 1.01]
     else
         m.focusTop.opacity = 0.0
         m.focusBottom.opacity = 0.0
         m.focusLeft.opacity = 0.0
         m.focusRight.opacity = 0.0
-        m.top.scale = [1.0, 1.0]
+        m.top.scale = [m.baseScale, m.baseScale]
     end if
 end sub
 

@@ -1,5 +1,6 @@
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/YouTube.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/genres/overview)
@@ -128,9 +129,7 @@ sub onItemLoaded(response as object)
     m.itemType = ""
     if item.Type <> invalid then m.itemType = item.Type
 
-    m.isYouTube = false
-    if item.Path <> invalid and Instr(1, LCase(item.Path), "youtube") > 0 then m.isYouTube = true
-    if not m.isYouTube and item.SeriesName <> invalid and Instr(1, LCase(item.SeriesName), "youtube") > 0 then m.isYouTube = true
+    m.isYouTube = YT.isItem(item)
 
     setBackdrop(item)
     setHeader(item)
@@ -196,15 +195,17 @@ sub setHeader(item as object)
 
     title = ""
     if item.Name <> invalid then title = item.Name
-    if m.itemType = "Episode" and item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+    if m.itemType = "Series" then title = YT.cleanTitle(title)
+    ' S:E prefix only for regular (non-YouTube) episodes
+    if m.itemType = "Episode" and not m.isYouTube and item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
         title = "S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim() + " " + Chr(8226) + " " + title
     end if
     m.titleLabel.text = title
 
     meta = []
     if m.itemType = "Episode"
-        if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 10 then meta.push(Left(item.PremiereDate, 10))
-        if item.SeriesName <> invalid then meta.push(cleanName(item.SeriesName))
+        if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 10 then meta.push(YT.formatDate(item.PremiereDate))
+        if item.SeriesName <> invalid then meta.push(YT.cleanTitle(item.SeriesName))
     else if m.itemType = "Series"
         if item.ProductionYear <> invalid then meta.push(str(item.ProductionYear).Trim())
     else
@@ -238,29 +239,25 @@ sub setHeader(item as object)
         channelId = item.Id
         if item.SeriesId <> invalid then channelId = item.SeriesId
         m.channelImage.uri = ImageUrl.primary(channelId, 240)
-    else
-        logoId = item.Id
-        if m.itemType = "Episode" and item.SeriesId <> invalid then logoId = item.SeriesId
-        m.logoImage.uri = m.global.serverUrl + "/Items/" + logoId + "/Images/Logo?maxWidth=1240&quality=90"
+    else if m.itemType = "Series"
+        ' Series swap the title text for the logo (onLogoStatus hides title).
+        m.logoImage.uri = m.global.serverUrl + "/Items/" + item.Id + "/Images/Logo?maxWidth=1240&quality=90"
+        m.logoImage.visible = true
+    else if m.itemType = "Episode" and item.SeriesId <> invalid
+        ' Episodes show the series logo ABOVE the title (tvOS parity) — the
+        ' title stays visible because onLogoStatus only hides it for Series.
+        m.logoImage.uri = m.global.serverUrl + "/Items/" + item.SeriesId + "/Images/Logo?maxWidth=1240&quality=90"
         m.logoImage.visible = true
     end if
 end sub
 
 sub onLogoStatus()
-    if m.logoImage.loadStatus = "ready" and (m.itemType = "Series" or m.itemType = "Episode")
+    if m.logoImage.loadStatus = "ready" and m.itemType = "Series"
         m.titleLabel.visible = false
     else if m.logoImage.loadStatus = "failed"
         m.titleLabel.visible = true
     end if
 end sub
-
-function cleanName(name as string) as string
-    if m.isYouTube
-        dashPos = Instr(1, name, " - ")
-        if dashPos > 0 then return Left(name, dashPos - 1)
-    end if
-    return name
-end function
 
 sub setRatings(item as object)
     community = item.CommunityRating
@@ -551,6 +548,13 @@ sub onEpisodesLoaded(response as object)
     buildCastRow(m.item)
     commitRows()
 end sub
+
+function firstEpTitle(row as object) as string
+    if row.getChildCount() = 0 then return "(none)"
+    c = row.getChild(0)
+    if c.title <> invalid then return c.title
+    return "(blank)"
+end function
 
 sub buildCastRow(item as object)
     if item.People = invalid or item.People.count() = 0 then return

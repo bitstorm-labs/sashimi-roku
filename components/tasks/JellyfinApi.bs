@@ -49,6 +49,8 @@ sub processRequest()
         doGetNextUp(request)
     else if action = "getLatestMedia"
         doGetLatestMedia(request)
+    else if action = "getItemsByIds"
+        doGetItemsByIds(request)
     else if action = "getItems"
         doGetItems(request)
     else if action = "getItem"
@@ -59,6 +61,16 @@ sub processRequest()
         doGetEpisodes(request)
     else if action = "getPlaybackInfo"
         doGetPlaybackInfo(request)
+    else if action = "getPlaybackStream"
+        doGetPlaybackStream(request)
+    else if action = "reportStart"
+        doReportPlayback(request, "/Sessions/Playing")
+    else if action = "reportProgress"
+        doReportPlayback(request, "/Sessions/Playing/Progress")
+    else if action = "reportStopped"
+        doReportPlayback(request, "/Sessions/Playing/Stopped")
+    else if action = "getSiblingEpisodes"
+        doGetSiblingEpisodes(request)
     else if action = "search"
         doSearch(request)
     else if action = "markPlayed"
@@ -274,6 +286,23 @@ sub doGetNextUp(request as object)
     end if
 end sub
 
+' Batched item fetch (one call for N series) — used for "X new" badges.
+sub doGetItemsByIds(request as object)
+    ids = request.ids
+    idStr = ""
+    for i = 0 to ids.count() - 1
+        if i > 0 then idStr += ","
+        idStr += ids[i]
+    end for
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items?Ids=" + idStr + "&Fields=UserData")
+    result = Http.getJson(url)
+    if result <> invalid and result.Items <> invalid
+        m.top.response = { success: true, action: "getItemsByIds", items: result.Items }
+    else
+        m.top.response = { success: true, action: "getItemsByIds", items: [] }
+    end if
+end sub
+
 sub doGetLatestMedia(request as object)
     limit = 16
     if request.limit <> invalid then limit = request.limit
@@ -381,7 +410,7 @@ sub doGetItem(request as object)
     if request.context <> invalid then ctx = request.context
     print "[API] Getting item: " + itemId
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items/" + itemId)
-    url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags"
+    url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags,Path"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     result = Http.getJson(url)
     if result <> invalid and result.Id <> invalid
@@ -454,6 +483,205 @@ sub doSearch(request as object)
         m.top.response = { success: true, action: "search", items: result.Items, query: query }
     else
         m.top.response = { success: true, action: "search", items: [], query: query }
+    end if
+end sub
+
+' Negotiate a playable stream (PlaybackInfo) and resolve the final URL +
+' streamFormat for the Roku Video node. Server decides direct-play vs HLS
+' transcode from the DeviceProfile.
+sub doGetPlaybackStream(request as object)
+    itemId = request.itemId
+    maxBitrate = 0
+    if request.maxBitrate <> invalid then maxBitrate = request.maxBitrate
+    streamingBitrate = 120000000
+    if maxBitrate > 0 then streamingBitrate = maxBitrate
+
+    url = Http.apiUrl("/Items/" + itemId + "/PlaybackInfo?UserId=" + m.global.userId)
+    ' Jellyfin IGNORES SubtitleStreamIndex/AudioStreamIndex in the POST body
+    ' (verified against 10.x) — they only take effect as query parameters,
+    ' and ONLY when MediaSourceId pins the source (else user defaults win).
+    ' -1 explicitly disables subtitles (blocks default/forced auto-burn).
+    url += "&MediaSourceId=" + itemId
+    if request.subtitleStreamIndex <> invalid then url += "&SubtitleStreamIndex=" + str(request.subtitleStreamIndex).Trim()
+    if request.audioStreamIndex <> invalid then url += "&AudioStreamIndex=" + str(request.audioStreamIndex).Trim()
+    body = {
+        UserId: m.global.userId
+        MaxStreamingBitrate: streamingBitrate
+        DeviceProfile: rokuDeviceProfile(streamingBitrate)
+        EnableDirectPlay: true
+        EnableDirectStream: true
+        EnableTranscoding: true
+        AllowVideoStreamCopy: true
+        AllowAudioStreamCopy: true
+        AutoOpenLiveStream: true
+    }
+    ' Explicit track picks: SubtitleStreamIndex -1 = none (blocks default-
+    ' flagged tracks from burning in); >=0 burns that track (Encode profile).
+    if request.subtitleStreamIndex <> invalid then body.SubtitleStreamIndex = request.subtitleStreamIndex
+    if request.audioStreamIndex <> invalid then body.AudioStreamIndex = request.audioStreamIndex
+    ' Burn-in requires an actual video re-encode: with stream-copy or direct
+    ' play allowed the server copies the video untouched and silently drops
+    ' the subtitle. Force the transcode path when a track is selected.
+    if request.subtitleStreamIndex <> invalid and request.subtitleStreamIndex >= 0
+        body.EnableDirectPlay = false
+        body.EnableDirectStream = false
+        body.AllowVideoStreamCopy = false
+    end if
+    result = Http.postJson(url, body)
+    if result = invalid or result.MediaSources = invalid or result.MediaSources.count() = 0
+        m.top.response = { success: false, action: "getPlaybackStream", itemId: itemId }
+        return
+    end if
+
+    ms = result.MediaSources[0]
+    playSessionId = ""
+    if result.PlaySessionId <> invalid then playSessionId = result.PlaySessionId
+
+    streamUrl = ""
+    streamFormat = "mp4"
+    playMethod = "DirectStream"
+
+    if ms.TranscodingUrl <> invalid and ms.TranscodingUrl <> ""
+        streamUrl = resolveServerPath(ms.TranscodingUrl)
+        streamFormat = "hls"
+        playMethod = "Transcode"
+    else if ms.DirectStreamUrl <> invalid and ms.DirectStreamUrl <> ""
+        streamUrl = resolveServerPath(ms.DirectStreamUrl)
+        streamFormat = "mp4"
+        playMethod = "DirectStream"
+    else
+        container = "mp4"
+        if ms.Container <> invalid and ms.Container <> "" then container = ms.Container
+        msId = ""
+        if ms.Id <> invalid then msId = ms.Id
+        streamUrl = Http.apiUrl("/Videos/" + itemId + "/stream." + container) + "?Static=true&MediaSourceId=" + msId + "&api_key=" + m.global.authToken + "&DeviceId=" + m.global.deviceId
+        streamFormat = "mp4"
+        playMethod = "DirectStream"
+    end if
+
+    runTimeTicks = 0
+    if ms.RunTimeTicks <> invalid then runTimeTicks = ms.RunTimeTicks
+
+    ' Track lists for the player's Subtitles/Audio menus + video stream chips
+    subTracks = []
+    audTracks = []
+    videoRes = ""
+    videoCodec = ""
+    if ms.MediaStreams <> invalid
+        for each s in ms.MediaStreams
+            t = ""
+            if s.DisplayTitle <> invalid and s.DisplayTitle <> "" then t = s.DisplayTitle
+            if t = "" and s.Language <> invalid then t = s.Language
+            if s.Type = "Subtitle"
+                if t = "" then t = "Subtitle " + str(s.Index).Trim()
+                forced = (s.IsForced <> invalid and s.IsForced = true)
+                subTracks.push({ index: s.Index, title: t, isForced: forced })
+            else if s.Type = "Audio"
+                if t = "" then t = "Audio " + str(s.Index).Trim()
+                audTracks.push({ index: s.Index, title: t })
+            else if s.Type = "Video" and videoRes = ""
+                w = 0
+                h = 0
+                if s.Width <> invalid then w = s.Width
+                if s.Height <> invalid then h = s.Height
+                ' width-first: wide-scope 4K (3840x1600) is sub-2160 tall and
+                ' would otherwise mislabel as 1080p (same rule as tvOS)
+                if w >= 3200 or h >= 2160
+                    videoRes = "4K"
+                else if w >= 1800 or h >= 1080
+                    videoRes = "1080p"
+                else if w >= 1200 or h >= 720
+                    videoRes = "720p"
+                else if h > 0
+                    videoRes = str(h).Trim() + "p"
+                end if
+                if s.Codec <> invalid then videoCodec = UCase(s.Codec)
+            end if
+        end for
+    end if
+
+    m.top.response = {
+        success: true
+        action: "getPlaybackStream"
+        itemId: itemId
+        url: streamUrl
+        streamFormat: streamFormat
+        playSessionId: playSessionId
+        playMethod: playMethod
+        runTimeTicks: runTimeTicks
+        subtitleTracks: subTracks
+        audioTracks: audTracks
+        videoResolution: videoRes
+        videoCodec: videoCodec
+    }
+end sub
+
+' Resolve a server-relative path (TranscodingUrl/DirectStreamUrl already carry
+' their own query string incl. api_key) against the server base.
+function resolveServerPath(path as string) as string
+    if Left(path, 4) = "http" then return path
+    base = m.global.serverUrl
+    if Right(base, 1) = "/" then base = Left(base, Len(base) - 1)
+    if Left(path, 1) <> "/" then path = "/" + path
+    return base + path
+end function
+
+' Roku DeviceProfile: direct-play mp4/mov (h264/hevc, aac/ac3/eac3/mp3),
+' everything else transcodes to HLS(ts,h264,aac/ac3). mkv direct-play deferred.
+function rokuDeviceProfile(streamingBitrate as integer) as object
+    return {
+        MaxStreamingBitrate: streamingBitrate
+        MaxStaticBitrate: 100000000
+        MusicStreamingTranscodingBitrate: 384000
+        DirectPlayProfiles: [
+            { Container: "mp4,m4v,mov", Type: "Video", VideoCodec: "h264,hevc", AudioCodec: "aac,ac3,eac3,mp3" }
+        ]
+        TranscodingProfiles: [
+            { Container: "ts", Type: "Video", VideoCodec: "h264", AudioCodec: "aac,ac3", Protocol: "hls", Context: "Streaming", MaxAudioChannels: "6", MinSegments: "2", BreakOnNonKeyFrames: true }
+        ]
+        ContainerProfiles: []
+        CodecProfiles: []
+        SubtitleProfiles: [
+            ' Encode-only: the server burns the selected track into the video.
+            ' Roku's native HLS-VTT rendering silently fails, so burn-in is the
+            ' one path that displays every format (srt/ass/pgs/vtt) reliably.
+            { Format: "srt", Method: "Encode" },
+            { Format: "subrip", Method: "Encode" },
+            { Format: "ass", Method: "Encode" },
+            { Format: "ssa", Method: "Encode" },
+            { Format: "vtt", Method: "Encode" },
+            { Format: "webvtt", Method: "Encode" },
+            { Format: "pgssub", Method: "Encode" },
+            { Format: "pgs", Method: "Encode" },
+            { Format: "dvdsub", Method: "Encode" }
+        ]
+    }
+end function
+
+' Fire-and-forget playback session report.
+sub doReportPlayback(request as object, path as string)
+    body = {}
+    if request.itemId <> invalid then body.ItemId = request.itemId
+    if request.positionTicks <> invalid then body.PositionTicks = request.positionTicks
+    if request.isPaused <> invalid then body.IsPaused = request.isPaused
+    if request.playMethod <> invalid then body.PlayMethod = request.playMethod
+    if request.playSessionId <> invalid and request.playSessionId <> "" then body.PlaySessionId = request.playSessionId
+    Http.postJson(Http.apiUrl(path), body)
+    m.top.response = { success: true, action: request.action }
+end sub
+
+' Sibling episodes of a season, sorted by index (for auto-next-episode).
+sub doGetSiblingEpisodes(request as object)
+    parentId = request.parentId
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url += "?ParentId=" + parentId
+    url += "&IncludeItemTypes=Episode&SortBy=IndexNumber&SortOrder=Ascending&Recursive=true&Limit=200"
+    url += "&Fields=Overview,UserData,ImageTags,ParentBackdropImageTags,Path"
+    result = Http.getJson(url)
+    if result <> invalid and result.Items <> invalid
+        m.top.response = { success: true, action: "getSiblingEpisodes", items: result.Items }
+    else
+        m.top.response = { success: true, action: "getSiblingEpisodes", items: [] }
     end if
 end sub
 

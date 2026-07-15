@@ -1,0 +1,1030 @@
+import "pkg:/source/utils/AppSettings.bs"
+import "pkg:/source/utils/YouTube.bs"
+import "pkg:/source/utils/ImageUrl.bs"
+
+' tvOS PlayerViewModel parity on Roku. Design rules learned the hard way:
+'  - The screen NEVER gives remote focus to a child node. Every key lands in
+'    onKeyEvent and a virtual highlight (m.zone/m.btnIdx/m.menuIdx) drives all
+'    styling. Real focus moves caused invisible-button traps twice.
+'  - Subtitles are BURNED IN server-side (SubtitleStreamIndex + Encode
+'    profile): Roku's native HLS-VTT rendering silently fails, burn-in works
+'    for every format (srt/ass/pgs) and QSV makes the re-encode cheap.
+'  - Track/quality changes restart the stream at the current position.
+
+sub init()
+    m.video = m.top.findNode("video")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.apiTask = m.top.findNode("apiTask")
+    m.progressTimer = m.top.findNode("progressTimer")
+
+    ' OSD nodes
+    m.osd = m.top.findNode("osd")
+    m.osdTitle = m.top.findNode("osdTitle")
+    m.osdSubtitle = m.top.findNode("osdSubtitle")
+    m.osdClock = m.top.findNode("osdClock")
+    m.osdFinishes = m.top.findNode("osdFinishes")
+    m.osdChips = m.top.findNode("osdChips")
+    m.osdLogo = m.top.findNode("osdLogo")
+    m.osdChannelCircle = m.top.findNode("osdChannelCircle")
+    m.osdChannelName = m.top.findNode("osdChannelName")
+    m.osdBtnRow = m.top.findNode("osdBtnRow")
+    m.osdPlayPause = m.top.findNode("osdPlayPause")
+    m.osdScrubFill = m.top.findNode("osdScrubFill")
+    m.osdScrubKnob = m.top.findNode("osdScrubKnob")
+    m.osdElapsed = m.top.findNode("osdElapsed")
+    m.osdRemaining = m.top.findNode("osdRemaining")
+    m.osdTimer = m.top.findNode("osdTimer")
+    m.clockTimer = m.top.findNode("clockTimer")
+    m.seekTimer = m.top.findNode("seekTimer")
+    m.osdAnim = m.top.findNode("osdAnim")
+    m.osdInterp = m.top.findNode("osdInterp")
+
+    ' Popup menu nodes
+    m.osdMenu = m.top.findNode("osdMenu")
+    m.osdMenuBg = m.top.findNode("osdMenuBg")
+    m.osdMenuTitle = m.top.findNode("osdMenuTitle")
+    m.osdMenuRows = m.top.findNode("osdMenuRows")
+
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.video.observeFieldScoped("state", "onVideoState")
+    m.video.observeFieldScoped("position", "onPosition")
+    m.video.observeFieldScoped("duration", "onDuration")
+    m.progressTimer.observeFieldScoped("fire", "onProgressTimer")
+    m.osdTimer.observeFieldScoped("fire", "onOsdTimer")
+    m.clockTimer.observeFieldScoped("fire", "onClockTimer")
+    m.seekTimer.observeFieldScoped("fire", "onSeekTimer")
+
+    ' Playback state
+    m.item = invalid
+    m.playSessionId = ""
+    m.playMethod = "DirectStream"
+    m.runTimeTicks = 0
+    m.durationSecs = 0
+    m.startedReported = false
+    m.stoppedReported = false
+    m.lastPosition = 0
+    m.isPaused = false
+    m.subtitleBase = ""
+
+    ' OSD virtual-highlight state
+    m.osdVisible = false
+    m.zone = "scrub"          ' scrub | buttons | menu
+    m.buttons = []            ' [{kind, bg, lbl}]
+    m.btnIdx = 0
+    m.menuKind = ""
+    m.menuItems = []          ' [{label, value}]
+    m.menuIdx = 0
+    m.menuScroll = 0          ' first visible row (scrolling window)
+    m.menuMaxRows = 8
+    m.menuRowNodes = []
+
+    ' Track / quality selection (applied via stream restart)
+    m.subTracks = []          ' [{index, title}] from PlaybackInfo
+    m.audTracks = []
+    m.curSubIdx = -1          ' -1 = off
+    m.curAudIdx = -1          ' -1 = server default
+    m.qualityBps = 0          ' 0 = auto (settings)
+    m.pendingStartSecs = -1
+
+    ' Seek acceleration
+    m.seekSpan = CreateObject("roTimespan")
+    m.seekStep = 10
+    m.seekDir = 0
+    m.seeking = false
+    m.seekTarget = 0
+
+    ' Serialized API requests (task field coalesces back-to-back sets)
+    m.reqQueue = []
+    m.reqBusy = false
+end sub
+
+' ---------- Request queue ----------
+
+sub enqueue(req as object)
+    m.reqQueue.push(req)
+    pumpQueue()
+end sub
+
+sub pumpQueue()
+    if m.reqBusy then return
+    if m.reqQueue.count() = 0 then return
+    m.reqBusy = true
+    m.apiTask.request = m.reqQueue.shift()
+end sub
+
+' ---------- Stream lifecycle ----------
+
+sub onItemDataChanged()
+    data = m.top.itemData
+    if data = invalid then return
+    m.item = data
+    m.statusLabel.visible = true
+    m.statusLabel.text = "Loading..."
+    m.startedReported = false
+    m.stoppedReported = false
+    populateInfoBar()
+    requestStream(data)
+end sub
+
+sub requestStream(item as object)
+    req = { action: "getPlaybackStream", itemId: item.Id }
+    req.subtitleStreamIndex = m.curSubIdx
+    if m.curAudIdx >= 0 then req.audioStreamIndex = m.curAudIdx
+    if m.qualityBps > 0
+        req.maxBitrate = m.qualityBps
+    else
+        mb = AppSettings.maxBitrateMbps()
+        if mb > 0 then req.maxBitrate = mb * 1000000
+    end if
+    enqueue(req)
+end sub
+
+' Stop and re-negotiate (track/quality change), resuming at current position.
+sub restartStream()
+    m.pendingStartSecs = Int(m.video.position)
+    m.video.control = "stop"
+    m.statusLabel.visible = true
+    m.statusLabel.text = "Loading..."
+    requestStream(m.item)
+end sub
+
+sub onApiResponse()
+    m.reqBusy = false
+    pumpQueue()
+    r = m.apiTask.response
+    if r = invalid then return
+    if r.action = "getPlaybackStream"
+        onStreamReady(r)
+    else if r.action = "getSiblingEpisodes"
+        onSiblingsLoaded(r)
+    end if
+end sub
+
+sub onStreamReady(r as object)
+    if not r.success or r.url = invalid or r.url = ""
+        m.statusLabel.text = "Unable to play this item."
+        return
+    end if
+    m.playSessionId = r.playSessionId
+    m.playMethod = r.playMethod
+    m.runTimeTicks = r.runTimeTicks
+    if r.runTimeTicks <> invalid and r.runTimeTicks > 0 then m.durationSecs = Int(r.runTimeTicks / 10000000&)
+    if r.subtitleTracks <> invalid then m.subTracks = sortSubTracks(r.subtitleTracks)
+    if r.audioTracks <> invalid then m.audTracks = r.audioTracks
+
+    ' Stream-info chips: resolution + codec + delivery method, rendered as
+    ' capsule badges so they read separately from the text line
+    chips = []
+    if r.videoResolution <> invalid and r.videoResolution <> ""
+        chips.push(r.videoResolution)
+        if r.videoCodec <> invalid and r.videoCodec <> "" then chips.push(r.videoCodec)
+    end if
+    if m.playMethod = "Transcode"
+        chips.push("Transcoding")
+    else
+        chips.push("Direct Play")
+    end if
+    buildChips(chips)
+
+    content = CreateObject("roSGNode", "ContentNode")
+    content.url = r.url
+    content.streamFormat = r.streamFormat
+    if m.item.Name <> invalid then content.title = m.item.Name
+
+    if m.pendingStartSecs >= 0
+        ' restart after a track/quality change — resume where we were
+        if m.pendingStartSecs > 0 then content.PlayStart = m.pendingStartSecs
+        m.pendingStartSecs = -1
+    else if m.top.playAction <> "play"
+        startSecs = resumeSeconds()
+        if startSecs > 0 then content.PlayStart = startSecs
+    end if
+
+    m.video.content = content
+    m.video.control = "play"
+    ' Focus stays on the screen — children never take it.
+    m.top.setFocus(true)
+    m.clockTimer.control = "start"
+    updateClock()
+    buildButtons()
+end sub
+
+' Menu ordering that avoids the "picked Forced, saw nothing" trap:
+' full (non-forced) tracks first, forced tracks last.
+function sortSubTracks(tracks as object) as object
+    full = []
+    forced = []
+    for each t in tracks
+        if t.isForced <> invalid and t.isForced
+            forced.push(t)
+        else
+            full.push(t)
+        end if
+    end for
+    for each t in forced
+        full.push(t)
+    end for
+    return full
+end function
+
+function resumeSeconds() as integer
+    if m.item.UserData = invalid then return 0
+    if m.item.UserData.PlaybackPositionTicks = invalid then return 0
+    posTicks = m.item.UserData.PlaybackPositionTicks
+    thresholdTicks = AppSettings.resumeThresholdSeconds() * 10000000&
+    if posTicks > thresholdTicks then return Int(posTicks / 10000000)
+    return 0
+end function
+
+sub onVideoState()
+    state = m.video.state
+    if state = "playing"
+        m.statusLabel.visible = false
+        m.isPaused = false
+        updatePlayPauseUi()
+        if not m.startedReported
+            m.startedReported = true
+            report("reportStart", currentTicks(), false)
+            m.progressTimer.control = "start"
+        else
+            report("reportProgress", currentTicks(), false)
+        end if
+    else if state = "paused"
+        m.isPaused = true
+        updatePlayPauseUi()
+        report("reportProgress", currentTicks(), true)
+    else if state = "finished"
+        onPlaybackEnded()
+    else if state = "error"
+        m.statusLabel.visible = true
+        m.statusLabel.text = "Playback error."
+        m.progressTimer.control = "stop"
+    else if state = "buffering"
+        m.statusLabel.visible = true
+        m.statusLabel.text = "Buffering..."
+    end if
+end sub
+
+sub onDuration()
+    if m.video.duration <> invalid and m.video.duration > 0 then m.durationSecs = m.video.duration
+end sub
+
+sub onPosition()
+    m.lastPosition = m.video.position
+    if m.osdVisible and not m.seeking then updateScrubber()
+end sub
+
+sub onProgressTimer()
+    if m.video.state = "playing" then report("reportProgress", currentTicks(), false)
+end sub
+
+' ---------- OSD visibility ----------
+
+sub showOsd()
+    updateScrubber()
+    updateClock()
+    if m.osdVisible
+        bumpOsd()
+        return
+    end if
+    m.osdVisible = true
+    m.osd.visible = true
+    m.zone = "scrub"
+    restyleButtons()
+    m.osdInterp.keyValue = [m.osd.opacity, 1.0]
+    m.osdAnim.control = "start"
+    m.osdTimer.control = "start"
+end sub
+
+sub hideOsd()
+    closeMenu()
+    m.zone = "scrub"
+    restyleButtons()
+    if not m.osdVisible then return
+    m.osdVisible = false
+    m.osdTimer.control = "stop"
+    m.osdInterp.keyValue = [m.osd.opacity, 0.0]
+    m.osdAnim.control = "start"
+end sub
+
+sub onOsdTimer()
+    ' Auto-fade like tvOS: hide from any zone after inactivity while playing.
+    ' Menus never auto-close (the timer is stopped while one is open).
+    if m.isPaused then return
+    if m.zone = "menu" then return
+    hideOsd()
+end sub
+
+sub bumpOsd()
+    m.osdTimer.control = "stop"
+    m.osdTimer.control = "start"
+end sub
+
+' ---------- Buttons (virtual highlight) ----------
+
+sub buildButtons()
+    while m.osdBtnRow.getChildCount() > 0
+        m.osdBtnRow.removeChildIndex(0)
+    end while
+    m.buttons = []
+
+    defs = []
+    if m.isPaused
+        defs.push({ kind: "playpause", label: "Play" })
+    else
+        defs.push({ kind: "playpause", label: "Pause" })
+    end if
+    defs.push({ kind: "restart", label: "Start Over" })
+    defs.push({ kind: "subs", label: "Subtitles" })
+    if m.audTracks.count() > 1 then defs.push({ kind: "audio", label: "Audio" })
+    defs.push({ kind: "quality", label: "Quality" })
+
+    x = 0
+    for each d in defs
+        bw = 52 + Len(d.label) * 13
+        cell = CreateObject("roSGNode", "Group")
+        cell.translation = [x, 0]
+
+        bg = CreateObject("roSGNode", "Poster")
+        bg.width = bw
+        bg.height = 52
+        cell.appendChild(bg)
+
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = d.label
+        lbl.width = bw
+        lbl.height = 52
+        lbl.horizAlign = "center"
+        lbl.vertAlign = "center"
+        f = CreateObject("roSGNode", "Font")
+        f.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f.size = 24
+        lbl.font = f
+        cell.appendChild(lbl)
+
+        m.osdBtnRow.appendChild(cell)
+        m.buttons.push({ kind: d.kind, bg: bg, lbl: lbl, w: bw })
+        x += bw + 20
+    end for
+    if m.btnIdx >= m.buttons.count() then m.btnIdx = 0
+    restyleButtons()
+end sub
+
+sub restyleButtons()
+    ' Zone affordance: big knob while scrubbing, dimmed buttons; entering the
+    ' button row shrinks the knob and lights a capsule.
+    if m.zone = "scrub"
+        m.osdScrubKnob.width = 12
+        m.osdScrubKnob.height = 28
+        m.osdScrubKnob.opacity = 1.0
+        m.osdBtnRow.opacity = 0.65
+    else
+        m.osdScrubKnob.width = 8
+        m.osdScrubKnob.height = 22
+        m.osdScrubKnob.opacity = 0.6
+        m.osdBtnRow.opacity = 1.0
+    end if
+    for i = 0 to m.buttons.count() - 1
+        b = m.buttons[i]
+        if m.zone = "buttons" and i = m.btnIdx
+            b.bg.uri = "pkg:/images/btn_white_focus.9.png"
+            b.lbl.color = "#000000"
+        else
+            b.bg.uri = "pkg:/images/btn_dark.9.png"
+            b.lbl.color = "#FFFFFF"
+        end if
+    end for
+end sub
+
+' Update the Play/Pause capsule + indicator without a full rebuild
+sub updatePlayPauseUi()
+    m.osdPlayPause.visible = true
+    if m.isPaused
+        m.osdPlayPause.uri = "pkg:/images/osd_play.png"
+    else
+        m.osdPlayPause.uri = "pkg:/images/osd_pause.png"
+    end if
+    for each b in m.buttons
+        if b.kind = "playpause"
+            if m.isPaused then b.lbl.text = "Play" else b.lbl.text = "Pause"
+        end if
+    end for
+end sub
+
+sub activateButton()
+    if m.btnIdx < 0 or m.btnIdx >= m.buttons.count() then return
+    kind = m.buttons[m.btnIdx].kind
+    if kind = "playpause"
+        togglePlayPause()
+    else if kind = "restart"
+        m.seeking = false
+        m.video.seek = 0
+        updateScrubber()
+    else if kind = "subs"
+        openMenu("subs")
+    else if kind = "audio"
+        openMenu("audio")
+    else if kind = "quality"
+        openMenu("quality")
+    end if
+    bumpOsd()
+end sub
+
+' ---------- Popup menu (virtual highlight) ----------
+
+sub openMenu(kind as string)
+    m.menuKind = kind
+    m.menuItems = []
+    current = 0
+
+    if kind = "subs"
+        m.osdMenuTitle.text = "Subtitles"
+        m.menuItems.push({ label: "Off", value: -1 })
+        for i = 0 to m.subTracks.count() - 1
+            m.menuItems.push({ label: m.subTracks[i].title, value: m.subTracks[i].index })
+            if m.subTracks[i].index = m.curSubIdx then current = m.menuItems.count() - 1
+        end for
+    else if kind = "audio"
+        m.osdMenuTitle.text = "Audio"
+        for i = 0 to m.audTracks.count() - 1
+            m.menuItems.push({ label: m.audTracks[i].title, value: m.audTracks[i].index })
+            if m.audTracks[i].index = m.curAudIdx then current = m.menuItems.count() - 1
+        end for
+        if m.curAudIdx = -1 then current = 0
+    else if kind = "quality"
+        m.osdMenuTitle.text = "Quality"
+        m.menuItems.push({ label: "Auto", value: 0 })
+        m.menuItems.push({ label: "High - 20 Mbps", value: 20000000 })
+        m.menuItems.push({ label: "Medium - 10 Mbps", value: 10000000 })
+        m.menuItems.push({ label: "Low - 4 Mbps", value: 4000000 })
+        for i = 0 to m.menuItems.count() - 1
+            if m.menuItems[i].value = m.qualityBps then current = i
+        end for
+    end if
+
+    m.menuIdx = current
+    m.menuScroll = 0
+    if m.menuIdx >= m.menuMaxRows then m.menuScroll = m.menuIdx - m.menuMaxRows + 1
+    buildMenuRows()
+    m.osdMenu.visible = true
+    m.zone = "menu"
+    restyleButtons()
+    m.osdTimer.control = "stop"   ' no auto-hide while a menu is open
+end sub
+
+' Renders a window of up to menuMaxRows rows starting at m.menuScroll —
+' long track lists scroll instead of pushing the panel off screen.
+sub buildMenuRows()
+    while m.osdMenuRows.getChildCount() > 0
+        m.osdMenuRows.removeChildIndex(0)
+    end while
+    m.menuRowNodes = []
+
+    rowH = 56
+    total = m.menuItems.count()
+    visible = total - m.menuScroll
+    if visible > m.menuMaxRows then visible = m.menuMaxRows
+
+    for w = 0 to visible - 1
+        i = m.menuScroll + w
+        cell = CreateObject("roSGNode", "Group")
+        cell.translation = [0, w * rowH]
+
+        bg = CreateObject("roSGNode", "Poster")
+        bg.width = 512
+        bg.height = 50
+        cell.appendChild(bg)
+
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = menuRowText(i)
+        lbl.width = 480
+        lbl.height = 50
+        lbl.translation = [16, 0]
+        lbl.vertAlign = "center"
+        f = CreateObject("roSGNode", "Font")
+        f.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f.size = 25
+        lbl.font = f
+        cell.appendChild(lbl)
+
+        m.osdMenuRows.appendChild(cell)
+        m.menuRowNodes.push({ bg: bg, lbl: lbl })
+    end for
+
+    ' Size + position the panel just above the button row; clamp on screen.
+    ' "+N more" hint row space when scrollable.
+    h = visible * rowH + 100
+    y = 860 - h
+    if y < 60 then y = 60
+    m.osdMenuBg.height = h
+    m.osdMenuBg.translation = [80, y]
+    m.osdMenuTitle.translation = [116, y + 28]
+    m.osdMenuRows.translation = [104, y + 80]
+    restyleMenu()
+end sub
+
+function menuRowText(i as integer) as string
+    item = m.menuItems[i]
+    t = item.label
+    if isCurrentValue(item.value) then t = t + "   " + Chr(8226)
+    return t
+end function
+
+function isCurrentValue(value as integer) as boolean
+    if m.menuKind = "subs" then return value = m.curSubIdx
+    if m.menuKind = "audio" then return (value = m.curAudIdx) or (m.curAudIdx = -1 and m.menuItems.count() > 0 and m.menuItems[0].value = value)
+    if m.menuKind = "quality" then return value = m.qualityBps
+    return false
+end function
+
+sub restyleMenu()
+    for w = 0 to m.menuRowNodes.count() - 1
+        r = m.menuRowNodes[w]
+        if m.menuScroll + w = m.menuIdx
+            r.bg.uri = "pkg:/images/btn_white_focus.9.png"
+            r.lbl.color = "#000000"
+        else
+            r.bg.uri = ""
+            r.lbl.color = "#FFFFFF"
+        end if
+    end for
+end sub
+
+sub applyMenuSelection()
+    if m.menuIdx < 0 or m.menuIdx >= m.menuItems.count() then return
+    value = m.menuItems[m.menuIdx].value
+
+    if m.menuKind = "subs"
+        if value <> m.curSubIdx
+            m.curSubIdx = value
+            restartStream()
+        end if
+    else if m.menuKind = "audio"
+        if value <> m.curAudIdx
+            m.curAudIdx = value
+            restartStream()
+        end if
+    else if m.menuKind = "quality"
+        if value <> m.qualityBps
+            m.qualityBps = value
+            restartStream()
+        end if
+    end if
+    closeMenu()
+    m.zone = "buttons"
+    restyleButtons()
+    bumpOsd()
+end sub
+
+sub closeMenu()
+    m.osdMenu.visible = false
+    m.menuKind = ""
+end sub
+
+' ---------- Scrubber ----------
+
+sub updateScrubber()
+    if m.seeking
+        previewScrubber(m.seekTarget)
+        return
+    end if
+    drawScrubber(m.video.position)
+end sub
+
+sub previewScrubber(target as dynamic)
+    drawScrubber(target)
+end sub
+
+sub drawScrubber(position as dynamic)
+    dur = m.durationSecs
+    fillW = 0
+    if dur > 0
+        frac = position / dur
+        if frac < 0 then frac = 0
+        if frac > 1 then frac = 1
+        fillW = Int(1760 * frac)
+    end if
+    m.osdScrubFill.width = fillW
+    knobW = m.osdScrubKnob.width
+    knobH = m.osdScrubKnob.height
+    m.osdScrubKnob.translation = [80 + fillW - Int(knobW / 2), 1003 - Int(knobH / 2)]
+    m.osdElapsed.text = formatTime(position)
+    remaining = dur - position
+    if remaining < 0 then remaining = 0
+    m.osdRemaining.text = "-" + formatTime(remaining)
+end sub
+
+sub togglePlayPause()
+    if m.isPaused
+        m.video.control = "resume"
+    else
+        m.video.control = "pause"
+    end if
+end sub
+
+' Debounced, accelerating seek: rapid presses move a preview (step doubles
+' 10->20->40->60), one video.seek fires when the presses stop.
+sub seekBy(dir as integer)
+    elapsedMs = m.seekSpan.TotalMilliseconds()
+    if m.seeking and dir = m.seekDir and elapsedMs < 700
+        m.seekStep = m.seekStep * 2
+        if m.seekStep > 60 then m.seekStep = 60
+    else
+        m.seekStep = 10
+    end if
+    m.seekDir = dir
+    m.seekSpan.Mark()
+
+    if not m.seeking
+        m.seeking = true
+        m.seekTarget = m.video.position
+    end if
+    m.seekTarget = m.seekTarget + dir * m.seekStep
+    if m.seekTarget < 0 then m.seekTarget = 0
+    if m.durationSecs > 0 and m.seekTarget > m.durationSecs - 2 then m.seekTarget = m.durationSecs - 2
+    previewScrubber(m.seekTarget)
+    m.seekTimer.control = "stop"
+    m.seekTimer.control = "start"
+end sub
+
+sub onSeekTimer()
+    if m.seeking
+        m.video.seek = m.seekTarget
+        m.seeking = false
+    end if
+end sub
+
+' ---------- Info bar ----------
+
+sub populateInfoBar()
+    item = m.item
+    if item = invalid then return
+    isYT = YT.isItem(item)
+    itype = ""
+    if item.Type <> invalid then itype = item.Type
+
+    name = ""
+    if item.Name <> invalid then name = item.Name
+
+    m.osdLogo.visible = false
+    m.osdChannelCircle.visible = false
+    m.osdChannelName.visible = false
+
+    title = name
+    if itype = "Episode" and not isYT and item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+        title = "S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim() + " " + Chr(8226) + " " + name
+    end if
+    m.osdTitle.text = title
+
+    hasHeaderArt = false
+    if itype = "Episode" and item.SeriesId <> invalid
+        if isYT
+            m.osdChannelCircle.visible = true
+            m.osdChannelCircle.uri = ImageUrl.primary(item.SeriesId, 128)
+            m.osdChannelName.visible = true
+            chName = ""
+            if item.SeriesName <> invalid then chName = YT.cleanTitle(item.SeriesName)
+            m.osdChannelName.text = chName
+            hasHeaderArt = true
+        else
+            m.osdLogo.visible = true
+            m.osdLogo.uri = m.global.serverUrl + "/Items/" + item.SeriesId + "/Images/Logo?maxHeight=144&quality=90"
+            hasHeaderArt = true
+        end if
+    else if itype = "Series"
+        m.osdLogo.visible = true
+        m.osdLogo.uri = m.global.serverUrl + "/Items/" + item.Id + "/Images/Logo?maxHeight=144&quality=90"
+        hasHeaderArt = true
+    end if
+
+    if hasHeaderArt
+        m.osdTitle.translation = [80, 118]
+        m.osdSubtitle.translation = [80, 172]
+        m.osdChips.translation = [80, 214]
+    else
+        m.osdTitle.translation = [80, 44]
+        m.osdSubtitle.translation = [80, 104]
+        m.osdChips.translation = [80, 146]
+    end if
+
+    subParts = []
+    if itype = "Episode"
+        if not isYT and item.SeriesName <> invalid then subParts.push(item.SeriesName)
+        if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 10 then subParts.push(YT.formatDate(item.PremiereDate))
+    else
+        if item.ProductionYear <> invalid then subParts.push(str(item.ProductionYear).Trim())
+    end if
+    m.subtitleBase = joinParts(subParts)
+    m.osdSubtitle.text = m.subtitleBase
+end sub
+
+' Small capsule badges (resolution / codec / delivery) under the meta line
+sub buildChips(chips as object)
+    while m.osdChips.getChildCount() > 0
+        m.osdChips.removeChildIndex(0)
+    end while
+    x = 0
+    for each c in chips
+        w = 28 + Len(c) * 12
+        bg = CreateObject("roSGNode", "Poster")
+        bg.uri = "pkg:/images/badge_capsule.9.png"
+        bg.width = w
+        bg.height = 34
+        bg.translation = [x, 0]
+        m.osdChips.appendChild(bg)
+
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = c
+        lbl.width = w
+        lbl.height = 34
+        lbl.horizAlign = "center"
+        lbl.vertAlign = "center"
+        lbl.color = "#E6FFFFFF"
+        f = CreateObject("roSGNode", "Font")
+        f.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f.size = 20
+        lbl.font = f
+        lbl.translation = [x, 0]
+        m.osdChips.appendChild(lbl)
+        x += w + 12
+    end for
+end sub
+
+sub updateClock()
+    dt = CreateObject("roDateTime")
+    dt.ToLocalTime()
+    m.osdClock.text = formatClock(dt.GetHours(), dt.GetMinutes())
+    m.osdSubtitle.text = m.subtitleBase
+    ' "Finishes at" lives under the clock (right side) so the left meta line
+    ' stays short and scannable
+    finishes = ""
+    if m.durationSecs > 0
+        remaining = m.durationSecs - m.video.position
+        if remaining > 0
+            totalMin = dt.GetHours() * 60 + dt.GetMinutes() + Int(remaining / 60)
+            fh = (totalMin \ 60) mod 24
+            fm = totalMin mod 60
+            finishes = "Finishes at " + formatClock(fh, fm)
+        end if
+    end if
+    m.osdFinishes.text = finishes
+end sub
+
+sub onClockTimer()
+    updateClock()
+end sub
+
+function joinParts(parts as object) as string
+    out = ""
+    for i = 0 to parts.count() - 1
+        if i > 0 then out = out + "  " + Chr(8226) + "  "
+        out = out + parts[i]
+    end for
+    return out
+end function
+
+function formatTime(totalSecs as dynamic) as string
+    s = Int(totalSecs)
+    if s < 0 then s = 0
+    h = s \ 3600
+    mins = (s mod 3600) \ 60
+    sec = s mod 60
+    ss = sec.toStr()
+    if sec < 10 then ss = "0" + ss
+    if h > 0
+        ms = mins.toStr()
+        if mins < 10 then ms = "0" + ms
+        return h.toStr() + ":" + ms + ":" + ss
+    end if
+    return mins.toStr() + ":" + ss
+end function
+
+function formatClock(h24 as integer, minute as integer) as string
+    ampm = "AM"
+    h = h24
+    if h >= 12 then ampm = "PM"
+    if h = 0 then h = 12
+    if h > 12 then h = h - 12
+    mm = minute.toStr()
+    if minute < 10 then mm = "0" + mm
+    return h.toStr() + ":" + mm + " " + ampm
+end function
+
+' ---------- Reporting ----------
+
+function currentTicks() as longinteger
+    return m.video.position * 10000000&
+end function
+
+sub report(action as string, positionTicks as longinteger, isPaused as boolean)
+    if m.item = invalid then return
+    enqueue({
+        action: action
+        itemId: m.item.Id
+        positionTicks: positionTicks
+        isPaused: isPaused
+        playMethod: m.playMethod
+        playSessionId: m.playSessionId
+    })
+end sub
+
+sub reportStopped(positionTicks as longinteger)
+    if m.stoppedReported then return
+    m.stoppedReported = true
+    m.progressTimer.control = "stop"
+    if m.item <> invalid
+        enqueue({
+            action: "reportStopped"
+            itemId: m.item.Id
+            positionTicks: positionTicks
+            playSessionId: m.playSessionId
+        })
+    end if
+end sub
+
+sub onPlaybackEnded()
+    endTicks = m.runTimeTicks
+    if endTicks <= 0 then endTicks = currentTicks()
+    reportStopped(endTicks)
+    hideOsd()
+    enqueue({ action: "markPlayed", itemId: m.item.Id })
+
+    if AppSettings.autoPlayNextEpisode() and m.item.Type = "Episode" and m.item.SeasonId <> invalid
+        m.statusLabel.visible = true
+        m.statusLabel.text = "Up next..."
+        enqueue({ action: "getSiblingEpisodes", parentId: m.item.SeasonId })
+    else
+        m.top.done = true
+    end if
+end sub
+
+sub onSiblingsLoaded(r as object)
+    nextEp = invalid
+    if r.success and r.items <> invalid and m.item.IndexNumber <> invalid
+        curIdx = m.item.IndexNumber
+        for each ep in r.items
+            if ep.IndexNumber <> invalid and ep.IndexNumber = curIdx + 1
+                nextEp = ep
+                exit for
+            end if
+        end for
+        if nextEp = invalid
+            for each ep in r.items
+                if ep.IndexNumber <> invalid and ep.IndexNumber > curIdx
+                    nextEp = ep
+                    exit for
+                end if
+            end for
+        end if
+    end if
+
+    if nextEp <> invalid
+        m.stoppedReported = false
+        m.startedReported = false
+        m.top.playAction = "play"
+        m.item = nextEp
+        ' Subtitle indexes are per-file — reset; quality choice persists.
+        m.curSubIdx = -1
+        m.curAudIdx = -1
+        populateInfoBar()
+        requestStream(nextEp)
+    else
+        m.top.done = true
+    end if
+end sub
+
+' ---------- Keys (single handler; no child ever holds focus) ----------
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+
+    ' Menu zone: up/down navigate, OK applies, back/left dismiss
+    if m.zone = "menu"
+        if key = "up"
+            if m.menuIdx > 0 then m.menuIdx = m.menuIdx - 1
+            if m.menuIdx < m.menuScroll
+                m.menuScroll = m.menuIdx
+                buildMenuRows()
+            else
+                restyleMenu()
+            end if
+            return true
+        else if key = "down"
+            if m.menuIdx < m.menuItems.count() - 1 then m.menuIdx = m.menuIdx + 1
+            if m.menuIdx >= m.menuScroll + m.menuMaxRows
+                m.menuScroll = m.menuIdx - m.menuMaxRows + 1
+                buildMenuRows()
+            else
+                restyleMenu()
+            end if
+            return true
+        else if key = "OK"
+            applyMenuSelection()
+            return true
+        else if key = "back" or key = "left" or key = "options"
+            closeMenu()
+            m.zone = "buttons"
+            restyleButtons()
+            bumpOsd()
+            return true
+        end if
+        return true   ' swallow everything else while a menu is open
+    end if
+
+    ' Buttons zone: left/right move, OK activates, up returns to scrubbing
+    if m.zone = "buttons"
+        if key = "left"
+            if m.btnIdx > 0 then m.btnIdx = m.btnIdx - 1
+            restyleButtons()
+            bumpOsd()
+            return true
+        else if key = "right"
+            if m.btnIdx < m.buttons.count() - 1 then m.btnIdx = m.btnIdx + 1
+            restyleButtons()
+            bumpOsd()
+            return true
+        else if key = "OK"
+            activateButton()
+            return true
+        else if key = "down"
+            m.zone = "scrub"
+            restyleButtons()
+            bumpOsd()
+            return true
+        else if key = "up"
+            return true   ' top of the OSD — swallow
+        else if key = "back"
+            hideOsd()
+            return true
+        else if key = "play"
+            togglePlayPause()
+            bumpOsd()
+            return true
+        end if
+        return true
+    end if
+
+    ' Scrub zone (default)
+    if key = "back"
+        if m.osdVisible
+            hideOsd()
+            return true
+        end if
+        m.video.control = "stop"
+        reportStopped(currentTicks())
+        m.top.done = true
+        return true
+    end if
+
+    ' OK = pause/play immediately (Roku convention), OSD comes along
+    if key = "OK" or key = "play"
+        togglePlayPause()
+        showOsd()
+        bumpOsd()
+        return true
+    end if
+
+    if key = "options"
+        showOsd()
+        openMenu("subs")
+        return true
+    end if
+
+    ' Up climbs to the controls (buttons sit above the scrubber); Down hides
+    if key = "up"
+        if m.osdVisible
+            m.zone = "buttons"
+            restyleButtons()
+            bumpOsd()
+        else
+            showOsd()
+            m.zone = "buttons"
+            restyleButtons()
+        end if
+        return true
+    end if
+
+    if key = "down"
+        if m.osdVisible
+            hideOsd()
+        else
+            showOsd()
+        end if
+        return true
+    end if
+
+    if key = "left" or key = "rewind" or key = "replay"
+        seekBy(-1)
+        showOsd()
+        return true
+    end if
+
+    if key = "right" or key = "fastforward"
+        seekBy(1)
+        showOsd()
+        return true
+    end if
+
+    return false
+end function

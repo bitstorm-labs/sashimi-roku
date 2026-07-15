@@ -53,6 +53,14 @@ sub onFocusChanged()
     restyle()
 end sub
 
+sub onSetIndex()
+    idx = m.top.setIndex
+    if idx >= 0 and idx < m.buttons.count()
+        m.index = idx
+        restyle()
+    end if
+end sub
+
 sub restyle()
     hasFocus = m.top.isInFocusChain()
     for i = 0 to m.buttons.count() - 1
@@ -91,7 +99,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
         m.top.goDown = true
         return true
     else if key = "up"
-        return true   ' top of screen
+        m.top.goUp = true
+        return true   ' consumers may refocus; detail screen ignores (top of screen)
     end if
     return false
 end function

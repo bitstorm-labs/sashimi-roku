@@ -1,0 +1,48 @@
+' Canonical YouTube (Pinchflat) handling — one place, applied everywhere, so
+' the five inconsistent tvOS detectors don't get re-created per screen.
+namespace YT
+
+    ' A library is YouTube if its name contains "youtube" (collectionType is
+    ' "tvshows" for both real TV and Pinchflat, so name is the signal).
+    function isLibraryName(name as dynamic) as boolean
+        if name = invalid then return false
+        return Instr(1, LCase(name), "youtube") > 0
+    end function
+
+    ' Is this item YouTube-style? Uses only reliable signals so normal TV
+    ' episodes are never misdetected: an explicit library flag, a "youtube"
+    ' path, a "youtube" series name, or a bare Video type. Image aspect ratio
+    ' and "no backdrop" are NOT used — real episodes have 16:9 thumbnails and
+    ' some real series lack a backdrop, so those heuristics cause false
+    ' positives (e.g. blanking Continue Watching thumbnails).
+    function isItem(item as dynamic, forcedByLibrary = false as boolean) as boolean
+        if forcedByLibrary then return true
+        if item = invalid then return false
+        if item.Path <> invalid and Instr(1, LCase(item.Path), "youtube") > 0 then return true
+        if item.SeriesName <> invalid and Instr(1, LCase(item.SeriesName), "youtube") > 0 then return true
+        if item.Type <> invalid and item.Type = "Video" then return true
+        return false
+    end function
+
+    ' Strip the Pinchflat " - Videos" suffix from channel names (tvOS
+    ' cleanedYouTubeTitle). Also tolerate a bare " - " separator.
+    function cleanTitle(name as dynamic) as string
+        if name = invalid then return ""
+        s = name
+        if Len(s) >= 9 and Right(s, 9) = " - Videos" then return Left(s, Len(s) - 9)
+        return s
+    end function
+
+    ' Premiere date -> "Mon D, YYYY" (unified format for all YouTube subtitles).
+    function formatDate(premiereDate as dynamic) as string
+        if premiereDate = invalid or Len(premiereDate) < 10 then return ""
+        y = Mid(premiereDate, 1, 4)
+        mNum = Val(Mid(premiereDate, 6, 2))
+        d = Val(Mid(premiereDate, 9, 2))
+        months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        mName = ""
+        if mNum >= 1 and mNum <= 12 then mName = months[mNum]
+        return mName + " " + str(d).Trim() + ", " + y
+    end function
+
+end namespace

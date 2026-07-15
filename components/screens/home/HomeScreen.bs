@@ -1,5 +1,6 @@
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/YouTube.bs"
 
 sub init()
     m.rowList = m.top.findNode("rowList")
@@ -24,6 +25,7 @@ sub init()
     m.continueWatchingItems = []
     m.heroPool = []
     m.rowContent = invalid
+    m.pendingRow = invalid
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
 
@@ -98,6 +100,8 @@ sub onApiResponse()
         onNextUpLoaded(response)
     else if action = "getLatestMedia"
         onLatestMediaLoaded(response)
+    else if action = "getItemsByIds"
+        onItemsByIdsLoaded(response)
     end if
 end sub
 
@@ -182,15 +186,12 @@ sub onLatestMediaLoaded(response as object)
                 exit for
             end if
         end for
-        ' Detect YouTube libraries by name
-        isYouTube = Instr(1, LCase(libName), "youtube") > 0
+        ' Detect YouTube libraries by name (unified helper)
+        isYouTube = YT.isLibraryName(libName)
 
-        ' Clean YouTube library names for row titles (strip " - Videos" etc.)
+        ' Clean YouTube library names for row titles (strip " - Videos")
         displayName = libName
-        if isYouTube
-            dashPos = Instr(1, displayName, " - ")
-            if dashPos > 0 then displayName = Left(displayName, dashPos - 1)
-        end if
+        if isYouTube then displayName = YT.cleanTitle(displayName)
 
         ' tvOS hero pool: first 5 latest items per library, shuffled later
         heroCount = 0
@@ -200,10 +201,33 @@ sub onLatestMediaLoaded(response as object)
             heroCount = heroCount + 1
         end for
 
+        ' "X new" badges live on the SERIES (episodes lack UnplayedItemCount).
+        ' Fetch all series for this row in ONE batched call, then add the row.
+        ids = {}
+        for each item in response.items
+            sid = ""
+            if item.SeriesId <> invalid then sid = item.SeriesId
+            if sid = "" and item.Type <> invalid and item.Type = "Series" then sid = item.Id
+            if sid <> "" then ids[sid] = true
+        end for
+        idList = []
+        for each k in ids
+            idList.push(k)
+        end for
+        if idList.count() > 0
+            m.pendingRow = { title: "Recently Added " + displayName, items: response.items, isYouTube: isYouTube }
+            m.apiTask.request = { action: "getItemsByIds", ids: idList }
+            return
+        end if
+
         ' tvOS row title: "Recently Added {Library}"
         addRow("Recently Added " + displayName, response.items, isYouTube)
     end if
 
+    advanceLatest()
+end sub
+
+sub advanceLatest()
     m.currentLibraryIndex = m.currentLibraryIndex + 1
     if m.currentLibraryIndex < m.libraries.count()
         lib = m.libraries[m.currentLibraryIndex]
@@ -211,6 +235,22 @@ sub onLatestMediaLoaded(response as object)
     else
         showRows()
     end if
+end sub
+
+sub onItemsByIdsLoaded(response as object)
+    badges = {}
+    if response.success and response.items <> invalid
+        for each s in response.items
+            if s.UserData <> invalid and s.UserData.UnplayedItemCount <> invalid
+                badges[s.Id] = s.UserData.UnplayedItemCount
+            end if
+        end for
+    end if
+    if m.pendingRow <> invalid
+        addRow(m.pendingRow.title, m.pendingRow.items, m.pendingRow.isYouTube, badges)
+        m.pendingRow = invalid
+    end if
+    advanceLatest()
 end sub
 
 ' Format remaining playback time like tvOS: "1h 23m left" / "23m left"
@@ -247,14 +287,8 @@ sub addContinueWatchingRow(items as object)
         itemType = ""
         if item.Type <> invalid then itemType = item.Type
 
-        ' Detect YouTube items
-        isYouTubeItem = false
-        if item.doesExist("Path") and item.Path <> invalid
-            if Instr(1, LCase(item.Path), "youtube") > 0 then isYouTubeItem = true
-        end if
-        if not isYouTubeItem and item.doesExist("SeriesName") and item.SeriesName <> invalid
-            if Instr(1, LCase(item.SeriesName), "youtube") > 0 then isYouTubeItem = true
-        end if
+        ' Detect YouTube items (unified helper)
+        isYouTubeItem = YT.isItem(item)
 
         if isYouTubeItem
             ' YouTube: use episode primary image (thumbnail)
@@ -273,7 +307,7 @@ sub addContinueWatchingRow(items as object)
             child.title = channelName
             description = ""
             if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 10
-                description = Left(item.PremiereDate, 10)
+                description = YT.formatDate(item.PremiereDate)
                 if item.Name <> invalid and item.Name <> "" then description += " - " + item.Name
             else if item.Name <> invalid and item.Name <> channelName
                 description = item.Name
@@ -352,7 +386,7 @@ sub addContinueWatchingRow(items as object)
     end for
 end sub
 
-sub addRow(title as string, items as object, isYouTube = false as boolean)
+sub addRow(title as string, items as object, isYouTube = false as boolean, badgeMap = invalid as dynamic)
     if m.rowContent = invalid then return
 
     rowIndex = m.rowContent.getChildCount()
@@ -434,6 +468,13 @@ sub addRow(title as string, items as object, isYouTube = false as boolean)
             if item.UserData.UnplayedItemCount <> invalid
                 child.badgeCount = item.UserData.UnplayedItemCount
             end if
+        end if
+        ' Batched series lookup (episodes don't carry UnplayedItemCount)
+        if badgeMap <> invalid
+            bkey = ""
+            if item.SeriesId <> invalid then bkey = item.SeriesId
+            if bkey = "" and item.Type <> invalid and item.Type = "Series" then bkey = item.Id
+            if bkey <> "" and badgeMap.DoesExist(bkey) then child.badgeCount = badgeMap[bkey]
         end if
     end for
 end sub

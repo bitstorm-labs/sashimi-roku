@@ -5,6 +5,9 @@
         <field id="buttonDefs" type="array" onChange="onDefsChanged" />
         <field id="activatedKind" type="string" alwaysNotify="true" />
         <field id="goDown" type="boolean" alwaysNotify="true" />
+        <field id="goUp" type="boolean" alwaysNotify="true" />
+        <!-- restore highlighted button after a defs rebuild (labels changed) -->
+        <field id="setIndex" type="integer" onChange="onSetIndex" />
     </interface>
     <children>
         <Group id="row" />
