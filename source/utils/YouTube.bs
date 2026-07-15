@@ -18,8 +18,15 @@ namespace YT
     function isItem(item as dynamic, forcedByLibrary = false as boolean) as boolean
         if forcedByLibrary then return true
         if item = invalid then return false
+        ' tvOS threads forceYouTubeStyle from the originating screen; on Roku
+        ' the flag rides the item AA (survives FormatJSON/ParseJSON).
+        if item._forceYouTube <> invalid and item._forceYouTube = true then return true
         if item.Path <> invalid and Instr(1, LCase(item.Path), "youtube") > 0 then return true
         if item.SeriesName <> invalid and Instr(1, LCase(item.SeriesName), "youtube") > 0 then return true
+        ' Pinchflat channels are named "Channel - Videos"; the disk path has
+        ' no "youtube" in it (/media/pf/shows/...), so the suffix IS the signal.
+        if item.SeriesName <> invalid and Len(item.SeriesName) >= 9 and Right(item.SeriesName, 9) = " - Videos" then return true
+        if item.Type <> invalid and item.Type = "Series" and item.Name <> invalid and Len(item.Name) >= 9 and Right(item.Name, 9) = " - Videos" then return true
         if item.Type <> invalid and item.Type = "Video" then return true
         return false
     end function
@@ -40,6 +47,18 @@ namespace YT
         mNum = Val(Mid(premiereDate, 6, 2))
         d = Val(Mid(premiereDate, 9, 2))
         months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        mName = ""
+        if mNum >= 1 and mNum <= 12 then mName = months[mNum]
+        return mName + " " + str(d).Trim() + ", " + y
+    end function
+
+    ' Premiere date -> "Month D, YYYY" (tvOS detail/player use the long form).
+    function formatDateLong(premiereDate as dynamic) as string
+        if premiereDate = invalid or Len(premiereDate) < 10 then return ""
+        y = Mid(premiereDate, 1, 4)
+        mNum = Val(Mid(premiereDate, 6, 2))
+        d = Val(Mid(premiereDate, 9, 2))
+        months = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
         mName = ""
         if mNum >= 1 and mNum <= 12 then mName = months[mNum]
         return mName + " " + str(d).Trim() + ", " + y

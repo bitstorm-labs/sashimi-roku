@@ -1,4 +1,5 @@
 import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/YouTube.bs"
 
 ' tvOS Library tab: vertical list of library rows — 120x70 image, name 32
 ' semibold, chevron, r16 cardBackground rows, focus = accent tint + border.
@@ -68,6 +69,7 @@ sub buildRows()
         row.appendChild(tile)
         tileLabel = CreateObject("roSGNode", "Label")
         tileLabel.text = UCase(Left(lib.Name, 1))
+        if YT.isLibraryName(lib.Name) then tileLabel.text = ""
         tileLabel.width = 120
         tileLabel.height = 70
         tileLabel.translation = [24, 16]
@@ -79,6 +81,14 @@ sub buildRows()
         tlf.size = 32
         tileLabel.font = tlf
         row.appendChild(tileLabel)
+        if YT.isLibraryName(lib.Name)
+            ytIcon = CreateObject("roSGNode", "Poster")
+            ytIcon.uri = "pkg:/images/youtube_icon.png"
+            ytIcon.width = 86
+            ytIcon.height = 60
+            ytIcon.translation = [41, 21]
+            row.appendChild(ytIcon)
+        end if
         ' Library primary image 120x70 (covers the fallback when it loads)
         img = CreateObject("roSGNode", "Poster")
         img.width = 120
@@ -164,7 +174,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
     else if key = "OK"
         lib = m.libraries[m.focusIndex]
         if lib <> invalid
-            m.top.selectedLibrary = { id: lib.Id, name: lib.Name }
+            ct = ""
+            if lib.CollectionType <> invalid then ct = LCase(lib.CollectionType)
+            m.top.selectedLibrary = { id: lib.Id, name: lib.Name, collectionType: ct }
         end if
         return true
     end if

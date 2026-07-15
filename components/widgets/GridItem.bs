@@ -4,11 +4,40 @@ sub init()
     m.dimOverlay = m.top.findNode("dimOverlay")
     m.titleLabel = m.top.findNode("titleLabel")
     m.subtitleLabel = m.top.findNode("subtitleLabel")
+    m.cardBg = m.top.findNode("cardBg")
+    m.circleMask = m.top.findNode("circleMask")
+    m.circlePoster = m.top.findNode("circlePoster")
+    m.circleRing = m.top.findNode("circleRing")
+    m.isCircular = false
 end sub
 
 sub onItemContentChanged()
     content = m.top.itemContent
     if content = invalid then return
+
+    ' Circular channel card (tvOS: 200x200 circle, centered title, no year)
+    m.isCircular = content.doesExist("isCircular") and content.isCircular = true
+    if m.isCircular
+        m.posterImage.visible = false
+        m.cardBg.visible = false
+        m.dimOverlay.visible = false
+        m.focusRing.visible = false
+        m.circleMask.visible = true
+        if content.HDPosterUrl <> invalid then m.circlePoster.uri = content.HDPosterUrl
+        m.titleLabel.translation = [10, 252]
+        m.subtitleLabel.visible = false
+    else
+        ' MarkupGrid RECYCLES item components — restore everything the
+        ' circular branch hides or moves, or reused cells render broken.
+        m.circleMask.visible = false
+        m.circleRing.opacity = 0.0
+        m.posterImage.visible = true
+        m.cardBg.visible = true
+        m.dimOverlay.visible = true
+        m.focusRing.visible = true
+        m.titleLabel.translation = [0, 330]
+        m.subtitleLabel.visible = true
+    end if
 
     if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
         m.posterImage.uri = content.HDPosterUrl
@@ -27,7 +56,25 @@ end sub
 
 sub onFocusChanged()
     fp = m.top.focusPercent
-    scale = 1.0 + (fp * 0.08)
+    ' Marquee only while highlighted (tvOS behavior)
+    if fp > 0.5
+        m.titleLabel.repeatCount = -1
+    else
+        m.titleLabel.repeatCount = 0
+    end if
+    if m.isCircular
+        ' tvOS: scale 1.05 from center + accent ring
+        scale = 1.0 + (fp * 0.05)
+        m.circleMask.scale = [scale, scale]
+        m.circleRing.opacity = fp * 0.9
+        if fp > 0.5
+            m.titleLabel.color = "0xFFFFFFFF"
+        else
+            m.titleLabel.color = "0xAAAAAAFF"
+        end if
+        return
+    end if
+    scale = 1.0 + (fp * 0.05)
     m.posterImage.scale = [scale, scale]
     m.dimOverlay.opacity = 0.3 - (fp * 0.3)
     m.focusRing.opacity = fp * 0.9

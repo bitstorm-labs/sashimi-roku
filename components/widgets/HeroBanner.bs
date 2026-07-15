@@ -107,7 +107,10 @@ sub showItem(index as integer)
     ' Set backdrop image (tvOS requests large, fits right 70%)
     itemId = ""
     if item.Id <> invalid then itemId = item.Id
-    if item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
+    if YT.isItem(item) and itemId <> ""
+        ' tvOS YouTube hero: the video's own Primary thumbnail first
+        m.heroImage.uri = ImageUrl.primary(itemId, 1280)
+    else if item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
         m.heroImage.uri = ImageUrl.backdrop(itemId, 1280)
     else if item.ParentBackdropItemId <> invalid
         m.heroImage.uri = ImageUrl.backdrop(item.ParentBackdropItemId, 1280)

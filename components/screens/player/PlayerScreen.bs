@@ -24,6 +24,8 @@ sub init()
     m.osdClock = m.top.findNode("osdClock")
     m.osdFinishes = m.top.findNode("osdFinishes")
     m.osdChips = m.top.findNode("osdChips")
+    m.skipPill = m.top.findNode("skipPill")
+    m.skipPillLabel = m.top.findNode("skipPillLabel")
     m.osdLogo = m.top.findNode("osdLogo")
     m.osdChannelCircle = m.top.findNode("osdChannelCircle")
     m.osdChannelName = m.top.findNode("osdChannelName")
@@ -87,6 +89,12 @@ sub init()
     m.qualityBps = 0          ' 0 = auto (settings)
     m.pendingStartSecs = -1
 
+    ' Intro Skipper segments
+    m.segments = []
+    m.curSegment = invalid
+    m.skipVisible = false
+    m.forceTranscode = false
+
     ' Seek acceleration
     m.seekSpan = CreateObject("roTimespan")
     m.seekStep = 10
@@ -129,6 +137,7 @@ end sub
 
 sub requestStream(item as object)
     req = { action: "getPlaybackStream", itemId: item.Id }
+    if m.forceTranscode then req.forceTranscode = true
     req.subtitleStreamIndex = m.curSubIdx
     if m.curAudIdx >= 0 then req.audioStreamIndex = m.curAudIdx
     if m.qualityBps > 0
@@ -158,6 +167,8 @@ sub onApiResponse()
         onStreamReady(r)
     else if r.action = "getSiblingEpisodes"
         onSiblingsLoaded(r)
+    else if r.action = "getIntroSegments"
+        if r.itemId = m.item.Id and r.segments <> invalid then m.segments = r.segments
     end if
 end sub
 
@@ -208,6 +219,12 @@ sub onStreamReady(r as object)
     m.clockTimer.control = "start"
     updateClock()
     buildButtons()
+    m.segments = []
+    m.curSegment = invalid
+    hideSkipPill()
+    if m.item.Type <> invalid and m.item.Type = "Episode"
+        enqueue({ action: "getIntroSegments", itemId: m.item.Id })
+    end if
 end sub
 
 ' Menu ordering that avoids the "picked Forced, saw nothing" trap:
@@ -257,6 +274,16 @@ sub onVideoState()
     else if state = "finished"
         onPlaybackEnded()
     else if state = "error"
+        ' Direct-played container the hardware rejected (mkv edge cases):
+        ' retry ONCE via forced HLS transcode before surfacing an error.
+        if not m.forceTranscode and m.playMethod <> "Transcode"
+            m.forceTranscode = true
+            m.statusLabel.visible = true
+            m.statusLabel.text = "Loading..."
+            m.pendingStartSecs = Int(m.lastPosition)
+            requestStream(m.item)
+            return
+        end if
         m.statusLabel.visible = true
         m.statusLabel.text = "Playback error."
         m.progressTimer.control = "stop"
@@ -273,6 +300,45 @@ end sub
 sub onPosition()
     m.lastPosition = m.video.position
     if m.osdVisible and not m.seeking then updateScrubber()
+    checkSegment(m.video.position)
+end sub
+
+' Intro Skipper: show a skip pill while inside a segment; OK jumps past it
+sub checkSegment(posSecs as dynamic)
+    if m.segments.count() = 0 then return
+    active = invalid
+    for each seg in m.segments
+        if posSecs >= seg.startSec and posSecs < seg.endSec
+            active = seg
+            exit for
+        end if
+    end for
+    if active <> invalid
+        if m.curSegment = invalid or m.curSegment.segType <> active.segType
+            m.curSegment = active
+            label = "Skip Intro"
+            if LCase(active.segType) = "credits" then label = "Skip Credits"
+            m.skipPillLabel.text = label + "  " + Chr(8226) + "  OK"
+            m.skipPill.visible = true
+            m.skipVisible = true
+        end if
+    else if m.curSegment <> invalid
+        m.curSegment = invalid
+        hideSkipPill()
+    end if
+end sub
+
+sub hideSkipPill()
+    m.skipPill.visible = false
+    m.skipVisible = false
+end sub
+
+sub skipCurrentSegment()
+    if m.curSegment = invalid then return
+    m.seeking = false
+    m.video.seek = m.curSegment.endSec
+    m.curSegment = invalid
+    hideSkipPill()
 end sub
 
 sub onProgressTimer()
@@ -681,7 +747,7 @@ sub populateInfoBar()
     if itype = "Episode" and item.SeriesId <> invalid
         if isYT
             m.osdChannelCircle.visible = true
-            m.osdChannelCircle.uri = ImageUrl.primary(item.SeriesId, 128)
+            m.osdChannelCircle.uri = ImageUrl.primary(item.SeriesId, 160)
             m.osdChannelName.visible = true
             chName = ""
             if item.SeriesName <> invalid then chName = YT.cleanTitle(item.SeriesName)
@@ -974,6 +1040,12 @@ function onKeyEvent(key as string, press as boolean) as boolean
         m.video.control = "stop"
         reportStopped(currentTicks())
         m.top.done = true
+        return true
+    end if
+
+    ' Skip pill has OK priority while visible
+    if key = "OK" and m.skipVisible
+        skipCurrentSegment()
         return true
     end if
 

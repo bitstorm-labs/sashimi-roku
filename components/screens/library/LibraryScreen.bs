@@ -1,4 +1,5 @@
 import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/YouTube.bs"
 
 sub init()
     m.headerTitle = m.top.findNode("headerTitle")
@@ -17,6 +18,8 @@ sub init()
     m.sortOrder = "Ascending"
     m.filterPlayed = invalid
     m.filterFavorite = invalid
+    m.isYouTube = false
+    m.includeTypes = ""
     m.totalItems = 0
     m.loadedItems = 0
     m.isLoading = false
@@ -34,6 +37,18 @@ sub init()
     end for
     m.alphaBar.content = alphaContent
     m.alphaBar.observeFieldScoped("itemSelected", "onAlphaSelected")
+
+    ' Returning from a pushed detail focuses this screen's group — hand
+    ' focus back to the grid or the remote goes dead ("freeze").
+    m.top.observeField("focusedChild", "onFocusDelegate")
+end sub
+
+sub onFocusDelegate()
+    if m.top.hasFocus()
+        if m.posterGrid.visible
+            m.posterGrid.setFocus(true)
+        end if
+    end if
 end sub
 
 sub onLibraryDataChanged()
@@ -41,7 +56,26 @@ sub onLibraryDataChanged()
     if data = invalid then return
     m.libraryId = data.id
     m.libraryName = data.name
-    m.headerTitle.text = m.libraryName
+    m.isYouTube = YT.isLibraryName(m.libraryName)
+    ' tvOS parity: movie libraries list Movies, tv/youtube libraries list
+    ' Series (channels) — never episodes/extras.
+    ct = ""
+    if data.collectionType <> invalid then ct = LCase(data.collectionType)
+    if ct = "movies"
+        m.includeTypes = "Movie"
+    else if ct = "tvshows" or m.isYouTube
+        m.includeTypes = "Series"
+    else if ct = "music"
+        m.includeTypes = "MusicAlbum,MusicArtist"
+    else
+        m.includeTypes = "Movie,Series"
+    end if
+    m.headerTitle.text = YT.cleanTitle(m.libraryName)
+    ' YouTube libraries: circular 200x200 channel cards (tvOS parity)
+    if m.isYouTube
+        m.posterGrid.itemSize = [240, 300]
+        m.posterGrid.itemSpacing = [30, 50]
+    end if
     loadItems(0)
 end sub
 
@@ -62,6 +96,7 @@ sub loadItems(startIndex as integer)
         startIndex: startIndex
         isPlayed: m.filterPlayed
         isFavorite: m.filterFavorite
+        includeItemTypes: m.includeTypes
     }
 end sub
 
@@ -88,10 +123,11 @@ sub onItemsLoaded(response as object)
         child = m.gridContent.createChild("ContentNode")
         title = ""
         if item.Name <> invalid then title = item.Name
+        if m.isYouTube then title = YT.cleanTitle(title)
         child.shortDescriptionLine1 = title
 
         subtitle = ""
-        if item.ProductionYear <> invalid
+        if not m.isYouTube and item.ProductionYear <> invalid
             subtitle = str(item.ProductionYear).Trim()
         end if
         child.shortDescriptionLine2 = subtitle
@@ -99,18 +135,27 @@ sub onItemsLoaded(response as object)
         itemId = ""
         if item.Id <> invalid then itemId = item.Id
         if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primary(itemId, 210)
+            if m.isYouTube
+                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+            else
+                child.HDPosterUrl = ImageUrl.primary(itemId, 210)
+            end if
         end if
 
-        child.addFields({ itemJson: "" })
+        child.addFields({ itemJson: "", isCircular: false })
+        child.isCircular = m.isYouTube
+        ' Thread forceYouTubeStyle to the detail screen (tvOS parity)
+        if m.isYouTube then item._forceYouTube = true
         child.itemJson = FormatJSON(item)
     end for
 
     m.loadedItems = m.gridContent.getChildCount()
-    m.posterGrid.content = m.gridContent
-    m.posterGrid.visible = true
-
+    ' Only assign content on the first page — m.gridContent is live, so
+    ' appended children show up automatically. Re-assigning on later pages
+    ' rebuilt the grid and snapped focus back to the top.
     if response.startIndex = 0
+        m.posterGrid.content = m.gridContent
+        m.posterGrid.visible = true
         m.posterGrid.setFocus(true)
     end if
 end sub
@@ -148,6 +193,7 @@ sub onAlphaSelected()
         limit: 50
         startIndex: 0
         nameStartsWith: letter
+        includeItemTypes: m.includeTypes
     }
 end sub
 

@@ -22,8 +22,8 @@
             <Poster uri="pkg:/images/player_scrim_top.png" width="1920" height="280" translation="[0,0]" />
             <Poster id="osdLogo" width="360" height="72" loadDisplayMode="scaleToFit"
                     translation="[80,30]" visible="false" />
-            <Poster id="osdChannelCircle" width="64" height="64" translation="[80,34]" visible="false" />
-            <Label id="osdChannelName" text="" color="#E6FFFFFF" width="1400" maxLines="1" translation="[156,44]" visible="false">
+            <Poster id="osdChannelCircle" width="80" height="80" translation="[80,30]" visible="false" />
+            <Label id="osdChannelName" text="" color="#E6FFFFFF" width="1400" maxLines="1" translation="[180,52]" visible="false">
                 <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="30" />
             </Label>
             <Label id="osdTitle" text="" color="#FFFFFF" width="1500" maxLines="1" translation="[80,44]">
@@ -59,6 +59,15 @@
                 <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
             </Label>
             <Poster id="osdPlayPause" width="44" height="44" translation="[938,930]" uri="pkg:/images/osd_pause.png" visible="false" />
+        </Group>
+
+        <!-- Skip Intro/Credits pill (Intro Skipper) — independent of the OSD -->
+        <Group id="skipPill" visible="false">
+            <Poster uri="pkg:/images/btn_dark.9.png" width="300" height="56" translation="[1540,980]" />
+            <Label id="skipPillLabel" text="" color="#FFFFFF" width="300" height="56"
+                   horizAlign="center" vertAlign="center" translation="[1540,980]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="25" />
+            </Label>
         </Group>
 
         <!-- Popup menu (subtitles / audio / quality) -->

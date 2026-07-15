@@ -51,6 +51,8 @@ sub processRequest()
         doGetLatestMedia(request)
     else if action = "getItemsByIds"
         doGetItemsByIds(request)
+    else if action = "getIntroSegments"
+        doGetIntroSegments(request)
     else if action = "getItems"
         doGetItems(request)
     else if action = "getItem"
@@ -286,6 +288,22 @@ sub doGetNextUp(request as object)
     end if
 end sub
 
+' Intro Skipper plugin segments: {"Introduction":{Start,End},"Credits":{...}}
+' Missing plugin / no segments -> empty list (never an error).
+sub doGetIntroSegments(request as object)
+    result = Http.getJson(Http.apiUrl("/Episode/" + request.itemId + "/IntroSkipperSegments"))
+    segments = []
+    if result <> invalid and type(result) = "roAssociativeArray"
+        for each key in result
+            seg = result[key]
+            if seg <> invalid and seg.Start <> invalid and seg.End <> invalid and seg.End > seg.Start
+                segments.push({ segType: key, startSec: seg.Start, endSec: seg.End })
+            end if
+        end for
+    end if
+    m.top.response = { success: true, action: "getIntroSegments", segments: segments, itemId: request.itemId }
+end sub
+
 ' Batched item fetch (one call for N series) — used for "X new" badges.
 sub doGetItemsByIds(request as object)
     ids = request.ids
@@ -308,7 +326,29 @@ sub doGetLatestMedia(request as object)
     if request.limit <> invalid then limit = request.limit
     parentId = ""
     if request.parentId <> invalid then parentId = request.parentId
-    print "[API] Getting latest media (parentId=" + parentId + ", limit=" + str(limit) + ")"
+    isYouTube = (request.isYouTube <> invalid and request.isYouTube = true)
+    print "[API] Getting latest media (parentId=" + parentId + ", limit=" + str(limit) + ", yt=" + isYouTube.toStr() + ")"
+
+    if isYouTube
+        ' tvOS: YouTube rows fetch EPISODES (videos) newest-first by
+        ' DateCreated; the home screen dedupes to one video per channel.
+        url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+        url += "?ParentId=" + parentId
+        url += "&IncludeItemTypes=Episode&Recursive=true"
+        url += "&SortBy=DateCreated,SortName&SortOrder=Descending"
+        url += "&Limit=" + str(limit).Trim()
+        url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path,ParentBackdropImageTags"
+        url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+        result = Http.getJson(url)
+        if result <> invalid and result.Items <> invalid
+            print "[API] Found " + str(result.Items.count()) + " latest yt items"
+            m.top.response = { success: true, action: "getLatestMedia", items: result.Items, parentId: parentId }
+        else
+            m.top.response = { success: true, action: "getLatestMedia", items: [], parentId: parentId }
+        end if
+        return
+    end if
+
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items/Latest")
     url += "?Limit=" + str(limit).Trim()
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData"
@@ -346,7 +386,12 @@ sub doGetItems(request as object)
     url += "?SortBy=" + sortBy
     url += "&SortOrder=" + sortOrder
     url += "&Recursive=true"
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData"
+    ' Without a type filter, Recursive returns extras too (deleted scenes,
+    ' music videos, trickplay assets) — the grid must show top-level titles.
+    if request.includeItemTypes <> invalid and request.includeItemTypes <> ""
+        url += "&IncludeItemTypes=" + request.includeItemTypes
+    end if
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     url += "&Limit=" + str(limit).Trim()
     url += "&StartIndex=" + str(startIndex).Trim()
@@ -474,7 +519,7 @@ sub doSearch(request as object)
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
     url += "?SearchTerm=" + query
     url += "&Limit=" + str(limit).Trim()
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     url += "&IncludeItemTypes=Movie,Series"
     url += "&Recursive=true"
@@ -526,6 +571,12 @@ sub doGetPlaybackStream(request as object)
         body.EnableDirectPlay = false
         body.EnableDirectStream = false
         body.AllowVideoStreamCopy = false
+    end if
+    ' Player retry after a direct-play failure (e.g. an mkv the hardware
+    ' rejects): force the HLS transcode path.
+    if request.forceTranscode <> invalid and request.forceTranscode = true
+        body.EnableDirectPlay = false
+        body.EnableDirectStream = false
     end if
     result = Http.postJson(url, body)
     if result = invalid or result.MediaSources = invalid or result.MediaSources.count() = 0
@@ -634,7 +685,7 @@ function rokuDeviceProfile(streamingBitrate as integer) as object
         MaxStaticBitrate: 100000000
         MusicStreamingTranscodingBitrate: 384000
         DirectPlayProfiles: [
-            { Container: "mp4,m4v,mov", Type: "Video", VideoCodec: "h264,hevc", AudioCodec: "aac,ac3,eac3,mp3" }
+            { Container: "mp4,m4v,mov,mkv", Type: "Video", VideoCodec: "h264,hevc", AudioCodec: "aac,ac3,eac3,mp3" }
         ]
         TranscodingProfiles: [
             { Container: "ts", Type: "Video", VideoCodec: "h264", AudioCodec: "aac,ac3", Protocol: "hls", Context: "Streaming", MaxAudioChannels: "6", MinSegments: "2", BreakOnNonKeyFrames: true }

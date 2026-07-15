@@ -18,6 +18,10 @@ sub init()
 
     ' Hero banner
     m.heroBanner = m.top.findNode("heroBanner")
+    m.heroSlideAnim = m.top.findNode("heroSlideAnim")
+    m.rowsInterp = m.top.findNode("rowsInterp")
+    m.heroFadeInterp = m.top.findNode("heroFadeInterp")
+    m.heroCollapsed = false
     m.heroBanner.observeFieldScoped("selectedItem", "onHeroItemSelected")
 
     ' State
@@ -26,6 +30,10 @@ sub init()
     m.heroPool = []
     m.rowContent = invalid
     m.pendingRow = invalid
+    m.heroEnabled = true
+    m.cwEnabled = true
+    m.chainBusy = false
+    m.reloadPending = false
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
 
@@ -62,10 +70,16 @@ sub onFocusDelegate()
     if m.top.hasFocus()
         ' Refresh on return (e.g. finished a show on another device) — debounced
         ' so quick focus churn doesn't re-fetch. Reload if >20s since last load.
+        ' NEVER reload while a build chain is in flight: two interleaved chains
+        ' shuffle row indices and corrupt every row's layout/content.
         now = CreateObject("roDateTime").AsSeconds()
         if m.lastLoadTime <> invalid and (now - m.lastLoadTime) > 20
-            loadHomeData()
-            return
+            if m.chainBusy
+                m.reloadPending = true
+            else
+                loadHomeData()
+                return
+            end if
         end if
         if m.heroBanner.visible
             m.heroBanner.setFocus(true)
@@ -76,6 +90,8 @@ sub onFocusDelegate()
 end sub
 
 sub loadHomeData()
+    m.chainBusy = true
+    m.reloadPending = false
     m.lastLoadTime = CreateObject("roDateTime").AsSeconds()
     m.loadingLabel.visible = true
     m.rowList.visible = false
@@ -117,8 +133,76 @@ sub onLibrariesLoaded(response as object)
         end if
     end for
 
+    applyHomeRowConfig()
+
     print "[Home] Loaded " + str(m.libraries.count()) + " libraries"
     m.apiTask.request = { action: "getResumeItems", limit: 20 }
+end sub
+
+' Merge the saved row config (Settings > Home Screen Rows) with the live
+' library list — preserve saved order/visibility, append new libraries,
+' drop removed ones — then apply: reorder m.libraries, drop hidden, and
+' gate the hero / Continue Watching rows. (tvOS homeScreenRowOrder parity;
+' CW stays pinned above library rows on Roku.)
+sub applyHomeRowConfig()
+    saved = Registry.readJson("settings", "homeRowOrder")
+    if saved = invalid or type(saved) <> "roArray" then saved = []
+
+    merged = []
+    ' built-ins first if not in saved
+    hasHero = false
+    hasCw = false
+    for each c in saved
+        if c.kind = "hero" then hasHero = true
+        if c.kind = "cw" then hasCw = true
+    end for
+    if not hasHero then merged.push({ id: "hero", kind: "hero", name: "Featured", visible: true })
+    if not hasCw then merged.push({ id: "cw", kind: "cw", name: "Continue Watching", visible: true })
+
+    ' keep saved entries that still exist
+    for each c in saved
+        if c.kind = "library"
+            for each lib in m.libraries
+                if lib.Id = c.libraryId
+                    c.name = "Recently Added " + YT.cleanTitle(lib.Name)
+                    merged.push(c)
+                    exit for
+                end if
+            end for
+        else
+            merged.push(c)
+        end if
+    end for
+
+    ' append new libraries not yet configured
+    for each lib in m.libraries
+        found = false
+        for each c in merged
+            if c.kind = "library" and c.libraryId = lib.Id then found = true
+        end for
+        if not found
+            merged.push({ id: "library_" + lib.Id, kind: "library", libraryId: lib.Id, name: "Recently Added " + YT.cleanTitle(lib.Name), visible: true })
+        end if
+    end for
+
+    Registry.writeJson("settings", "homeRowOrder", merged)
+
+    ' apply: visibility gates + library order
+    m.heroEnabled = true
+    m.cwEnabled = true
+    ordered = []
+    for each c in merged
+        if c.kind = "hero"
+            m.heroEnabled = (c.visible = true)
+        else if c.kind = "cw"
+            m.cwEnabled = (c.visible = true)
+        else if c.kind = "library" and c.visible = true
+            for each lib in m.libraries
+                if lib.Id = c.libraryId then ordered.push(lib)
+            end for
+        end if
+    end for
+    m.libraries = ordered
 end sub
 
 sub onResumeItemsLoaded(response as object)
@@ -164,14 +248,14 @@ sub onNextUpLoaded(response as object)
 
     m.rowContent = CreateObject("roSGNode", "ContentNode")
 
-    if m.continueWatchingItems.count() > 0
+    if m.continueWatchingItems.count() > 0 and m.cwEnabled
         addContinueWatchingRow(m.continueWatchingItems)
     end if
 
     if m.libraries.count() > 0
         m.currentLibraryIndex = 0
         lib = m.libraries[0]
-        m.apiTask.request = { action: "getLatestMedia", parentId: lib.Id, limit: 30 }
+        m.apiTask.request = { action: "getLatestMedia", parentId: lib.Id, limit: 30, isYouTube: YT.isLibraryName(lib.Name) }
     else
         showRows()
     end if
@@ -231,7 +315,7 @@ sub advanceLatest()
     m.currentLibraryIndex = m.currentLibraryIndex + 1
     if m.currentLibraryIndex < m.libraries.count()
         lib = m.libraries[m.currentLibraryIndex]
-        m.apiTask.request = { action: "getLatestMedia", parentId: lib.Id, limit: 30 }
+        m.apiTask.request = { action: "getLatestMedia", parentId: lib.Id, limit: 30, isYouTube: YT.isLibraryName(lib.Name) }
     else
         showRows()
     end if
@@ -453,8 +537,9 @@ sub addRow(title as string, items as object, isYouTube = false as boolean, badge
             child.HDPosterUrl = ImageUrl.primary(itemId, 440)
         end if
 
-        ' Store item data
+        ' Store item data (+ forceYouTubeStyle flag for the detail screen)
         child.addFields({ itemJson: "", isPlayed: false, playedPercentage: 0, badgeCount: 0 })
+        if isYouTube then item._forceYouTube = true
         child.itemJson = FormatJSON(item)
 
         if item.UserData <> invalid
@@ -491,7 +576,30 @@ sub shuffleArray(arr as object)
 end sub
 
 ' tvOS HeroSection: latest media, 5 per library, shuffled
+' tvOS: the hero scrolls off as you move into the rows, returns at the top
+sub collapseHero()
+    if m.heroCollapsed or not m.heroBanner.visible then return
+    m.heroCollapsed = true
+    m.rowsInterp.keyValue = [[80.0, 592.0], [80.0, 150.0]]
+    m.heroFadeInterp.keyValue = [1.0, 0.0]
+    m.heroSlideAnim.control = "start"
+end sub
+
+sub expandHero()
+    if not m.heroCollapsed then return
+    m.heroCollapsed = false
+    m.rowsInterp.keyValue = [[80.0, 150.0], [80.0, 592.0]]
+    m.heroFadeInterp.keyValue = [0.0, 1.0]
+    m.heroSlideAnim.control = "start"
+end sub
+
 sub buildHeroContent()
+    ' Hidden via Settings > Home Screen Rows
+    if not m.heroEnabled
+        m.heroBanner.visible = false
+        m.rowList.translation = [80, 150]
+        return
+    end if
     if m.heroPool.count() = 0 then return
 
     shuffleArray(m.heroPool)
@@ -525,6 +633,11 @@ sub buildHeroContent()
 end sub
 
 sub showRows()
+    m.chainBusy = false
+    if m.reloadPending
+        loadHomeData()
+        return
+    end if
     m.loadingLabel.visible = false
 
     ' Hero built from the full latest-media pool (tvOS behavior)
@@ -601,9 +714,15 @@ function onKeyEvent(key as string, press as boolean) as boolean
             showOptionsDialog()
             return true
         else if key = "down" and m.heroBanner.isInFocusChain()
+            collapseHero()
             m.rowList.setFocus(true)
             return true
         else if key = "up" and m.rowList.isInFocusChain()
+            if m.rowList.rowItemFocused <> invalid and m.rowList.rowItemFocused[0] = 0 and m.heroBanner.visible and m.heroCollapsed
+                expandHero()
+                m.heroBanner.setFocus(true)
+                return true
+            end if
             ' Check if we're on the first row
             if m.rowList.rowItemFocused <> invalid and m.rowList.rowItemFocused[0] = 0 and m.heroBanner.visible
                 m.heroBanner.setFocus(true)

@@ -110,6 +110,11 @@
             visible="false"
         />
 
+        <Animation id="heroSlideAnim" duration="0.3" easeFunction="outQuad">
+            <Vector2DFieldInterpolator id="rowsInterp" key="[0.0,1.0]" keyValue="[[80.0,592.0],[80.0,150.0]]" fieldToInterp="rowList.translation" />
+            <FloatFieldInterpolator id="heroFadeInterp" key="[0.0,1.0]" keyValue="[1.0,0.0]" fieldToInterp="heroBanner.opacity" />
+        </Animation>
+
         <JellyfinApi id="apiTask" />
     </children>
 </component>

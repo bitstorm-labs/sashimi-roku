@@ -33,9 +33,10 @@
             translation="[96, 120]"
             itemSize="[240, 380]"
             itemSpacing="[30, 40]"
-            numColumns="7"
+            numColumns="6"
             numRows="3"
-            drawFocusFeedback="false"
+            drawFocusFeedback="true"
+            focusBitmapUri="pkg:/images/focus_ring_r16.9.png"
             itemComponentName="GridItem"
         />
 

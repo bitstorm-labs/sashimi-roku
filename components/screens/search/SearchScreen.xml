@@ -4,58 +4,45 @@
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
-        <!-- Background -->
         <Rectangle width="1920" height="1080" color="#121215" />
 
-        <!-- Header -->
-        <Rectangle width="1920" height="90" color="#101420" />
-        <Label
-            id="headerTitle"
-            text="Search"
-            font="font:LargeBoldSystemFont"
-            color="#FFFFFF"
-            translation="[96, 18]"
-        />
+        <!-- Query readout: plain field + underline (9-patch stretch looked bad) -->
+        <Rectangle width="520" height="64" color="#1E1E24" translation="[96, 114]" />
+        <Rectangle width="520" height="3" color="#5BADE6" translation="[96, 178]" />
+        <Label id="queryLabel" text="Search movies, shows..." color="#666666" width="480"
+               height="64" vertAlign="center" translation="[116, 114]" maxLines="1">
+            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="27" />
+        </Label>
 
-        <!-- Search buttons + history (left panel) -->
-        <ButtonGroup
-            id="searchButtons"
-            translation="[96, 120]"
-            minWidth="420"
-            buttonHeight="56"
-            itemSpacings="[10]"
-            textFont="font:SmallSystemFont"
-            focusedTextFont="font:SmallBoldSystemFont"
-            textColor="#888888"
-            focusedTextColor="#FFFFFF"
-            focusBitmapUri="pkg:/images/button_focus.png"
-            focusFootprintBitmapUri="pkg:/images/button_unfocus.png"
-        />
+        <!-- Live keyboard (left) -->
+        <MiniKeyboard id="keyboard" translation="[96, 210]" keyColor="#FFFFFF"
+                      focusedKeyColor="#121215" showTextEditBox="false" />
 
-        <!-- Results grid (right area) -->
+        <!-- Results (right) -->
+        <Label id="statusLabel" text="Search your library" color="#888888" width="1160"
+               horizAlign="left" translation="[760, 126]">
+            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+        </Label>
         <MarkupGrid
             id="resultsGrid"
-            translation="[570, 120]"
+            translation="[760, 180]"
             itemSize="[240, 380]"
             itemSpacing="[30, 40]"
-            numColumns="5"
+            numColumns="4"
             numRows="3"
-            drawFocusFeedback="false"
+            drawFocusFeedback="true"
+            focusBitmapUri="pkg:/images/focus_ring_r16.9.png"
             itemComponentName="GridItem"
             visible="false"
         />
 
-        <!-- Status -->
-        <Label
-            id="statusLabel"
-            text="Press OK to search"
-            font="font:MediumSystemFont"
-            color="#666666"
-            horizAlign="center"
-            width="1350"
-            translation="[570, 400]"
-        />
+        <!-- Recent searches (right, when query empty) -->
+        <Label id="recentTitle" text="Recent Searches" color="#FFFFFF" translation="[760, 180]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="30" />
+        </Label>
+        <LabelList id="recentList" translation="[760, 240]" itemSize="[520, 56]" numRows="10" visible="false" />
 
+        <Timer id="debounceTimer" repeat="false" duration="0.3" />
         <JellyfinApi id="apiTask" />
     </children>
 </component>

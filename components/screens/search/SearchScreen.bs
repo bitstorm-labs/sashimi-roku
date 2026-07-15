@@ -1,127 +1,142 @@
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/YouTube.bs"
+
+' tvOS-parity search, Roku-native input: persistent MiniKeyboard with LIVE
+' debounced results (300ms, like tvOS) — no modal dialog. Query empty shows
+' Recent Searches (max 10, newest first).
 
 sub init()
-
-    m.searchButtons = m.top.findNode("searchButtons")
+    m.keyboard = m.top.findNode("keyboard")
+    m.queryLabel = m.top.findNode("queryLabel")
     m.resultsGrid = m.top.findNode("resultsGrid")
     m.statusLabel = m.top.findNode("statusLabel")
+    m.recentTitle = m.top.findNode("recentTitle")
+    m.recentList = m.top.findNode("recentList")
+    m.debounceTimer = m.top.findNode("debounceTimer")
     m.apiTask = m.top.findNode("apiTask")
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
 
-    m.searchButtons.observeFieldScoped("buttonSelected", "onSearchButtonSelected")
+    m.keyboard.observeFieldScoped("text", "onQueryChanged")
+    m.debounceTimer.observeFieldScoped("fire", "onDebounce")
     m.resultsGrid.observeFieldScoped("itemSelected", "onResultSelected")
+    m.recentList.observeFieldScoped("itemSelected", "onRecentSelected")
 
     m.gridContent = invalid
     m.currentQuery = ""
+    m.pendingQuery = ""
+    m.history = []
 
-    loadSearchButtons()
-    m.searchButtons.setFocus(true)
+    loadHistory()
+    showIdleState()
     m.top.observeField("focusedChild", "onFocusDelegate")
 end sub
 
-sub loadSearchButtons()
-    buttons = ["Search..."]
-
-    ' Load search history from registry
-    history = Registry.readJson("search", "history")
-    if history <> invalid and type(history) = "roArray"
-        for each query in history
-            buttons.push(query)
-        end for
-    end if
-
-    m.searchButtons.buttons = buttons
+sub onFocusDelegate()
+    if m.top.hasFocus() then m.keyboard.setFocus(true)
 end sub
 
-sub onSearchButtonSelected()
-    index = m.searchButtons.buttonSelected
-    if index = 0
-        ' Open keyboard
-        showSearchKeyboard("")
+' ---------- history ----------
+
+sub loadHistory()
+    h = Registry.readJson("search", "history")
+    if h <> invalid and type(h) = "roArray"
+        m.history = h
     else
-        ' Replay a recent search
-        buttons = m.searchButtons.buttons
-        if index < buttons.count()
-            query = buttons[index]
-            doSearch(query)
-        end if
+        m.history = []
     end if
+    content = CreateObject("roSGNode", "ContentNode")
+    for each q in m.history
+        node = content.createChild("ContentNode")
+        node.title = q
+    end for
+    if m.history.count() > 0
+        node = content.createChild("ContentNode")
+        node.title = "Clear Recent Searches"
+    end if
+    m.recentList.content = content
 end sub
 
-sub showSearchKeyboard(currentText as string)
-    dialog = createObject("roSGNode", "StandardKeyboardDialog")
-    dialog.title = "Search Movies & TV Shows"
-    dialog.buttons = ["Search", "Cancel"]
-    if currentText <> ""
-        dialog.text = currentText
-    end if
-    dialog.observeFieldScoped("buttonSelected", "onKeyboardButton")
-    m.top.getScene().dialog = dialog
+sub saveToHistory(query as string)
+    cleaned = []
+    cleaned.push(query)
+    for each q in m.history
+        if LCase(q) <> LCase(query) and cleaned.count() < 10 then cleaned.push(q)
+    end for
+    m.history = cleaned
+    Registry.writeJson("search", "history", m.history)
+    loadHistory()
 end sub
 
-sub onKeyboardButton()
-    dialog = m.top.getScene().dialog
-    if dialog = invalid then return
+' ---------- live query ----------
 
-    buttonIndex = dialog.buttonSelected
-    if buttonIndex = 0 ' Search
-        query = dialog.text
-        if query <> invalid and query.Trim() <> ""
-            doSearch(query.Trim())
-        end if
+sub onQueryChanged()
+    q = m.keyboard.text
+    if q = invalid then q = ""
+    if q = ""
+        m.queryLabel.text = "Search movies, shows..."
+        m.queryLabel.color = "#666666"
+        showIdleState()
+        return
     end if
+    m.queryLabel.text = q
+    m.queryLabel.color = "#FFFFFF"
+    m.pendingQuery = q
+    ' debounce 300ms (tvOS parity)
+    m.debounceTimer.control = "stop"
+    m.debounceTimer.control = "start"
+end sub
 
-    dialog.close = true
-    m.searchButtons.setFocus(true)
+sub onDebounce()
+    if m.pendingQuery.Trim() <> "" then doSearch(m.pendingQuery.Trim())
+end sub
+
+sub showIdleState()
+    m.resultsGrid.visible = false
+    if m.history.count() > 0
+        m.recentTitle.visible = true
+        m.recentList.visible = true
+        m.statusLabel.text = ""
+    else
+        m.recentTitle.visible = false
+        m.recentList.visible = false
+        m.statusLabel.text = "Search your library — find movies and TV shows"
+    end if
 end sub
 
 sub doSearch(query as string)
     m.currentQuery = query
+    m.recentTitle.visible = false
+    m.recentList.visible = false
     m.statusLabel.text = "Searching..."
-    m.resultsGrid.visible = false
-
-    ' Save to history
-    saveToHistory(query)
-    loadSearchButtons()
-
-    m.apiTask.request = { action: "search", query: query, limit: 50 }
+    m.apiTask.request = { action: "search", query: query }
 end sub
 
-sub saveToHistory(query as string)
-    history = Registry.readJson("search", "history")
-    if history = invalid or type(history) <> "roArray"
-        history = []
+sub onRecentSelected()
+    idx = m.recentList.itemSelected
+    if idx >= 0 and idx < m.history.count()
+        q = m.history[idx]
+        m.keyboard.text = q
+    else if idx = m.history.count() and idx > 0
+        ' last row = Clear Recent Searches
+        m.history = []
+        Registry.writeJson("search", "history", m.history)
+        loadHistory()
+        showIdleState()
+        m.keyboard.setFocus(true)
     end if
-
-    ' Remove if already exists (to move to front)
-    newHistory = [query]
-    for each q in history
-        if LCase(q) <> LCase(query)
-            newHistory.push(q)
-        end if
-    end for
-
-    ' Keep only 10
-    if newHistory.count() > 10
-        trimmed = []
-        for i = 0 to 9
-            trimmed.push(newHistory[i])
-        end for
-        newHistory = trimmed
-    end if
-
-    Registry.writeJson("search", "history", newHistory)
 end sub
 
 sub onApiResponse()
     response = m.apiTask.response
     if response = invalid then return
-
     if response.action = "search"
+        ' ignore stale responses from earlier keystrokes
+        if response.query <> invalid and response.query <> m.currentQuery then return
         onSearchResults(response)
+        if response.items <> invalid and response.items.count() > 0 then saveToHistory(m.currentQuery)
     end if
 end sub
 
@@ -142,63 +157,78 @@ sub onSearchResults(response as object)
     for each item in items
         child = m.gridContent.createChild("ContentNode")
 
+        ' YouTube channels render as circles with cleaned names (tvOS parity)
+        isYT = YT.isItem(item)
+
         title = ""
         if item.Name <> invalid then title = item.Name
+        if isYT then title = YT.cleanTitle(title)
         child.shortDescriptionLine1 = title
 
         subtitle = ""
-        if item.ProductionYear <> invalid
-            subtitle = str(item.ProductionYear).Trim()
-        end if
-        if item.Type <> invalid
-            if subtitle <> "" then subtitle += " - "
-            subtitle += item.Type
+        if not isYT
+            if item.ProductionYear <> invalid
+                subtitle = str(item.ProductionYear).Trim()
+            end if
+            if item.Type <> invalid
+                if subtitle <> "" then subtitle += " - "
+                subtitle += item.Type
+            end if
         end if
         child.shortDescriptionLine2 = subtitle
 
         itemId = ""
         if item.Id <> invalid then itemId = item.Id
         if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primary(itemId, 210)
+            if isYT
+                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+            else
+                child.HDPosterUrl = ImageUrl.primary(itemId, 210)
+            end if
         end if
 
-        child.addFields({ itemJson: "" })
+        child.addFields({ itemJson: "", isCircular: false })
+        child.isCircular = isYT
+        if isYT then item._forceYouTube = true
         child.itemJson = FormatJSON(item)
     end for
 
     m.resultsGrid.content = m.gridContent
     m.resultsGrid.visible = true
-    m.resultsGrid.setFocus(true)
+    ' No setFocus here: live search runs on every keystroke and stealing
+    ' focus from the keyboard mid-typing would be maddening.
 end sub
 
 sub onResultSelected()
     index = m.resultsGrid.itemSelected
     if index < 0 then return
-
     child = m.gridContent.getChild(index)
     if child = invalid then return
-
     if child.itemJson <> invalid and child.itemJson <> ""
         itemData = ParseJSON(child.itemJson)
-        if itemData <> invalid
-            m.top.selectedItem = itemData
-        end if
-    end if
-end sub
-
-sub onFocusDelegate()
-    if m.top.hasFocus()
-        m.searchButtons.setFocus(true)
+        if itemData <> invalid then m.top.selectedItem = itemData
     end if
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
-    if press
-        if key = "left" and m.resultsGrid.hasFocus()
-            m.searchButtons.setFocus(true)
-            return true
-        else if key = "right" and m.searchButtons.hasFocus() and m.resultsGrid.visible
+    if not press then return false
+    ' keyboard <-> results/recent horizontal flow
+    if key = "right" and m.keyboard.isInFocusChain()
+        if m.resultsGrid.visible
             m.resultsGrid.setFocus(true)
+            return true
+        else if m.recentList.visible
+            m.recentList.setFocus(true)
+            return true
+        end if
+    else if key = "left" and (m.resultsGrid.isInFocusChain() or m.recentList.isInFocusChain())
+        m.keyboard.setFocus(true)
+        return true
+    else if key = "back"
+        ' tvOS: first back clears an active query, second leaves
+        if m.keyboard.text <> invalid and m.keyboard.text <> ""
+            m.keyboard.text = ""
+            m.keyboard.setFocus(true)
             return true
         end if
     end if

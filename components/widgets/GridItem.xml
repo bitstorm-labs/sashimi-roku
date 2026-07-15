@@ -18,24 +18,40 @@
             loadDisplayMode="scaleToZoom"
             scaleRotateCenter="[105, 157]"
         />
-        <Label
+        <!-- tvOS MarqueeText equivalent: scrolls when title overflows -->
+        <ScrollingLabel
             id="titleLabel"
             text=""
-            font="font:SmallestBoldSystemFont"
             color="#BBBBBB"
-            width="210"
-            maxLines="2"
-            ellipsizeOnBoundary="true"
-            translation="[0, 320]"
-        />
+            maxWidth="210"
+            repeatCount="0"
+            translation="[0, 330]"
+        >
+            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="21" />
+        </ScrollingLabel>
+        <!-- Circular channel card (YouTube libraries/search) -->
+        <MaskGroup id="circleMask" maskUri="pkg:/images/circle_mask.png" maskSize="[200, 200]"
+                   translation="[5, 40]" visible="false" scaleRotateCenter="[100, 100]">
+            <Poster
+                id="circlePoster"
+                width="200"
+                height="200"
+                loadWidth="400"
+                loadHeight="400"
+                loadDisplayMode="scaleToZoom"
+            />
+        </MaskGroup>
+        <Poster id="circleRing" uri="pkg:/images/circle_ring.png" width="216" height="216"
+                translation="[-3, 32]" opacity="0.0" />
         <Label
             id="subtitleLabel"
             text=""
-            font="font:SmallestSystemFont"
             color="#666666"
             width="210"
             maxLines="1"
-            translation="[0, 350]"
-        />
+            translation="[0, 362]"
+        >
+            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="17" />
+        </Label>
     </children>
 </component>
