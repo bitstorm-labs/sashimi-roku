@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="DetailRowItem" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="onContentChanged" />
+        <field id="focusPercent" type="float" onChange="onFocusChanged" />
+        <field id="rowFocusPercent" type="float" onChange="onRowFocusChanged" />
+        <field id="width" type="float" />
+        <field id="height" type="float" />
+    </interface>
+    <children>
+        <!-- ===== SEASON PILL ===== -->
+        <Group id="pillGroup" visible="false">
+            <Poster id="pillBg" uri="pkg:/images/btn_dark.9.png" width="200" height="52" />
+            <Label id="pillLabel" text="" color="#FFFFFF" width="200" height="52"
+                   horizAlign="center" vertAlign="center">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="24" />
+            </Label>
+        </Group>
+
+        <!-- ===== EPISODE CARD (240x135 thumb r8) ===== -->
+        <Group id="epGroup" visible="false">
+            <Rectangle width="240" height="135" color="#1F1F1F" />
+            <MaskGroup maskUri="pkg:/images/episode_mask_r8.png" maskSize="[240, 135]">
+                <Poster id="epThumb" width="240" height="135" loadWidth="240" loadHeight="135"
+                        loadDisplayMode="scaleToZoom" />
+            </MaskGroup>
+            <Rectangle id="epProgress" translation="[0, 131]" width="0" height="4" color="#5CADE6" visible="false" />
+            <Poster id="epWatched" uri="pkg:/images/watched_circle.png" width="24" height="24"
+                    translation="[208, 8]" visible="false" />
+            <!-- next-up pulsing white stroke -->
+            <Group id="epPulse" opacity="0.0">
+                <Rectangle width="240" height="4" color="#FFFFFF" />
+                <Rectangle width="240" height="4" color="#FFFFFF" translation="[0, 131]" />
+                <Rectangle width="4" height="135" color="#FFFFFF" />
+                <Rectangle width="4" height="135" color="#FFFFFF" translation="[236, 0]" />
+            </Group>
+            <!-- accent focus border -->
+            <Group id="epFocus" opacity="0.0">
+                <Rectangle width="240" height="4" color="#5CADE6" />
+                <Rectangle width="240" height="4" color="#5CADE6" translation="[0, 131]" />
+                <Rectangle width="4" height="135" color="#5CADE6" />
+                <Rectangle width="4" height="135" color="#5CADE6" translation="[236, 0]" />
+            </Group>
+            <Label id="epName" text="" color="#FFFFFF" width="240" maxLines="1"
+                   ellipsizeOnBoundary="true" translation="[0, 145]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
+            </Label>
+            <Label id="epSub" text="" color="#8C8C8C" width="240" maxLines="1"
+                   ellipsizeOnBoundary="true" translation="[0, 175]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="20" />
+            </Label>
+            <Animation id="epPulseAnim" duration="1" repeat="true" easeFunction="inOutQuad">
+                <FloatFieldInterpolator key="[0.0, 0.5, 1.0]" keyValue="[0.4, 1.0, 0.4]" fieldToInterp="epPulse.opacity" />
+            </Animation>
+        </Group>
+
+        <!-- ===== CAST CIRCLE (100x100 in 140w) ===== -->
+        <Group id="castGroup" visible="false">
+            <MaskGroup maskUri="pkg:/images/circle_mask.png" maskSize="[100, 100]" translation="[20, 8]">
+                <Rectangle width="100" height="100" color="#1F1F1F" />
+                <Poster id="castImage" width="100" height="100" loadWidth="200" loadHeight="200"
+                        loadDisplayMode="scaleToZoom" />
+            </MaskGroup>
+            <Label id="castInitial" text="" color="#8C8C8C" width="100" height="100"
+                   horizAlign="center" vertAlign="center" translation="[20, 8]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="40" />
+            </Label>
+            <!-- focus ring sized LARGER than the circle so it never clips -->
+            <Poster id="castRing" uri="pkg:/images/circle_ring.png" width="116" height="116"
+                    translation="[12, 0]" opacity="0.0" />
+            <Label id="castName" text="" color="#FFFFFF" width="140" maxLines="1"
+                   ellipsizeOnBoundary="true" horizAlign="center" translation="[0, 116]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="20" />
+            </Label>
+            <Label id="castRole" text="" color="#8C8C8C" width="140" maxLines="1"
+                   ellipsizeOnBoundary="true" horizAlign="center" translation="[0, 144]">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="18" />
+            </Label>
+        </Group>
+    </children>
+</component>

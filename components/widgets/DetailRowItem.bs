@@ -1,0 +1,129 @@
+' Polymorphic detail-screen row item: renders as a season pill, an episode
+' card, or a cast circle based on content.kind. One component so the detail
+' screen can use a SINGLE multi-row RowList (native vertical nav between rows).
+
+sub init()
+    m.pillGroup = m.top.findNode("pillGroup")
+    m.pillBg = m.top.findNode("pillBg")
+    m.pillLabel = m.top.findNode("pillLabel")
+
+    m.epGroup = m.top.findNode("epGroup")
+    m.epThumb = m.top.findNode("epThumb")
+    m.epProgress = m.top.findNode("epProgress")
+    m.epWatched = m.top.findNode("epWatched")
+    m.epPulse = m.top.findNode("epPulse")
+    m.epPulseAnim = m.top.findNode("epPulseAnim")
+    m.epFocus = m.top.findNode("epFocus")
+    m.epName = m.top.findNode("epName")
+    m.epSub = m.top.findNode("epSub")
+
+    m.castGroup = m.top.findNode("castGroup")
+    m.castImage = m.top.findNode("castImage")
+    m.castInitial = m.top.findNode("castInitial")
+    m.castRing = m.top.findNode("castRing")
+    m.castName = m.top.findNode("castName")
+    m.castRole = m.top.findNode("castRole")
+
+    m.kind = ""
+    m.isCurrent = false
+    m.isSelected = false
+end sub
+
+sub onContentChanged()
+    c = m.top.itemContent
+    if c = invalid then return
+
+    m.kind = ""
+    if c.doesExist("kind") then m.kind = c.kind
+
+    m.pillGroup.visible = (m.kind = "season")
+    m.epGroup.visible = (m.kind = "episode")
+    m.castGroup.visible = (m.kind = "cast")
+
+    if m.kind = "season"
+        m.pillLabel.text = c.title
+        m.isSelected = c.doesExist("isSelected") and c.isSelected = true
+        applyPillState(0.0)
+    else if m.kind = "episode"
+        if c.HDPosterUrl <> invalid and c.HDPosterUrl <> "" then m.epThumb.uri = c.HDPosterUrl
+        m.epName.text = c.title
+        m.epSub.text = c.description
+        m.epWatched.visible = c.doesExist("isPlayed") and c.isPlayed = true
+        m.epProgress.visible = false
+        if c.doesExist("playedPercentage")
+            pct = c.playedPercentage
+            if pct > 0 and pct < 100
+                m.epProgress.visible = true
+                m.epProgress.width = 240 * (pct / 100.0)
+            end if
+        end if
+        m.isCurrent = c.doesExist("isCurrent") and c.isCurrent = true
+        setPulse(m.isCurrent)
+        m.epFocus.opacity = 0.0
+    else if m.kind = "cast"
+        if c.HDPosterUrl <> invalid and c.HDPosterUrl <> ""
+            m.castImage.uri = c.HDPosterUrl
+            m.castInitial.text = ""
+        else
+            m.castImage.uri = ""
+            m.castInitial.text = UCase(Left(c.title, 1))
+        end if
+        m.castName.text = c.title
+        m.castRole.text = c.description
+        m.castRing.opacity = 0.0
+    end if
+end sub
+
+sub setPulse(active as boolean)
+    if active
+        m.epPulse.opacity = 0.7
+        m.epPulseAnim.control = "start"
+    else
+        m.epPulseAnim.control = "stop"
+        m.epPulse.opacity = 0.0
+    end if
+end sub
+
+sub applyPillState(fp as float)
+    if m.isSelected
+        if fp > 0.5
+            m.pillBg.uri = "pkg:/images/pill_selected_focus.9.png"
+        else
+            m.pillBg.uri = "pkg:/images/pill_selected.9.png"
+        end if
+    else
+        if fp > 0.5
+            m.pillBg.uri = "pkg:/images/btn_dark_focus.9.png"
+        else
+            m.pillBg.uri = "pkg:/images/btn_dark.9.png"
+        end if
+    end if
+end sub
+
+sub onFocusChanged()
+    fp = m.top.focusPercent
+    if m.kind = "season"
+        applyPillState(fp)
+    else if m.kind = "episode"
+        m.epFocus.opacity = fp
+        if m.isCurrent
+            if fp > 0.5 then setPulse(false) else setPulse(true)
+        end if
+    else if m.kind = "cast"
+        ' ring only, no scale (RowList clips scaled edges)
+        m.castRing.opacity = fp
+    end if
+end sub
+
+sub onRowFocusChanged()
+    if m.top.rowFocusPercent < 0.5
+        if m.kind = "episode"
+            m.epFocus.opacity = 0.0
+            if m.isCurrent then setPulse(true)
+        else if m.kind = "cast"
+            m.castRing.opacity = 0.0
+        else if m.kind = "season"
+            applyPillState(0.0)
+        end if
+    end if
+end sub

@@ -57,6 +57,8 @@ sub processRequest()
         doGetSeasons(request)
     else if action = "getEpisodes"
         doGetEpisodes(request)
+    else if action = "getPlaybackInfo"
+        doGetPlaybackInfo(request)
     else if action = "search"
         doSearch(request)
     else if action = "markPlayed"
@@ -375,15 +377,31 @@ end sub
 
 sub doGetItem(request as object)
     itemId = request.itemId
+    ctx = ""
+    if request.context <> invalid then ctx = request.context
     print "[API] Getting item: " + itemId
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items/" + itemId)
     url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     result = Http.getJson(url)
     if result <> invalid and result.Id <> invalid
-        m.top.response = { success: true, action: "getItem", item: result }
+        m.top.response = { success: true, action: "getItem", item: result, context: ctx }
     else
-        m.top.response = { success: false, action: "getItem", error: "Could not load item." }
+        m.top.response = { success: false, action: "getItem", error: "Could not load item.", context: ctx }
+    end if
+end sub
+
+' Media source details for the detail screen's codec/resolution badges
+sub doGetPlaybackInfo(request as object)
+    itemId = request.itemId
+    print "[API] Getting playback info: " + itemId
+    url = Http.apiUrl("/Items/" + itemId + "/PlaybackInfo")
+    url += "?UserId=" + m.global.userId
+    result = Http.getJson(url)
+    if result <> invalid and result.MediaSources <> invalid and result.MediaSources.count() > 0
+        m.top.response = { success: true, action: "getPlaybackInfo", mediaSource: result.MediaSources[0], itemId: itemId }
+    else
+        m.top.response = { success: false, action: "getPlaybackInfo", itemId: itemId }
     end if
 end sub
 

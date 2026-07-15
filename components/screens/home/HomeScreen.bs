@@ -50,6 +50,7 @@ sub init()
     ' Delegate focus to content when the screen group itself receives it
     ' (tab bar "descend" focuses the screen node, not its children)
     m.top.observeField("focusedChild", "onFocusDelegate")
+    m.lastLoadTime = 0
 
     ' Start loading
     loadHomeData()
@@ -57,6 +58,13 @@ end sub
 
 sub onFocusDelegate()
     if m.top.hasFocus()
+        ' Refresh on return (e.g. finished a show on another device) — debounced
+        ' so quick focus churn doesn't re-fetch. Reload if >20s since last load.
+        now = CreateObject("roDateTime").AsSeconds()
+        if m.lastLoadTime <> invalid and (now - m.lastLoadTime) > 20
+            loadHomeData()
+            return
+        end if
         if m.heroBanner.visible
             m.heroBanner.setFocus(true)
         else if m.rowList.visible
@@ -66,6 +74,7 @@ sub onFocusDelegate()
 end sub
 
 sub loadHomeData()
+    m.lastLoadTime = CreateObject("roDateTime").AsSeconds()
     m.loadingLabel.visible = true
     m.rowList.visible = false
     m.emptyLabel.visible = false
@@ -280,13 +289,18 @@ sub addContinueWatchingRow(items as object)
                 child.title = ""
             end if
 
-            ' Use series backdrop image
-            if item.ParentBackdropItemId <> invalid
+            ' Prefer the series backdrop ONLY when it actually exists
+            ' (ParentBackdropItemId is set by the server when the series has a
+            ' backdrop). Otherwise use the episode's own thumbnail — requesting
+            ' backdrop(SeriesId) blindly 404s for series without one (e.g.
+            ' YouTube channels), leaving the card blank.
+            hasSeriesBackdrop = (item.ParentBackdropItemId <> invalid) and (item.ParentBackdropImageTags <> invalid)
+            if hasSeriesBackdrop
                 child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 880)
-            else if item.SeriesId <> invalid and item.SeriesId <> ""
-                child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 880)
-            else if itemId <> ""
+            else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
                 child.HDPosterUrl = ImageUrl.primary(itemId, 880)
+            else if item.SeriesId <> invalid and item.SeriesId <> ""
+                child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 880)
             end if
 
             ' Subtitle: "S1:E5 - Episode Name"
