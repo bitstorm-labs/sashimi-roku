@@ -171,6 +171,12 @@ sub onItemLoaded(response as object)
     end if
 
     focusZone("buttons")
+
+    ' Deep link with a playable mediaType: start playback immediately
+    if m.top.autoPlay
+        m.top.autoPlay = false
+        m.top.playItem = { item: item, action: "resume" }
+    end if
 end sub
 
 ' tvOS movie detail: poster on the left, text column beside it — the shared

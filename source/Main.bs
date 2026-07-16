@@ -17,6 +17,16 @@ sub main(args as dynamic)
     input = CreateObject("roInput")
     input.setMessagePort(m.port)
 
+    ' Memory monitoring (static-analysis advisories): subscribe to low-memory
+    ' signals so pressure is at least visible in the debug console.
+    di = CreateObject("roDeviceInfo")
+    di.setMessagePort(m.port)
+    di.EnableLowGeneralMemoryEvent(true)
+    appMem = CreateObject("roAppMemoryMonitor")
+    appMem.setMessagePort(m.port)
+    appMem.EnableMemoryWarningEvent(true)
+    print "[Mem] limit%: "; appMem.GetMemoryLimitPercent(); " availKB: "; appMem.GetChannelAvailableMemory(); " limits: "; appMem.GetChannelMemoryLimit()
+
     while true
         msg = wait(0, m.port)
         msgType = type(msg)
@@ -24,6 +34,13 @@ sub main(args as dynamic)
             if msg.isScreenClosed()
                 return
             end if
+        else if msgType = "roDeviceInfoEvent"
+            info = msg.getInfo()
+            if info <> invalid and info.doesExist("generalMemoryLevel")
+                print "[Mem] generalMemoryLevel: " + info.generalMemoryLevel
+            end if
+        else if msgType = "roAppMemoryNotificationEvent"
+            print "[Mem] memory warning: "; msg.getInfo()
         else if msgType = "roInputEvent"
             info = msg.getInfo()
             if info <> invalid and info.doesExist("contentId")
