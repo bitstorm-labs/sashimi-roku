@@ -38,12 +38,46 @@ sub init()
     m.global.addFields({ switchServerId: "" })
     m.global.observeFieldScoped("switchServerId", "onSwitchServer")
 
+    m.pendingDeepLink = invalid
+
     if hasSavedSession()
         restoreSession()
         enterMainUI()
+        processDeepLink()
     else
         showAuthScreen()
     end if
+end sub
+
+' ---------- Deep linking (cert 5.2) ----------
+' contentId = Jellyfin item id. movie/episode play directly; everything
+' else opens the item's detail screen. Links arriving before auth are
+' processed right after login.
+sub onLaunchArgs()
+    args = m.top.launchArgs
+    if args = invalid or not args.doesExist("contentId") then return
+    m.pendingDeepLink = { contentId: args.contentId, mediaType: LCase(args.lookup("mediaType") ?? "") }
+    if m.rootScreens.DoesExist("home") then processDeepLink()
+end sub
+
+sub processDeepLink()
+    dl = m.pendingDeepLink
+    if dl = invalid then return
+    m.pendingDeepLink = invalid
+    ' Pop anything stacked so the link lands in a predictable place
+    while m.navStack.count() > 0
+        popScreen()
+    end while
+    item = { Id: dl.contentId }
+    screen = createObject("roSGNode", "MediaDetailScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("selectedItem", "onItemSelected")
+    screen.observeFieldScoped("playItem", "onPlayItem")
+    if dl.mediaType = "movie" or dl.mediaType = "episode"
+        screen.autoPlay = true
+    end if
+    pushScreen(screen)
+    screen.itemData = item
 end sub
 
 ' Settings/home ask for a server switch via m.global.switchServerId.
@@ -90,6 +124,7 @@ end sub
 ' ---------- Auth ----------
 
 sub showAuthScreen()
+    m.top.signalBeacon("AppDialogInitiate")
     clearAllScreens()
     screen = createObject("roSGNode", "ServerConnectionScreen")
     screen.observeFieldScoped("loginSuccess", "onLoginSuccess")
@@ -99,6 +134,7 @@ sub showAuthScreen()
 end sub
 
 sub onLoginSuccess()
+    m.top.signalBeacon("AppDialogComplete")
     ' Record/refresh this login in the multi-server list
     Servers.addFromCurrentAuth()
     if m.authScreen <> invalid
@@ -106,6 +142,7 @@ sub onLoginSuccess()
         m.authScreen = invalid
     end if
     enterMainUI()
+    processDeepLink()
 end sub
 
 sub onSignOut()

@@ -4,6 +4,7 @@
         <field id="itemData" type="assocarray" onChange="onItemDataChanged" />
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
         <field id="playItem" type="assocarray" alwaysNotify="true" />
+        <field id="autoPlay" type="boolean" value="false" />
     </interface>
     <children>
         <!-- Background (matches app gradient) -->

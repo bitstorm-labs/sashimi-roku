@@ -1,5 +1,4 @@
 title=Sashimi
-subtitle=Jellyfin Client for Roku
 major_version=1
 minor_version=0
 build_version=0
@@ -11,4 +10,5 @@ splash_color=#1a1a2e
 ui_resolutions=fhd
 confirm_partner_button=1
 bs_const=DEBUG=true
-rsg_version=1.2
+rsg_version=1.3
+supports_input_launch=1

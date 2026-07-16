@@ -12,12 +12,22 @@ sub main(args as dynamic)
     screen.show()
     scene.signalBeacon("AppLaunchComplete")
 
+    ' Deep links while the channel is already running arrive as roInput
+    ' events (cert 5.2); route them through the same launchArgs path.
+    input = CreateObject("roInput")
+    input.setMessagePort(m.port)
+
     while true
         msg = wait(0, m.port)
         msgType = type(msg)
         if msgType = "roSGScreenEvent"
             if msg.isScreenClosed()
                 return
+            end if
+        else if msgType = "roInputEvent"
+            info = msg.getInfo()
+            if info <> invalid and info.doesExist("contentId")
+                scene.launchArgs = info
             end if
         end if
     end while
