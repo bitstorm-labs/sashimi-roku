@@ -289,7 +289,14 @@ sub onVideoState()
         updatePlayPauseUi()
         report("reportProgress", currentTicks(), true)
     else if state = "finished"
-        onPlaybackEnded()
+        ' Only a finish NEAR THE END is a real completion. Roku emits a
+        ' spurious "finished" right after "error" (e.g. an mkv the hardware
+        ' won't direct-play), and mid-stream glitches can fire it too — in
+        ' both cases position is nowhere near the end, so we must not
+        ' mark-played or auto-advance. The error branch handles recovery;
+        ' a genuine end-of-episode lands within 30s of the runtime.
+        nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
+        if m.startedReported and nearEnd then onPlaybackEnded()
     else if state = "error"
         ' Direct-played container the hardware rejected (mkv edge cases):
         ' retry ONCE via forced HLS transcode before surfacing an error.

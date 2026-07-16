@@ -443,7 +443,8 @@ sub buildTags(item as object)
     end while
     tags = []
     if item.OfficialRating <> invalid and item.OfficialRating <> "" then tags.push(item.OfficialRating)
-    if item.Genres <> invalid
+    ' Genres shown for movies only — TV series detail omits the genre chips
+    if item.Genres <> invalid and m.itemType <> "Series"
         for each g in item.Genres
             if tags.count() < 4 then tags.push(g)
         end for
