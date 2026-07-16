@@ -441,13 +441,16 @@ sub buildTags(item as object)
     while m.tagsGroup.getChildCount() > 0
         m.tagsGroup.removeChildIndex(0)
     end while
+    ' Tag chips (rating + genres) are movie-only. TV shows (series and
+    ' episodes) omit them entirely per design.
     tags = []
-    if item.OfficialRating <> invalid and item.OfficialRating <> "" then tags.push(item.OfficialRating)
-    ' Genres shown for movies only — TV series detail omits the genre chips
-    if item.Genres <> invalid and m.itemType <> "Series"
-        for each g in item.Genres
-            if tags.count() < 4 then tags.push(g)
-        end for
+    if m.itemType = "Movie"
+        if item.OfficialRating <> invalid and item.OfficialRating <> "" then tags.push(item.OfficialRating)
+        if item.Genres <> invalid
+            for each g in item.Genres
+                if tags.count() < 4 then tags.push(g)
+            end for
+        end if
     end if
     tx = 0
     for each t in tags
