@@ -1,0 +1,101 @@
+import "pkg:/source/utils/Registry.bs"
+
+' Multi-server store (Plex-style switcher). List + activeServerId persist as
+' Registry JSON; the classic single-server Registry auth keys always mirror
+' the ACTIVE server so every existing consumer keeps working unchanged.
+namespace Servers
+
+    function getAll() as object
+        list = Registry.readJson("servers", "list")
+        if list = invalid or type(list) <> "roArray" then return []
+        return list
+    end function
+
+    sub saveAll(list as object)
+        Registry.writeJson("servers", "list", list)
+    end sub
+
+    function getActiveId() as string
+        v = Registry.read("servers", "activeId")
+        if v = invalid then return ""
+        return v
+    end function
+
+    ' Migrate the pre-multi-server single auth into the list (runs at boot).
+    sub migrate()
+        if getAll().count() > 0 then return
+        if not Registry.hasAuth() then return
+        url = Registry.getServerUrl()
+        entry = {
+            id: CreateObject("roDeviceInfo").GetRandomUUID()
+            name: url
+            url: url
+            token: Registry.getAuthToken()
+            userId: Registry.getUserId()
+            userName: Registry.getUserName()
+        }
+        saveAll([entry])
+        Registry.write("servers", "activeId", entry.id)
+    end sub
+
+    ' Append the CURRENT Registry auth (just written by a login) as a server
+    ' entry and mark it active. Duplicates (same url+user) update in place.
+    sub addFromCurrentAuth()
+        list = getAll()
+        url = Registry.getServerUrl()
+        userId = Registry.getUserId()
+        entry = invalid
+        for each s in list
+            if s.url = url and s.userId = userId then entry = s
+        end for
+        if entry = invalid
+            entry = { id: CreateObject("roDeviceInfo").GetRandomUUID() }
+            list.push(entry)
+        end if
+        entry.name = url
+        entry.url = url
+        entry.token = Registry.getAuthToken()
+        entry.userId = userId
+        entry.userName = Registry.getUserName()
+        saveAll(list)
+        Registry.write("servers", "activeId", entry.id)
+    end sub
+
+    ' Make a saved server the active one: rewrite the single-auth keys.
+    ' Returns the entry (invalid if unknown).
+    function activate(id as string) as dynamic
+        for each s in getAll()
+            if s.id = id
+                Registry.write("auth", "serverUrl", s.url)
+                Registry.write("auth", "authToken", s.token)
+                Registry.write("auth", "userId", s.userId)
+                Registry.write("auth", "userName", s.userName)
+                Registry.write("servers", "activeId", s.id)
+                return s
+            end if
+        end for
+        return invalid
+    end function
+
+    ' Remove a server; if it was active, activate the first remaining.
+    ' Returns true if a server remains active, false if none left.
+    function remove(id as string) as boolean
+        list = getAll()
+        out = []
+        for each s in list
+            if s.id <> id then out.push(s)
+        end for
+        saveAll(out)
+        if getActiveId() = id
+            if out.count() > 0
+                activate(out[0].id)
+                return true
+            end if
+            Registry.clearAuth()
+            Registry.write("servers", "activeId", "")
+            return false
+        end if
+        return true
+    end function
+
+end namespace

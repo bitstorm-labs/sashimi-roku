@@ -1,5 +1,6 @@
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/AppSettings.bs"
+import "pkg:/source/utils/Servers.bs"
 
 ' tvOS Settings parity: card rows (maxWidth 800), focus = accent fill + scale.
 ' Pickers cycle values on OK (TV-simple equivalent of tvOS picker subscreens).
@@ -17,6 +18,8 @@ sub init()
     m.hrPanel = invalid
     m.hrConfig = []
     m.hrIndex = 0
+    m.svOpen = false
+    m.svIndex = 0
 
     ' Option sets (label/value pairs; value stored as string)
     m.bitrateOptions = [
@@ -39,6 +42,7 @@ sub init()
     m.versionText = "v" + appInfo.GetVersion()
 
     m.items = [
+        { key: "", title: "Servers", kind: "servers" },
         { key: "", title: "Home Screen Rows", kind: "homerows" },
         { key: "maxBitrateMbps", title: "Maximum Bitrate", kind: "picker", options: m.bitrateOptions },
         { key: "forceDirectPlay", title: "Force Direct Play", kind: "toggle", default: "false" },
@@ -169,6 +173,8 @@ sub activateRow(index as integer)
         idx = (idx + 1) mod item.options.count()
         AppSettings.write(item.key, item.options[idx].value)
         m.rows[index].value.text = currentValueLabel(item)
+    else if item.kind = "servers"
+        openServersManager()
     else if item.kind = "homerows"
         openHomeRowsEditor()
     else if item.kind = "signout"
@@ -202,6 +208,7 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
+    if m.svOpen = true then return handleServersKey(key)
     if m.hrOpen = true then return handleHomeRowsKey(key)
     if m.rows.count() = 0 then return false
 
@@ -357,6 +364,135 @@ function handleHomeRowsKey(key as string) as boolean
         c.visible = not (c.visible = true)
         m.hrConfig[m.hrIndex] = c
         renderHomeRows()
+        return true
+    end if
+    return true
+end function
+
+
+' ---------- Servers manager (multi-server switcher) ----------
+' Same overlay pattern as the Home Rows editor. OK = switch (or Add),
+' * (options) = remove selected, Back = close.
+
+sub openServersManager()
+    m.svList = Servers.getAll()
+    m.svIndex = 0
+    m.svOpen = true
+    renderServers()
+end sub
+
+sub renderServers()
+    if m.svPanel = invalid
+        m.svPanel = CreateObject("roSGNode", "Group")
+        bg = CreateObject("roSGNode", "Rectangle")
+        bg.width = 1920
+        bg.height = 1080
+        bg.color = "#121215"
+        bg.opacity = 0.97
+        m.svPanel.appendChild(bg)
+        t = CreateObject("roSGNode", "Label")
+        t.text = "Servers"
+        t.color = "#FFFFFF"
+        f = CreateObject("roSGNode", "Font")
+        f.uri = "pkg:/fonts/Roboto-Bold.ttf"
+        f.size = 40
+        t.font = f
+        t.translation = [560, 90]
+        m.svPanel.appendChild(t)
+        h = CreateObject("roSGNode", "Label")
+        h.text = "OK switch " + Chr(8226) + " * remove " + Chr(8226) + " Back done"
+        h.color = "#888888"
+        f2 = CreateObject("roSGNode", "Font")
+        f2.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f2.size = 24
+        h.font = f2
+        h.translation = [560, 150]
+        m.svPanel.appendChild(h)
+        m.svRows = CreateObject("roSGNode", "Group")
+        m.svRows.translation = [560, 210]
+        m.svPanel.appendChild(m.svRows)
+        m.top.appendChild(m.svPanel)
+    end if
+    m.svPanel.visible = true
+
+    while m.svRows.getChildCount() > 0
+        m.svRows.removeChildIndex(0)
+    end while
+    activeId = Servers.getActiveId()
+    rows = []
+    for each srv in m.svList
+        label = srv.userName + " " + Chr(8226) + " " + srv.url
+        if srv.id = activeId then label = label + "   (active)"
+        rows.push(label)
+    end for
+    rows.push("+ Add Server")
+    for i = 0 to rows.count() - 1
+        cell = CreateObject("roSGNode", "Group")
+        cell.translation = [0, i * 68]
+        bg = CreateObject("roSGNode", "Poster")
+        bg.width = 800
+        bg.height = 60
+        if i = m.svIndex
+            bg.uri = "pkg:/images/btn_white_focus.9.png"
+        else
+            bg.uri = "pkg:/images/btn_dark.9.png"
+        end if
+        cell.appendChild(bg)
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = rows[i]
+        lbl.width = 760
+        lbl.height = 60
+        lbl.translation = [20, 0]
+        lbl.vertAlign = "center"
+        if i = m.svIndex
+            lbl.color = "#000000"
+        else
+            lbl.color = "#FFFFFF"
+        end if
+        f3 = CreateObject("roSGNode", "Font")
+        f3.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f3.size = 26
+        lbl.font = f3
+        cell.appendChild(lbl)
+        m.svRows.appendChild(cell)
+    end for
+end sub
+
+function handleServersKey(key as string) as boolean
+    if key = "back"
+        m.svOpen = false
+        if m.svPanel <> invalid then m.svPanel.visible = false
+        return true
+    else if key = "up"
+        if m.svIndex > 0 then m.svIndex = m.svIndex - 1
+        renderServers()
+        return true
+    else if key = "down"
+        if m.svIndex < m.svList.count() then m.svIndex = m.svIndex + 1
+        renderServers()
+        return true
+    else if key = "OK"
+        m.svOpen = false
+        if m.svPanel <> invalid then m.svPanel.visible = false
+        if m.svIndex >= m.svList.count()
+            m.global.switchServerId = "__add__"
+        else
+            m.global.switchServerId = m.svList[m.svIndex].id
+        end if
+        return true
+    else if key = "options"
+        if m.svIndex < m.svList.count()
+            Servers.remove(m.svList[m.svIndex].id)
+            m.svList = Servers.getAll()
+            if not Registry.hasAuth()
+                m.svOpen = false
+                if m.svPanel <> invalid then m.svPanel.visible = false
+                m.top.signOut = true
+                return true
+            end if
+            if m.svIndex > m.svList.count() then m.svIndex = m.svList.count()
+            renderServers()
+        end if
         return true
     end if
     return true

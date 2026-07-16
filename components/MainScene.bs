@@ -1,4 +1,5 @@
 import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/Servers.bs"
 
 ' tvOS-parity navigation: persistent top TabBar (Home/Library/Search/Settings)
 ' with root screens kept alive, plus a push stack for detail/grid screens.
@@ -32,12 +33,32 @@ sub init()
     m.toast = createObject("roSGNode", "ToastOverlay")
     m.global.observeFieldScoped("toastMessage", "onGlobalToast")
 
+    ' Multi-server: migrate legacy single auth, observe switch requests
+    Servers.migrate()
+    m.global.addFields({ switchServerId: "" })
+    m.global.observeFieldScoped("switchServerId", "onSwitchServer")
+
     if hasSavedSession()
         restoreSession()
         enterMainUI()
     else
         showAuthScreen()
     end if
+end sub
+
+' Settings/home ask for a server switch via m.global.switchServerId.
+sub onSwitchServer()
+    id = m.global.switchServerId
+    if id = invalid or id = "" then return
+    if id = "__add__"
+        showAuthScreen()
+        return
+    end if
+    entry = Servers.activate(id)
+    if entry = invalid then return
+    clearAllScreens()
+    restoreSession()
+    enterMainUI()
 end sub
 
 sub initDeviceId()
@@ -78,6 +99,8 @@ sub showAuthScreen()
 end sub
 
 sub onLoginSuccess()
+    ' Record/refresh this login in the multi-server list
+    Servers.addFromCurrentAuth()
     if m.authScreen <> invalid
         m.top.removeChild(m.authScreen)
         m.authScreen = invalid
