@@ -688,7 +688,9 @@ function rokuDeviceProfile(streamingBitrate as integer) as object
             { Container: "mp4,m4v,mov,mkv", Type: "Video", VideoCodec: "h264,hevc", AudioCodec: "aac,ac3,eac3,mp3" }
         ]
         TranscodingProfiles: [
-            { Container: "ts", Type: "Video", VideoCodec: "h264", AudioCodec: "aac,ac3", Protocol: "hls", Context: "Streaming", MaxAudioChannels: "6", MinSegments: "2", BreakOnNonKeyFrames: true }
+            ' eac3 declared so mkv remuxes pass DD+ 5.1 through untouched
+            ' instead of downconverting to AAC (device is a Dolby soundbar).
+            { Container: "ts", Type: "Video", VideoCodec: "h264", AudioCodec: "aac,ac3,eac3", Protocol: "hls", Context: "Streaming", MaxAudioChannels: "6", MinSegments: "2", BreakOnNonKeyFrames: true }
         ]
         ContainerProfiles: []
         CodecProfiles: []
