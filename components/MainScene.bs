@@ -81,6 +81,37 @@ sub processDeepLink()
 end sub
 
 ' Settings/home ask for a server switch via m.global.switchServerId.
+sub showServerSwitchDialog()
+    m.svChoices = Servers.getAll()
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Switch Server"
+    dialog.message = [""]
+    buttons = []
+    activeId = Servers.getActiveId()
+    for each s in m.svChoices
+        label = s.userName + " " + Chr(8226) + " " + s.name
+        if s.id = activeId then label = label + " (active)"
+        buttons.push(label)
+    end for
+    buttons.push("Add Server")
+    buttons.push("Cancel")
+    dialog.buttons = buttons
+    dialog.observeFieldScoped("buttonSelected", "onServerDialogButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onServerDialogButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    dialog.close = true
+    if idx < m.svChoices.count()
+        m.global.switchServerId = m.svChoices[idx].id
+    else if idx = m.svChoices.count()
+        m.global.switchServerId = "__add__"
+    end if
+end sub
+
 sub onSwitchServer()
     id = m.global.switchServerId
     if id = invalid or id = "" then return
@@ -353,6 +384,12 @@ function onKeyEvent(key as string, press as boolean) as boolean
         end if
         ' On Home root: let the OS exit the channel
         return false
+    else if key = "options"
+        ' * on the Home root = server quick-switch (avatar isn't focusable)
+        if m.navStack.count() = 0 and m.activeTab = 0
+            showServerSwitchDialog()
+            return true
+        end if
     else if key = "up"
         ' Unconsumed Up from a root screen focuses the tab bar
         if m.tabBar.visible and m.navStack.count() = 0 and not m.tabBar.isInFocusChain()
