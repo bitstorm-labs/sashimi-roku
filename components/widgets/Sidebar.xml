@@ -25,8 +25,10 @@
 
         <!-- Account row at the foot -->
         <Poster id="avatarBg" uri="pkg:/images/avatar_accent.png" width="56" height="56" translation="[40,968]" />
-        <Poster id="avatarImg" width="56" height="56" translation="[40,968]" />
         <Label id="avatarLabel" text="?" width="56" height="56" translation="[40,968]" visible="true" />
+        <MaskGroup id="avatarImgMask" translation="[40,968]" maskUri="pkg:/images/circle_mask.png" maskSize="[56,56]">
+            <Poster id="avatarImg" width="56" height="56" loadWidth="112" loadHeight="112" loadDisplayMode="scaleToZoom" />
+        </MaskGroup>
         <Label id="accountLabel" text="Account" visible="false" translation="[118,960]" />
         <Label id="accountSub" text="Switch server" visible="false" translation="[118,994]" />
 

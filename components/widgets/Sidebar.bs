@@ -47,13 +47,10 @@ sub init()
     m.accountSub.font = font("pkg:/fonts/Roboto-Medium.ttf", 20)
     m.accountSub.color = "#8C8C8C"
 
-    ' Avatar identity
-    userName = Registry.getUserName()
-    if userName <> "" then m.avatarLabel.text = UCase(Left(userName, 1))
-    userId = Registry.getUserId()
-    if userId <> "" and m.global.serverUrl <> ""
-        m.avatarImg.uri = m.global.serverUrl + "/Users/" + userId + "/Images/Primary?maxWidth=140&quality=90"
-    end if
+    ' Avatar identity — the server URL may not be restored yet at init time,
+    ' so also refresh when it becomes available (else the photo never loads).
+    setAvatar()
+    m.global.observeFieldScoped("serverUrl", "onServerReady")
 
     m.apiTask.observeFieldScoped("response", "onLibraries")
     m.apiTask.control = "RUN"
@@ -72,6 +69,22 @@ function font(uri as string, size as integer) as object
     f.size = size
     return f
 end function
+
+sub onServerReady()
+    setAvatar()
+end sub
+
+sub setAvatar()
+    userName = Registry.getUserName()
+    if userName <> "" then m.avatarLabel.text = UCase(Left(userName, 1))
+    userId = Registry.getUserId()
+    if userId <> "" and m.global.serverUrl <> invalid and m.global.serverUrl <> ""
+        m.avatarImg.uri = m.global.serverUrl + "/Users/" + userId + "/Images/Primary?maxWidth=140&quality=90"
+        ' Roku ignores EXIF orientation — the photo is stored rotated; correct it
+        m.avatarImg.scaleRotateCenter = [28, 28]
+        m.avatarImg.rotation = 1.5708
+    end if
+end sub
 
 sub onLibraries()
     r = m.apiTask.response
@@ -182,7 +195,7 @@ sub layout()
     m.scrim.opacity = 0
 
     ' Dim the rail's contents when resting (not engaged); full brightness on focus
-    railOpacity = 0.5
+    railOpacity = 0.68
     if m.expanded then railOpacity = 1.0
     m.logo.opacity = railOpacity
     m.navGroup.opacity = railOpacity
