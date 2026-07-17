@@ -4,30 +4,32 @@
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
-        <Rectangle width="1920" height="1080" color="#121215" />
+        <!-- Content sits to the right of the rail (screen shifted +136); all
+             coordinates below are within that content area. -->
+        <Rectangle width="1784" height="1080" color="#121215" />
 
-        <!-- Query readout: plain field + underline (9-patch stretch looked bad) -->
-        <Rectangle width="520" height="64" color="#1E1E24" translation="[96, 114]" />
-        <Rectangle width="520" height="3" color="#5BADE6" translation="[96, 178]" />
-        <Label id="queryLabel" text="Search movies, shows..." color="#666666" width="480"
-               height="64" vertAlign="center" translation="[116, 114]" maxLines="1">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="27" />
+        <!-- Rounded search box: magnifier + query readout -->
+        <Poster id="searchBoxBg" uri="pkg:/images/card_r16.9.png" width="540" height="78" translation="[56, 64]" />
+        <Poster id="searchIcon" uri="pkg:/images/nav_search.png" width="34" height="34" translation="[80, 86]" />
+        <Label id="queryLabel" text="Search movies, shows..." color="#666666" width="400"
+               height="78" vertAlign="center" translation="[130, 64]" maxLines="1">
+            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="28" />
         </Label>
 
-        <!-- Live keyboard (left) -->
-        <MiniKeyboard id="keyboard" translation="[96, 210]" keyColor="#FFFFFF"
+        <!-- On-screen keyboard (left column) -->
+        <MiniKeyboard id="keyboard" translation="[56, 182]" keyColor="#FFFFFF"
                       focusedKeyColor="#121215" showTextEditBox="false" />
 
-        <!-- Results (right) -->
-        <Label id="statusLabel" text="Search your library" color="#888888" width="1160"
-               horizAlign="left" translation="[760, 126]">
+        <!-- Results (right column) -->
+        <Label id="statusLabel" text="Search your library — find movies and TV shows"
+               color="#888888" width="1040" horizAlign="left" translation="[660, 80]">
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
         </Label>
         <MarkupGrid
             id="resultsGrid"
-            translation="[760, 180]"
-            itemSize="[240, 380]"
-            itemSpacing="[30, 40]"
+            translation="[660, 158]"
+            itemSize="[220, 330]"
+            itemSpacing="[26, 34]"
             numColumns="4"
             numRows="3"
             drawFocusFeedback="true"
@@ -36,11 +38,11 @@
             visible="false"
         />
 
-        <!-- Recent searches (right, when query empty) -->
-        <Label id="recentTitle" text="Recent Searches" color="#FFFFFF" translation="[760, 180]" visible="false">
+        <!-- Recent searches (right column, when query empty) -->
+        <Label id="recentTitle" text="Recent Searches" color="#FFFFFF" translation="[660, 158]" visible="false">
             <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="30" />
         </Label>
-        <LabelList id="recentList" translation="[760, 240]" itemSize="[520, 56]" numRows="10" visible="false" />
+        <LabelList id="recentList" translation="[660, 220]" itemSize="[560, 56]" numRows="10" visible="false" />
 
         <Timer id="debounceTimer" repeat="false" duration="0.3" />
         <JellyfinApi id="apiTask" />
