@@ -638,9 +638,17 @@ end sub
 sub showMoreDialog()
     favLabel = "Add to Favorites"
     if m.item.UserData <> invalid and m.item.UserData.IsFavorite = true then favLabel = "Remove from Favorites"
+    ' Surface the full overview here — the header label is capped at 2-3 lines,
+    ' so this is how the rest of a long description is read.
+    overview = ""
+    if m.item.Overview <> invalid then overview = m.item.Overview
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = m.item.Name
-    dialog.message = [""]
+    if overview <> ""
+        dialog.message = [overview]
+    else
+        dialog.message = [""]
+    end if
     dialog.buttons = [favLabel, "Cancel"]
     dialog.observeFieldScoped("buttonSelected", "onMoreDialogButton")
     m.top.getScene().dialog = dialog

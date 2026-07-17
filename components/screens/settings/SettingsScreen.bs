@@ -13,6 +13,9 @@ sub init()
     m.rowH = 76
     m.rowSpacing = 12
     m.focusIndex = 0
+    m.firstVisible = 0        ' top row index of the scroll viewport
+    m.visibleRows = 8         ' rows that fit before the list must scroll
+    m.rowsBaseY = 196         ' matches rowsGroup translation in the XML
     m.rows = []
     m.hrOpen = false
     m.hrPanel = invalid
@@ -138,7 +141,17 @@ sub onFocusGained()
     updateFocus()
 end sub
 
+' Scroll the rows viewport so the focused row stays visible (the list can be
+' longer than the screen — more servers, extra toggles, etc.).
+sub scrollToFocus()
+    if m.focusIndex < m.firstVisible then m.firstVisible = m.focusIndex
+    if m.focusIndex > m.firstVisible + m.visibleRows - 1 then m.firstVisible = m.focusIndex - m.visibleRows + 1
+    pitch = m.rowH + m.rowSpacing
+    m.rowsGroup.translation = [560, m.rowsBaseY - m.firstVisible * pitch]
+end sub
+
 sub updateFocus()
+    scrollToFocus()
     hasFocus = m.top.isInFocusChain()
     for i = 0 to m.rows.count() - 1
         r = m.rows[i]
