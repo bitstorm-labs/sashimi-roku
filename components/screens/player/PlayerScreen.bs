@@ -304,7 +304,17 @@ sub onVideoState()
             m.forceTranscode = true
             m.statusLabel.visible = true
             m.statusLabel.text = "Loading..."
-            m.pendingStartSecs = Int(m.lastPosition)
+            ' lastPosition is only meaningful once playback actually began.
+            ' On an instant reject (mkv at t=0) it is still 0 — retrying
+            ' with 0 restarts a resumed episode from the beginning and
+            ' then reports position 0, clobbering the saved spot.
+            if m.startedReported
+                m.pendingStartSecs = Int(m.lastPosition)
+            else if m.top.playAction <> "play"
+                m.pendingStartSecs = resumeSeconds()
+            else
+                m.pendingStartSecs = 0
+            end if
             requestStream(m.item)
             return
         end if
