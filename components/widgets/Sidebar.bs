@@ -128,19 +128,30 @@ sub buildRows()
         hl.visible = false
         row.appendChild(hl)
 
-        icon = CreateObject("roSGNode", "Poster")
-        icon.width = m.iconSize
-        icon.height = m.iconSize
-        icon.translation = [m.iconX, (m.rowPitch - m.iconSize) / 2]
-        icon.loadDisplayMode = "scaleToFit"
+        iconY = (m.rowPitch - m.iconSize) / 2
         if it.kind = "library" and it.iconUri <> invalid
-            icon.loadDisplayMode = "scaleToZoom"
-            icon.failedBitmapUri = it.iconLocal
-            icon.uri = it.iconUri
+            ' Library artwork with rounded corners (mask)
+            mask = CreateObject("roSGNode", "MaskGroup")
+            mask.maskUri = "pkg:/images/mask_lib_r12.png"
+            mask.maskSize = [m.iconSize, m.iconSize]
+            mask.translation = [m.iconX, iconY]
+            art = CreateObject("roSGNode", "Poster")
+            art.width = m.iconSize
+            art.height = m.iconSize
+            art.loadDisplayMode = "scaleToZoom"
+            art.failedBitmapUri = it.iconLocal
+            art.uri = it.iconUri
+            mask.appendChild(art)
+            row.appendChild(mask)
         else
+            icon = CreateObject("roSGNode", "Poster")
+            icon.width = m.iconSize
+            icon.height = m.iconSize
+            icon.translation = [m.iconX, iconY]
+            icon.loadDisplayMode = "scaleToFit"
             icon.uri = it.iconLocal
+            row.appendChild(icon)
         end if
-        row.appendChild(icon)
 
         label = CreateObject("roSGNode", "Label")
         label.text = it.title
@@ -167,11 +178,8 @@ sub layout()
     m.railBg.width = w
     m.divider.translation = [w - 2, 0]
 
-    if m.expanded
-        m.scrim.opacity = 0.5
-    else
-        m.scrim.opacity = 0
-    end if
+    ' No dimming of the content when the rail is out — keep the preview bright
+    m.scrim.opacity = 0
 
     m.wordmark.visible = m.expanded
     m.accountLabel.visible = m.expanded
