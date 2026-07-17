@@ -181,6 +181,15 @@ sub layout()
     ' No dimming of the content when the rail is out — keep the preview bright
     m.scrim.opacity = 0
 
+    ' Dim the rail's contents when resting (not engaged); full brightness on focus
+    railOpacity = 0.5
+    if m.expanded then railOpacity = 1.0
+    m.logo.opacity = railOpacity
+    m.navGroup.opacity = railOpacity
+    m.avatarBg.opacity = railOpacity
+    m.avatarImg.opacity = railOpacity
+    m.avatarLabel.opacity = railOpacity
+
     m.wordmark.visible = m.expanded
     m.accountLabel.visible = m.expanded
     m.accountSub.visible = m.expanded
