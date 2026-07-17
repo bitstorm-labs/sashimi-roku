@@ -38,22 +38,7 @@ sub init()
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
 
-    ' User avatar (tvOS: user image on accent circle, initial as fallback)
-    m.avatarLabel = m.top.findNode("avatarLabel")
-    m.avatarImage = m.top.findNode("avatarImage")
-    userName = Registry.getUserName()
-    if userName <> "" and userName <> invalid
-        m.avatarLabel.text = UCase(Left(userName, 1))
-    else
-        m.avatarLabel.text = "?"
-    end if
-    userId = Registry.getUserId()
-    if userId <> "" and m.global.serverUrl <> invalid and m.global.serverUrl <> ""
-        m.avatarImage.uri = m.global.serverUrl + "/Users/" + userId + "/Images/Primary?maxWidth=140&quality=90"
-        ' Roku ignores EXIF orientation — photo is stored rotated; correct 90 CCW
-        m.avatarImage.scaleRotateCenter = [35, 35]
-        m.avatarImage.rotation = 1.5708
-    end if
+    ' Logo + avatar moved to the pullout Sidebar (removed from Home header)
 
     ' Observe row selection
     m.rowList.observeFieldScoped("rowItemSelected", "onRowItemSelected")

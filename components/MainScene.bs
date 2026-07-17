@@ -8,9 +8,9 @@ import "pkg:/source/utils/Servers.bs"
 sub init()
     m.navStack = []
     m.currentScreen = invalid
-    m.rootScreens = {}
-    m.activeTab = 0
-    m.tabNames = ["home", "library", "search", "settings"]
+    m.rootScreens = {}          ' keyed by selection id: "home"/"search"/"settings"/"lib:<id>"
+    m.activeSelection = "home"
+    m.railWidth = 136           ' collapsed rail; root screens sit to its right
 
     m.global.addFields({
         serverUrl: ""
@@ -22,12 +22,12 @@ sub init()
 
     initDeviceId()
 
-    ' Tab bar (created up front, shown after login)
-    m.tabBar = createObject("roSGNode", "TabBar")
-    m.tabBar.translation = [0, 24]
-    m.tabBar.visible = false
-    m.tabBar.observeFieldScoped("tabSelected", "onTabSelected")
-    m.tabBar.observeFieldScoped("descend", "onTabDescend")
+    ' Left pullout sidebar (created up front, shown after login)
+    m.sidebar = createObject("roSGNode", "Sidebar")
+    m.sidebar.visible = false
+    m.sidebar.observeFieldScoped("navChoice", "onNavChoice")
+    m.sidebar.observeFieldScoped("descend", "onSidebarDescend")
+    m.sidebar.observeFieldScoped("switchServer", "onSidebarSwitchServer")
 
     ' Global toast overlay (always on top)
     m.toast = createObject("roSGNode", "ToastOverlay")
@@ -183,90 +183,101 @@ end sub
 ' ---------- Main tabbed UI ----------
 
 sub enterMainUI()
-    m.activeTab = 0
-    m.tabBar.selectedIndex = 0
-    switchTab(0)
+    switchSelection({ kind: "home" })
 
     liftOverlays()
-    m.tabBar.visible = true
+    m.sidebar.visible = true
 
+    ' Focus the content so the app opens with the rail resting (collapsed);
+    ' LEFT from content reveals/expands the rail (Plex behavior).
     screen = m.rootScreens["home"]
     if screen <> invalid then screen.setFocus(true)
 end sub
 
-function getOrCreateRootScreen(index as integer) as object
-    name = m.tabNames[index]
-    if m.rootScreens.DoesExist(name) then return m.rootScreens[name]
+function choiceId(choice as object) as string
+    if choice.kind = "library" and choice.library <> invalid then return "lib:" + choice.library.id
+    return choice.kind
+end function
+
+' Create/fetch a cached root screen for a nav choice. Root screens sit to the
+' right of the collapsed rail so the sidebar overlays them cleanly.
+function getOrCreateRootScreen(choice as object) as object
+    id = choiceId(choice)
+    if m.rootScreens.DoesExist(id) then return m.rootScreens[id]
 
     screen = invalid
-    if name = "home"
+    kind = choice.kind
+    if kind = "home"
         screen = createObject("roSGNode", "HomeScreen")
         screen.observeFieldScoped("signOut", "onSignOut")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
         screen.observeFieldScoped("openSearch", "onOpenSearchTab")
         screen.observeFieldScoped("selectedLibrary", "onLibrarySelected")
-    else if name = "library"
-        screen = createObject("roSGNode", "LibraryListScreen")
-        screen.observeFieldScoped("selectedLibrary", "onLibrarySelected")
-    else if name = "search"
+    else if kind = "search"
         screen = createObject("roSGNode", "SearchScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
-    else if name = "settings"
+    else if kind = "settings"
         screen = createObject("roSGNode", "SettingsScreen")
         screen.observeFieldScoped("signOut", "onSignOut")
+    else if kind = "library"
+        screen = createObject("roSGNode", "LibraryScreen")
+        screen.observeFieldScoped("selectedItem", "onItemSelected")
     end if
 
     if screen <> invalid
-        ' Append above the OS scene background (never insert at 0 — the OS
-        ' background poster lives there and would cover the app)
+        ' Shift right of the rail; append above the OS scene background
+        ' (never insert at 0 — the OS background poster lives there).
+        screen.translation = [m.railWidth, 0]
         m.top.appendChild(screen)
-        m.rootScreens[name] = screen
+        m.rootScreens[id] = screen
+        if kind = "library" then screen.libraryData = choice.library
         liftOverlays()
     end if
     return screen
 end function
 
-sub switchTab(index as integer)
-    m.activeTab = index
-    for each name in m.tabNames
-        if m.rootScreens.DoesExist(name)
-            m.rootScreens[name].visible = false
-        end if
+sub switchSelection(choice as object)
+    m.activeSelection = choiceId(choice)
+    for each key in m.rootScreens
+        m.rootScreens[key].visible = false
     end for
-    screen = getOrCreateRootScreen(index)
+    screen = getOrCreateRootScreen(choice)
     if screen <> invalid
         screen.visible = true
         m.currentScreen = screen
     end if
 end sub
 
-' Keep tab bar + toast as the topmost scene children.
+' Keep sidebar + toast as the topmost scene children.
 ' Re-parenting a focused node orphans remote focus — preserve and restore it.
 sub liftOverlays()
-    hadFocus = m.tabBar.isInFocusChain()
-    m.top.removeChild(m.tabBar)
-    m.top.appendChild(m.tabBar)
+    hadFocus = m.sidebar.isInFocusChain()
+    m.top.removeChild(m.sidebar)
+    m.top.appendChild(m.sidebar)
     m.top.removeChild(m.toast)
     m.top.appendChild(m.toast)
-    if hadFocus then m.tabBar.setFocus(true)
+    if hadFocus then m.sidebar.setFocus(true)
 end sub
 
-sub onTabSelected()
-    switchTab(m.tabBar.tabSelected)
-    ' User is browsing tabs — keep focus on the bar (descend via down/OK)
-    m.tabBar.setFocus(true)
+sub onNavChoice()
+    choice = m.sidebar.navChoice
+    if choice = invalid or choice.kind = invalid then return
+    switchSelection(choice)
+    ' User is roaming the rail — keep focus on it (descend via OK/right)
+    m.sidebar.setFocus(true)
 end sub
 
-sub onTabDescend()
-    screen = m.rootScreens[m.tabNames[m.activeTab]]
-    if screen <> invalid
-        screen.setFocus(true)
-    end if
+sub onSidebarDescend()
+    screen = m.rootScreens[m.activeSelection]
+    if screen <> invalid then screen.setFocus(true)
+end sub
+
+sub onSidebarSwitchServer()
+    showServerSwitchDialog()
 end sub
 
 sub onOpenSearchTab()
-    m.tabBar.selectedIndex = 2
-    switchTab(2)
+    switchSelection({ kind: "search" })
     screen = m.rootScreens["search"]
     if screen <> invalid then screen.setFocus(true)
 end sub
@@ -295,7 +306,7 @@ sub pushScreen(screen as object)
     if m.currentScreen <> invalid
         m.currentScreen.visible = false
     end if
-    m.tabBar.visible = false
+    m.sidebar.visible = false
     m.top.appendChild(screen)
     m.navStack.push(screen)
     liftOverlays()
@@ -341,8 +352,8 @@ sub popScreen()
     if m.navStack.count() > 0
         m.currentScreen = m.navStack.peek()
     else
-        m.currentScreen = m.rootScreens[m.tabNames[m.activeTab]]
-        m.tabBar.visible = true
+        m.currentScreen = m.rootScreens[m.activeSelection]
+        m.sidebar.visible = true
     end if
     if m.currentScreen <> invalid
         m.currentScreen.visible = true
@@ -355,12 +366,12 @@ sub clearAllScreens()
         screen = m.navStack.pop()
         m.top.removeChild(screen)
     end while
-    for each name in m.rootScreens
-        m.top.removeChild(m.rootScreens[name])
+    for each key in m.rootScreens
+        m.top.removeChild(m.rootScreens[key])
     end for
     m.rootScreens = {}
     m.currentScreen = invalid
-    m.tabBar.visible = false
+    m.sidebar.visible = false
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
@@ -370,14 +381,13 @@ function onKeyEvent(key as string, press as boolean) as boolean
         if m.navStack.count() > 0
             popScreen()
             return true
-        else if m.tabBar.visible and m.tabBar.isInFocusChain()
-            ' From tab bar, back drops into content
-            onTabDescend()
+        else if m.sidebar.visible and m.sidebar.isInFocusChain()
+            ' From the rail, back drops into content
+            onSidebarDescend()
             return true
-        else if m.activeTab <> 0 and m.tabBar.visible
-            ' tvOS: Menu on a non-Home tab returns to Home
-            m.tabBar.selectedIndex = 0
-            switchTab(0)
+        else if m.activeSelection <> "home" and m.sidebar.visible
+            ' Menu on a non-Home selection returns to Home
+            switchSelection({ kind: "home" })
             screen = m.rootScreens["home"]
             if screen <> invalid then screen.setFocus(true)
             return true
@@ -385,15 +395,14 @@ function onKeyEvent(key as string, press as boolean) as boolean
         ' On Home root: let the OS exit the channel
         return false
     else if key = "options"
-        ' * on the Home root = server quick-switch (avatar isn't focusable)
-        if m.navStack.count() = 0 and m.activeTab = 0
+        if m.navStack.count() = 0
             showServerSwitchDialog()
             return true
         end if
-    else if key = "up"
-        ' Unconsumed Up from a root screen focuses the tab bar
-        if m.tabBar.visible and m.navStack.count() = 0 and not m.tabBar.isInFocusChain()
-            m.tabBar.setFocus(true)
+    else if key = "left"
+        ' Unconsumed Left from a root screen reveals/expands the rail
+        if m.sidebar.visible and m.navStack.count() = 0 and not m.sidebar.isInFocusChain()
+            m.sidebar.setFocus(true)
             return true
         end if
     end if

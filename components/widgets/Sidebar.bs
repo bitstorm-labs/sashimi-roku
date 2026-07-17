@@ -1,0 +1,281 @@
+import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/YouTube.bs"
+import "pkg:/source/utils/Registry.bs"
+
+' Virtual-focus widget (the sidebar node holds focus; rows never do). Up/down
+' roams the highlight, switching content on the move (Plex behavior); OK/right
+' descends into the content screen. Focus in -> expand; focus out -> collapse.
+
+sub init()
+    m.scrim = m.top.findNode("scrim")
+    m.railBg = m.top.findNode("railBg")
+    m.divider = m.top.findNode("divider")
+    m.logo = m.top.findNode("logo")
+    m.wordmark = m.top.findNode("wordmark")
+    m.navGroup = m.top.findNode("navGroup")
+    m.avatarBg = m.top.findNode("avatarBg")
+    m.avatarImg = m.top.findNode("avatarImg")
+    m.avatarLabel = m.top.findNode("avatarLabel")
+    m.accountLabel = m.top.findNode("accountLabel")
+    m.accountSub = m.top.findNode("accountSub")
+    m.apiTask = m.top.findNode("apiTask")
+
+    m.railCollapsed = 136
+    m.railExpanded = 470
+    m.iconSize = 56
+    m.rowPitch = 88
+    m.iconX = 40           ' fixed so icons don't jump when expanding
+    m.labelX = 118
+
+    m.libraries = []
+    m.items = []           ' [{id,kind,title,iconLocal?,iconUri?,libId?,libName?,collectionType?}]
+    m.rows = []            ' [{group,hl,icon,label}]
+    m.focusIndex = 0
+    m.selectedIndex = 0
+    m.expanded = false
+
+    m.wordmark.font = font("pkg:/fonts/Roboto-Bold.ttf", 40)
+    m.wordmark.color = "#FFFFFF"
+
+    m.avatarLabel.font = font("pkg:/fonts/Roboto-Bold.ttf", 26)
+    m.avatarLabel.color = "#FFFFFF"
+    m.avatarLabel.horizAlign = "center"
+    m.avatarLabel.vertAlign = "center"
+
+    m.accountLabel.font = font("pkg:/fonts/Roboto-Bold.ttf", 26)
+    m.accountLabel.color = "#FFFFFF"
+    m.accountSub.font = font("pkg:/fonts/Roboto-Medium.ttf", 20)
+    m.accountSub.color = "#8C8C8C"
+
+    ' Avatar identity
+    userName = Registry.getUserName()
+    if userName <> "" then m.avatarLabel.text = UCase(Left(userName, 1))
+    userId = Registry.getUserId()
+    if userId <> "" and m.global.serverUrl <> ""
+        m.avatarImg.uri = m.global.serverUrl + "/Users/" + userId + "/Images/Primary?maxWidth=140&quality=90"
+    end if
+
+    m.apiTask.observeFieldScoped("response", "onLibraries")
+    m.apiTask.control = "RUN"
+    m.apiTask.request = { action: "getLibraryViews" }
+
+    m.top.observeField("focusedChild", "onFocusChanged")
+
+    buildItems()
+    buildRows()
+    layout()
+end sub
+
+function font(uri as string, size as integer) as object
+    f = CreateObject("roSGNode", "Font")
+    f.uri = uri
+    f.size = size
+    return f
+end function
+
+sub onLibraries()
+    r = m.apiTask.response
+    if r = invalid or r.action <> "getLibraryViews" or not r.success then return
+    m.libraries = []
+    for each lib in r.items
+        ct = ""
+        if lib.CollectionType <> invalid then ct = LCase(lib.CollectionType)
+        if ct = "movies" or ct = "tvshows" or ct = "music" or ct = "" then m.libraries.push(lib)
+    end for
+    buildItems()
+    buildRows()
+    layout()
+end sub
+
+sub buildItems()
+    m.items = [{ id: "home", kind: "home", title: "Home", iconLocal: "pkg:/images/nav_home.png" }]
+    for each lib in m.libraries
+        ct = ""
+        if lib.CollectionType <> invalid then ct = LCase(lib.CollectionType)
+        item = { id: "lib:" + lib.Id, kind: "library", title: lib.Name, libId: lib.Id, libName: lib.Name, collectionType: ct }
+        if YT.isLibraryName(lib.Name)
+            item.iconLocal = "pkg:/images/youtube_icon.png"
+        else
+            item.iconLocal = "pkg:/images/nav_library.png"
+            if lib.Id <> invalid then item.iconUri = ImageUrl.primary(lib.Id, 120)
+        end if
+        m.items.push(item)
+    end for
+    m.items.push({ id: "search", kind: "search", title: "Search", iconLocal: "pkg:/images/nav_search.png" })
+    m.items.push({ id: "settings", kind: "settings", title: "Settings", iconLocal: "pkg:/images/nav_settings.png" })
+end sub
+
+sub buildRows()
+    while m.navGroup.getChildCount() > 0
+        m.navGroup.removeChildIndex(0)
+    end while
+    m.rows = []
+
+    lf = font("pkg:/fonts/Roboto-Medium.ttf", 30)
+
+    for i = 0 to m.items.count() - 1
+        it = m.items[i]
+        y = i * m.rowPitch
+
+        row = CreateObject("roSGNode", "Group")
+        row.translation = [0, y]
+
+        hl = CreateObject("roSGNode", "Poster")
+        hl.uri = "pkg:/images/card_r16_focus.9.png"
+        hl.height = m.rowPitch - 12
+        hl.translation = [m.iconX - 14, 6]
+        hl.width = m.iconSize + 28
+        hl.visible = false
+        row.appendChild(hl)
+
+        icon = CreateObject("roSGNode", "Poster")
+        icon.width = m.iconSize
+        icon.height = m.iconSize
+        icon.translation = [m.iconX, (m.rowPitch - m.iconSize) / 2]
+        icon.loadDisplayMode = "scaleToFit"
+        if it.kind = "library" and it.iconUri <> invalid
+            icon.loadDisplayMode = "scaleToZoom"
+            icon.failedBitmapUri = it.iconLocal
+            icon.uri = it.iconUri
+        else
+            icon.uri = it.iconLocal
+        end if
+        row.appendChild(icon)
+
+        label = CreateObject("roSGNode", "Label")
+        label.text = it.title
+        label.font = lf
+        label.color = "#8C8C8C"
+        label.translation = [m.labelX, 0]
+        label.height = m.rowPitch
+        label.width = m.railExpanded - m.labelX - 30
+        label.vertAlign = "center"
+        label.visible = false
+        row.appendChild(label)
+
+        m.navGroup.appendChild(row)
+        m.rows.push({ group: row, hl: hl, icon: icon, label: label })
+    end for
+
+    updateStyles()
+end sub
+
+' Layout: logo top, nav group vertically centered, avatar at foot.
+sub layout()
+    w = m.railCollapsed
+    if m.expanded then w = m.railExpanded
+    m.railBg.width = w
+    m.divider.translation = [w - 2, 0]
+
+    if m.expanded
+        m.scrim.opacity = 0.5
+    else
+        m.scrim.opacity = 0
+    end if
+
+    m.wordmark.visible = m.expanded
+    m.accountLabel.visible = m.expanded
+    m.accountSub.visible = m.expanded
+
+    ' Vertically center the nav block between logo (top) and avatar (foot).
+    count = m.rows.count()
+    if count > 0
+        block = count * m.rowPitch
+        topBound = 150
+        botBound = 940
+        gy = topBound + ((botBound - topBound) - block) / 2
+        if gy < topBound then gy = topBound
+        m.navGroup.translation = [0, gy]
+    end if
+
+    for i = 0 to m.rows.count() - 1
+        r = m.rows[i]
+        r.label.visible = m.expanded
+        focused = (m.expanded and i = m.focusIndex)
+        r.hl.visible = focused
+        if m.expanded
+            r.hl.translation = [20, 6]
+            r.hl.width = m.railExpanded - 40
+        else
+            r.hl.translation = [m.iconX - 14, 6]
+            r.hl.width = m.iconSize + 28
+        end if
+    end for
+
+    updateStyles()
+end sub
+
+sub updateStyles()
+    hasFocus = m.top.isInFocusChain()
+    for i = 0 to m.rows.count() - 1
+        r = m.rows[i]
+        r.hl.visible = (hasFocus and i = m.focusIndex)
+        if i = m.selectedIndex
+            r.label.color = "#F2674F"
+        else if hasFocus and i = m.focusIndex
+            r.label.color = "#FFFFFF"
+        else
+            r.label.color = "#8C8C8C"
+        end if
+    end for
+    ' Avatar highlight (focus past the last nav item)
+    avatarFocused = (hasFocus and m.focusIndex = m.items.count())
+    if avatarFocused
+        m.accountLabel.color = "#FFFFFF"
+    else
+        m.accountLabel.color = "#DDDDDD"
+    end if
+end sub
+
+sub onFocusChanged()
+    m.expanded = m.top.isInFocusChain()
+    if m.expanded and m.focusIndex > m.items.count() then m.focusIndex = 0
+    layout()
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if m.items.count() = 0 then return false
+
+    lastIndex = m.items.count()   ' avatar sits at items.count()
+
+    if key = "down"
+        if m.focusIndex < lastIndex
+            m.focusIndex = m.focusIndex + 1
+            onFocusMoved()
+        end if
+        return true
+    else if key = "up"
+        if m.focusIndex > 0
+            m.focusIndex = m.focusIndex - 1
+            onFocusMoved()
+        end if
+        return true
+    else if key = "right" or key = "OK"
+        if m.focusIndex = lastIndex
+            m.top.switchServer = true
+        else
+            m.top.descend = true
+        end if
+        return true
+    else if key = "left"
+        return true   ' leftmost — consume
+    end if
+    return false
+end function
+
+sub onFocusMoved()
+    if m.focusIndex < m.items.count()
+        m.selectedIndex = m.focusIndex
+        emitChoice(m.items[m.focusIndex])
+    end if
+    updateStyles()
+end sub
+
+sub emitChoice(it as object)
+    if it.kind = "library"
+        m.top.navChoice = { kind: "library", library: { id: it.libId, name: it.libName, collectionType: it.collectionType } }
+    else
+        m.top.navChoice = { kind: it.kind }
+    end if
+end sub

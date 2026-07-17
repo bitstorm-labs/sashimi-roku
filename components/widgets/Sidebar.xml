@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Plex-style pullout sidebar: collapsed icon rail expands over content when
+     focused. Logo top, Home/[libraries]/Search/Settings centered, avatar +
+     server-switch at the foot. Content switches as focus moves (navChoice). -->
+<component name="Sidebar" extends="Group">
+    <interface>
+        <!-- {kind:"home"|"library"|"search"|"settings", library?:{id,name,collectionType}} -->
+        <field id="navChoice" type="assocarray" alwaysNotify="true" />
+        <field id="descend" type="boolean" alwaysNotify="true" />
+        <field id="switchServer" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <!-- Dim scrim over content while the rail is pulled out -->
+        <Rectangle id="scrim" width="1920" height="1080" color="0x000000FF" opacity="0" />
+        <!-- Rail background (matches Home gradient tone); width animates in code -->
+        <Rectangle id="railBg" width="136" height="1080" color="0x0D0F14FF" />
+        <!-- Hairline right edge so the strip reads as defined -->
+        <Rectangle id="divider" width="2" height="1080" color="0xFFFFFF14" translation="[134,0]" />
+
+        <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="48"
+            loadDisplayMode="scaleToFit" translation="[36,52]" />
+        <Label id="wordmark" text="Sashimi" visible="false" translation="[118,44]" />
+
+        <Group id="navGroup" />
+
+        <!-- Account row at the foot -->
+        <Poster id="avatarBg" uri="pkg:/images/avatar_accent.png" width="56" height="56" translation="[40,968]" />
+        <Poster id="avatarImg" width="56" height="56" translation="[40,968]" />
+        <Label id="avatarLabel" text="?" width="56" height="56" translation="[40,968]" visible="true" />
+        <Label id="accountLabel" text="Account" visible="false" translation="[118,960]" />
+        <Label id="accountSub" text="Switch server" visible="false" translation="[118,994]" />
+
+        <JellyfinApi id="apiTask" />
+    </children>
+</component>

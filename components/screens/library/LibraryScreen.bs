@@ -163,7 +163,9 @@ sub onItemsLoaded(response as object)
     if response.startIndex = 0
         m.posterGrid.content = m.gridContent
         m.posterGrid.visible = true
-        m.posterGrid.setFocus(true)
+        ' Only grab focus if this screen is actually focused — when it loads as
+        ' a sidebar preview (rail focused), it must NOT steal focus (auto-descend).
+        if m.top.isInFocusChain() then m.posterGrid.setFocus(true)
     end if
 end sub
 
