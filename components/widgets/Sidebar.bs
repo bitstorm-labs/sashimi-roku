@@ -241,7 +241,7 @@ sub updateStyles()
         r = m.rows[i]
         r.hl.visible = (hasFocus and i = m.focusIndex)
         if i = m.selectedIndex
-            r.label.color = "#F2674F"
+            r.label.color = "#BD3EED"   ' Jellyfin purple (matches the logo)
         else if hasFocus and i = m.focusIndex
             r.label.color = "#FFFFFF"
         else
