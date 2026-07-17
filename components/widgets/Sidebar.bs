@@ -18,6 +18,7 @@ sub init()
     m.avatarLabel = m.top.findNode("avatarLabel")
     m.accountLabel = m.top.findNode("accountLabel")
     m.accountSub = m.top.findNode("accountSub")
+    m.versionLabel = m.top.findNode("versionLabel")
     m.apiTask = m.top.findNode("apiTask")
 
     m.railCollapsed = 136
@@ -46,6 +47,10 @@ sub init()
     m.accountLabel.color = "#FFFFFF"
     m.accountSub.font = font("pkg:/fonts/Roboto-Medium.ttf", 20)
     m.accountSub.color = "#8C8C8C"
+    m.versionLabel.font = font("pkg:/fonts/Roboto-Medium.ttf", 18)
+    m.versionLabel.color = "#6A6A72"
+    m.versionLabel.vertAlign = "center"
+    m.versionLabel.text = "v" + CreateObject("roAppInfo").GetVersion()
 
     ' Avatar identity — the server URL may not be restored yet at init time,
     ' so also refresh when it becomes available (else the photo never loads).
@@ -202,6 +207,20 @@ sub layout()
     m.avatarBg.opacity = railOpacity
     m.avatarImg.opacity = railOpacity
     m.avatarLabel.opacity = railOpacity
+    m.versionLabel.opacity = railOpacity
+
+    ' Version sits under the avatar — centered under the circle when collapsed,
+    ' aligned with the account text when expanded.
+    m.versionLabel.visible = true
+    if m.expanded
+        m.versionLabel.translation = [118, 1028]
+        m.versionLabel.width = 200
+        m.versionLabel.horizAlign = "left"
+    else
+        m.versionLabel.translation = [40, 1030]
+        m.versionLabel.width = 56
+        m.versionLabel.horizAlign = "center"
+    end if
 
     m.wordmark.visible = m.expanded
     m.accountLabel.visible = m.expanded

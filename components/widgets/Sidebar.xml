@@ -31,6 +31,7 @@
         </MaskGroup>
         <Label id="accountLabel" text="Account" visible="false" translation="[118,960]" />
         <Label id="accountSub" text="Switch server" visible="false" translation="[118,994]" />
+        <Label id="versionLabel" text="" width="200" height="26" translation="[118,1028]" visible="false" />
 
         <JellyfinApi id="apiTask" />
     </children>
