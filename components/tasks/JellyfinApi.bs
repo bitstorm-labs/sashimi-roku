@@ -607,8 +607,13 @@ sub doGetPlaybackStream(request as object)
         if ms.Id <> invalid then msId = ms.Id
         streamUrl = Http.apiUrl("/Videos/" + itemId + "/stream." + container) + "?Static=true&MediaSourceId=" + msId + "&api_key=" + m.global.authToken + "&DeviceId=" + m.global.deviceId
         streamFormat = "mp4"
-        playMethod = "DirectStream"
+        ' Static=true = original file untouched -> Direct Play (not a remux)
+        playMethod = "DirectPlay"
     end if
+
+    ' Source total bitrate (bps) for the stream-info chip
+    msBitrate = 0
+    if ms.Bitrate <> invalid then msBitrate = ms.Bitrate
 
     runTimeTicks = 0
     if ms.RunTimeTicks <> invalid then runTimeTicks = ms.RunTimeTicks
@@ -664,6 +669,7 @@ sub doGetPlaybackStream(request as object)
         audioTracks: audTracks
         videoResolution: videoRes
         videoCodec: videoCodec
+        bitrate: msBitrate
     }
 end sub
 

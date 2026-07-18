@@ -210,8 +210,16 @@ sub onStreamReady(r as object)
     end if
     if m.playMethod = "Transcode"
         chips.push("Transcoding")
+    else if m.playMethod = "DirectStream"
+        chips.push("Direct Stream")
     else
         chips.push("Direct Play")
+    end if
+    ' Bitrate chip (e.g. "4 Mbps") from the source media bitrate
+    if r.bitrate <> invalid and r.bitrate > 0
+        mbps = Int((r.bitrate / 1000000.0) + 0.5)
+        if mbps < 1 then mbps = 1
+        chips.push(str(mbps).Trim() + " Mbps")
     end if
     buildChips(chips)
 
