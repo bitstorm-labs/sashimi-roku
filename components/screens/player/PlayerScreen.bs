@@ -88,6 +88,12 @@ sub init()
     m.curSubIdx = -1          ' -1 = off
     m.curAudIdx = -1          ' -1 = server default
     m.qualityBps = 0          ' 0 = auto (settings)
+    ' Adaptive step-down: when a stream stalls/errors mid-playback (weak remote
+    ' downstream), retry from the same spot at a lower bitrate cap before giving
+    ' up. Roku hard-errors on underruns where AVPlayer would just rebuffer.
+    m.stepDownTiers = [12000000, 8000000, 5000000, 3000000]
+    m.stepDownIdx = -1
+    m.stepDownBps = 0         ' active step-down cap (0 = none)
     m.pendingStartSecs = -1
 
     m.chapters = []           ' [{name, startSec}] from item Chapters
@@ -135,6 +141,8 @@ sub onItemDataChanged()
     m.statusLabel.text = "Loading..."
     m.startedReported = false
     m.stoppedReported = false
+    m.stepDownIdx = -1        ' fresh item starts at full quality
+    m.stepDownBps = 0
     m.chapters = []
     m.chapterTicksBuilt = false
     if data.Chapters <> invalid and data.Chapters.count() > 1
@@ -157,12 +165,18 @@ sub requestStream(item as object)
     if m.forceTranscode then req.forceTranscode = true
     req.subtitleStreamIndex = m.curSubIdx
     if m.curAudIdx >= 0 then req.audioStreamIndex = m.curAudIdx
+    cap = 0
     if m.qualityBps > 0
-        req.maxBitrate = m.qualityBps
+        cap = m.qualityBps
     else
         mb = AppSettings.maxBitrateMbps()
-        if mb > 0 then req.maxBitrate = mb * 1000000
+        if mb > 0 then cap = mb * 1000000
     end if
+    ' A pending step-down caps below the user/settings choice
+    if m.stepDownBps > 0 and (cap = 0 or m.stepDownBps < cap) then cap = m.stepDownBps
+    if cap > 0 then req.maxBitrate = cap
+    ' Step-down needs a real transcode to actually lower the delivered bitrate
+    if m.stepDownBps > 0 then req.forceTranscode = true
     enqueue(req)
 end sub
 
@@ -326,6 +340,23 @@ sub onVideoState()
             requestStream(m.item)
             return
         end if
+
+        ' Mid-stream error after playback started = a bandwidth stall the Roku
+        ' couldn't ride out. Step the bitrate down and resume from the same
+        ' spot before surfacing an error (adaptive fallback for weak remote
+        ' downstreams). A finish/error genuinely near the end is not a stall.
+        nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
+        if m.startedReported and not nearEnd and m.stepDownIdx < (m.stepDownTiers.count() - 1)
+            m.stepDownIdx = m.stepDownIdx + 1
+            m.stepDownBps = m.stepDownTiers[m.stepDownIdx]
+            m.pendingStartSecs = Int(m.lastPosition)
+            m.statusLabel.visible = true
+            m.statusLabel.text = "Adjusting quality..."
+            m.video.control = "stop"
+            requestStream(m.item)
+            return
+        end if
+
         m.statusLabel.visible = true
         m.statusLabel.text = "Playback error."
         m.progressTimer.control = "stop"
