@@ -1,4 +1,5 @@
 import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/Quality.bs"
 import "pkg:/source/utils/YouTube.bs"
 
 sub init()
@@ -153,6 +154,7 @@ sub onItemsLoaded(response as object)
         child.isCircular = m.isYouTube
         ' Thread forceYouTubeStyle to the detail screen (tvOS parity)
         if m.isYouTube then item._forceYouTube = true
+        child.addFields({ quality: Quality.badge(item) })
         child.itemJson = FormatJSON(item)
     end for
 

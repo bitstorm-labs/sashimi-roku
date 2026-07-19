@@ -54,6 +54,7 @@ sub init()
         { key: "autoSkipCredits", title: "Auto-Skip Credits", kind: "toggle", default: "false" },
         { key: "resumeThresholdSeconds", title: "Resume Threshold", kind: "picker", options: m.resumeOptions },
         { key: "use24HourTime", title: "24-Hour Time", kind: "toggle", default: "false" },
+        { key: "showQualityBadges", title: "Show Quality Badges", kind: "toggle", default: "true" },
         { key: "", title: "Version", kind: "info", value: m.versionText },
         { key: "", title: "Sign Out", kind: "signout" }
     ]
@@ -175,6 +176,10 @@ sub activateRow(index as integer)
             AppSettings.write(item.key, "false")
         else
             AppSettings.write(item.key, "true")
+        end if
+        ' Mirror the quality-badge toggle into the global so grids reflect it.
+        if item.key = "showQualityBadges"
+            m.global.showQualityBadges = (AppSettings.read("showQualityBadges", "true") = "true")
         end if
         m.rows[index].value.text = currentValueLabel(item)
     else if item.kind = "picker"

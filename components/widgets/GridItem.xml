@@ -18,6 +18,12 @@
             loadDisplayMode="scaleToZoom"
             scaleRotateCenter="[105, 157]"
         />
+        <!-- Quality badge (bottom-right; 4K = Jellyfin purple, HD/SD = dark slate) -->
+        <Rectangle id="qualityBg" width="50" height="30" translation="[152, 277]" color="#0A0A10C8" visible="false" />
+        <Label id="qualityLabel" text="" color="#FFFFFFFF" horizAlign="center" vertAlign="center"
+               width="50" height="30" translation="[152, 277]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />
+        </Label>
         <!-- tvOS MarqueeText equivalent: scrolls when title overflows -->
         <ScrollingLabel
             id="titleLabel"

@@ -259,7 +259,7 @@ sub doGetResumeItems(request as object)
     print "[API] Getting resume items (limit=" + str(limit) + ")"
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items/Resume")
     url += "?Limit=" + str(limit).Trim()
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     url += "&Recursive=true"
     result = Http.getJson(url)
@@ -278,7 +278,7 @@ sub doGetNextUp(request as object)
     url = Http.apiUrl("/Shows/NextUp")
     url += "?UserId=" + m.global.userId
     url += "&Limit=" + str(limit).Trim()
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     url += "&EnableRewatching=false&DisableFirstEpisode=false"
     result = Http.getJson(url)
@@ -339,7 +339,7 @@ sub doGetLatestMedia(request as object)
         url += "&IncludeItemTypes=Episode&Recursive=true"
         url += "&SortBy=DateCreated,SortName&SortOrder=Descending"
         url += "&Limit=" + str(limit).Trim()
-        url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path,ParentBackdropImageTags"
+        url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path,ParentBackdropImageTags,MediaStreams"
         url += "&EnableImageTypes=Primary,Backdrop,Thumb"
         result = Http.getJson(url)
         if result <> invalid and result.Items <> invalid
@@ -353,7 +353,7 @@ sub doGetLatestMedia(request as object)
 
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items/Latest")
     url += "?Limit=" + str(limit).Trim()
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     if parentId <> "" then url += "&ParentId=" + parentId
     result = Http.getJson(url)
@@ -393,7 +393,7 @@ sub doGetItems(request as object)
     if request.includeItemTypes <> invalid and request.includeItemTypes <> ""
         url += "&IncludeItemTypes=" + request.includeItemTypes
     end if
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     url += "&Limit=" + str(limit).Trim()
     url += "&StartIndex=" + str(startIndex).Trim()
@@ -502,7 +502,7 @@ sub doGetEpisodes(request as object)
     print "[API] Getting episodes for series: " + seriesId
     url = Http.apiUrl("/Shows/" + seriesId + "/Episodes")
     url += "?UserId=" + m.global.userId
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,ImageTags,UserData"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,ImageTags,UserData,MediaStreams"
     url += "&EnableImageTypes=Primary,Thumb"
     if seasonId <> "" then url += "&SeasonId=" + seasonId
     result = Http.getJson(url)
@@ -521,7 +521,7 @@ sub doSearch(request as object)
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
     url += "?SearchTerm=" + query
     url += "&Limit=" + str(limit).Trim()
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     url += "&IncludeItemTypes=Movie,Series"
     url += "&Recursive=true"
