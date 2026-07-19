@@ -65,6 +65,8 @@ sub processRequest()
         doGetPlaybackInfo(request)
     else if action = "getPlaybackStream"
         doGetPlaybackStream(request)
+    else if action = "measureBandwidth"
+        doMeasureBandwidth()
     else if action = "reportStart"
         doReportPlayback(request, "/Sessions/Playing")
     else if action = "reportProgress"
@@ -531,6 +533,44 @@ sub doSearch(request as object)
     end if
 end sub
 
+' The Auto streaming-bitrate cap: measured downstream (m.global.measuredBitrate)
+' with headroom, clamped to a sane range. Conservative default until measured.
+function autoBitrateCapBps() as integer
+    measured = 0
+    if m.global.measuredBitrate <> invalid then measured = m.global.measuredBitrate
+    if measured <= 0 then return 20000000
+    cap = Int(measured * 0.85)
+    if cap < 3000000 then cap = 3000000
+    if cap > 100000000 then cap = 100000000
+    return cap
+end function
+
+' Time a fixed-size download from Playback/BitrateTest to estimate downstream
+' bandwidth (bits/sec). Runs on the Task thread, so blocking I/O is fine.
+sub doMeasureBandwidth()
+    sizeBytes = 8000000
+    url = Http.apiUrl("/Playback/BitrateTest?Size=" + str(sizeBytes).Trim())
+    xfer = CreateObject("roUrlTransfer")
+    port = CreateObject("roMessagePort")
+    xfer.SetMessagePort(port)
+    xfer.SetUrl(url)
+    xfer.SetCertificatesFile("common:/certs/ca-bundle.crt")
+    xfer.InitClientCertificates()
+    xfer.AddHeader("Authorization", Http.authHeader())
+    ts = CreateObject("roTimespan")
+    ts.Mark()
+    bps = 0
+    ' In-memory transfer so we time the NETWORK, not the flash write.
+    if xfer.AsyncGetToString()
+        ev = wait(20000, port)
+        elapsedMs = ts.TotalMilliseconds()
+        if type(ev) = "roUrlEvent" and ev.GetResponseCode() = 200 and elapsedMs > 10
+            bps = Int((sizeBytes * 8.0) / (elapsedMs / 1000.0))
+        end if
+    end if
+    m.top.response = { success: true, action: "measureBandwidth", bitrate: bps }
+end sub
+
 ' Negotiate a playable stream (PlaybackInfo) and resolve the final URL +
 ' streamFormat for the Roku Video node. Server decides direct-play vs HLS
 ' transcode from the DeviceProfile.
@@ -538,7 +578,9 @@ sub doGetPlaybackStream(request as object)
     itemId = request.itemId
     maxBitrate = 0
     if request.maxBitrate <> invalid then maxBitrate = request.maxBitrate
-    streamingBitrate = 120000000
+    ' Auto uses the measured connection bandwidth (see measureBandwidth) so we
+    ' don't request more than the link can carry; explicit picks win.
+    streamingBitrate = autoBitrateCapBps()
     if maxBitrate > 0 then streamingBitrate = maxBitrate
 
     url = Http.apiUrl("/Items/" + itemId + "/PlaybackInfo?UserId=" + m.global.userId)

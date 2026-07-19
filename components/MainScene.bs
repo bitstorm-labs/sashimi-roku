@@ -18,6 +18,7 @@ sub init()
         userId: ""
         deviceId: ""
         toastMessage: {}
+        measuredBitrate: 0
     })
 
     initDeviceId()
@@ -182,7 +183,27 @@ end sub
 
 ' ---------- Main tabbed UI ----------
 
+sub measureConnection()
+    ' Background bandwidth probe so the first play uses a link-appropriate
+    ' Auto bitrate (no stall on weak remote downstreams).
+    task = createObject("roSGNode", "JellyfinApi")
+    task.observeFieldScoped("response", "onBandwidthMeasured")
+    m.bwTask = task
+    task.control = "RUN"
+    task.request = { action: "measureBandwidth" }
+end sub
+
+sub onBandwidthMeasured()
+    if m.bwTask = invalid then return
+    r = m.bwTask.response
+    if r <> invalid and r.action = "measureBandwidth" and r.bitrate > 0
+        m.global.measuredBitrate = r.bitrate
+        print "[BW] measured " + str(Int(r.bitrate / 1000000)).Trim() + " Mbps"
+    end if
+end sub
+
 sub enterMainUI()
+    measureConnection()
     switchSelection({ kind: "home" })
 
     liftOverlays()
