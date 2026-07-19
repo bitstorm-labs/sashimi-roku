@@ -694,6 +694,9 @@ sub doGetPlaybackStream(request as object)
                     videoRes = str(h).Trim() + "p"
                 end if
                 if s.Codec <> invalid then videoCodec = UCase(s.Codec)
+                ' Fall back to the video stream's own bitrate when the source
+                ' omits an overall Bitrate, so the OSD speed chip is never blank
+                if msBitrate = 0 and s.BitRate <> invalid then msBitrate = s.BitRate
             end if
         end for
     end if
