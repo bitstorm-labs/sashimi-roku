@@ -57,6 +57,8 @@ sub processRequest()
         doGetItems(request)
     else if action = "getItem"
         doGetItem(request)
+    else if action = "getLocalTrailers"
+        doGetLocalTrailers(request)
     else if action = "getSeasons"
         doGetSeasons(request)
     else if action = "getEpisodes"
@@ -463,7 +465,7 @@ sub doGetItem(request as object)
     if request.context <> invalid then ctx = request.context
     print "[API] Getting item: " + itemId
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items/" + itemId)
-    url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags,Path"
+    url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags,Path,LocalTrailerCount"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     result = Http.getJson(url)
     if result <> invalid and result.Id <> invalid
@@ -471,6 +473,17 @@ sub doGetItem(request as object)
     else
         m.top.response = { success: false, action: "getItem", error: "Could not load item.", context: ctx }
     end if
+end sub
+
+' Local trailer files (from Trailarr etc.) that Jellyfin exposes as playable
+' Trailer items. Returns a JSON array directly (not wrapped in Items).
+sub doGetLocalTrailers(request as object)
+    itemId = request.itemId
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items/" + itemId + "/LocalTrailers")
+    result = Http.getJson(url)
+    trailers = []
+    if result <> invalid and GetInterface(result, "ifArray") <> invalid then trailers = result
+    m.top.response = { success: true, action: "getLocalTrailers", items: trailers }
 end sub
 
 ' Media source details for the detail screen's codec/resolution badges
