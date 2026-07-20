@@ -245,6 +245,7 @@ function getOrCreateRootScreen(choice as object) as object
     else if kind = "library"
         screen = createObject("roSGNode", "LibraryScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
+        screen.observeFieldScoped("playItem", "onPlayItem")
     end if
 
     if screen <> invalid
@@ -313,6 +314,7 @@ sub onLibrarySelected(event as object)
 
     screen = createObject("roSGNode", "LibraryScreen")
     screen.observeFieldScoped("selectedItem", "onItemSelected")
+    screen.observeFieldScoped("playItem", "onPlayItem")
     pushScreen(screen)
     screen.libraryData = lib
 end sub

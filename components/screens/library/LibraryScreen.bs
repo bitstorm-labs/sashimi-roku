@@ -8,6 +8,8 @@ sub init()
     m.posterGrid = m.top.findNode("posterGrid")
     m.loadingLabel = m.top.findNode("loadingLabel")
     m.alphaBar = m.top.findNode("alphaBar")
+    m.shuffleBtn = m.top.findNode("shuffleBtn")
+    m.shuffleBg = m.top.findNode("shuffleBg")
     m.apiTask = m.top.findNode("apiTask")
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
@@ -20,6 +22,7 @@ sub init()
     m.filterPlayed = invalid
     m.filterFavorite = invalid
     m.isYouTube = false
+    m.canShuffle = false
     m.includeTypes = ""
     m.totalItems = 0
     m.loadedItems = 0
@@ -77,6 +80,9 @@ sub onLibraryDataChanged()
     else
         m.includeTypes = "Movie,Series"
     end if
+    ' Shuffle only makes sense for movie/TV libraries (plays a movie/episode)
+    m.canShuffle = (ct = "movies" or ct = "tvshows")
+    m.shuffleBtn.visible = m.canShuffle
     m.headerTitle.text = YT.cleanTitle(m.libraryName)
     ' YouTube libraries: circular 200x200 channel cards (tvOS parity)
     if m.isYouTube
@@ -112,7 +118,14 @@ sub onApiResponse()
     response = m.apiTask.response
     if response = invalid then return
     if response.action = "getItems"
-        onItemsLoaded(response)
+        if response.context <> invalid and response.context = "shuffle"
+            ' Shuffle result — play the random item directly
+            if response.success and response.items <> invalid and response.items.count() > 0
+                m.top.playItem = { item: response.items[0], action: "play" }
+            end if
+        else
+            onItemsLoaded(response)
+        end if
     end if
 end sub
 
@@ -242,10 +255,45 @@ function onKeyEvent(key as string, press as boolean) as boolean
             m.alphaBar.visible = false
             m.posterGrid.setFocus(true)
             return true
+        else if key = "up" and m.posterGrid.hasFocus() and m.canShuffle
+            ' Grid bubbles Up at the top row — hop to the header Shuffle button
+            focusShuffle(true)
+            return true
+        else if key = "down" and m.shuffleBtn.hasFocus()
+            focusShuffle(false)
+            return true
+        else if key = "OK" and m.shuffleBtn.hasFocus()
+            doShuffle()
+            return true
         end if
     end if
     return false
 end function
+
+' Toggle focus/highlight between the header Shuffle button and the grid.
+sub focusShuffle(on as boolean)
+    if on
+        m.shuffleBg.color = "#8C5CC7FF"
+        m.shuffleBtn.setFocus(true)
+    else
+        m.shuffleBg.color = "#2A2A33FF"
+        m.posterGrid.setFocus(true)
+    end if
+end sub
+
+' Shuffle: request one random item (a movie, or an episode for TV) and play it.
+sub doShuffle()
+    itemType = "Movie"
+    if Instr(1, m.includeTypes, "Series") > 0 then itemType = "Episode"
+    m.apiTask.request = {
+        action: "getItems"
+        parentId: m.libraryId
+        includeItemTypes: itemType
+        sortBy: "Random"
+        limit: 1
+        context: "shuffle"
+    }
+end sub
 
 sub showSortFilterDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
