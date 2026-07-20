@@ -1,0 +1,36 @@
+' Resolution badge for cover art. Mirrors the Apple client's qualityBadge:
+' three tiers (4K / HD / SD) derived from the primary video stream. Returns
+' "" when the item carries no video stream (series/season) or dimensions are
+' unknown, so callers can simply check for a non-empty string.
+namespace Quality
+
+    function badge(item as object) as string
+        if item = invalid then return ""
+
+        ' Item lists request Fields=MediaStreams (streams on the item); the
+        ' detail path carries them under MediaSources[0]. Handle both.
+        streams = invalid
+        if item.MediaStreams <> invalid
+            streams = item.MediaStreams
+        else if item.MediaSources <> invalid and item.MediaSources.Count() > 0
+            streams = item.MediaSources[0].MediaStreams
+        end if
+        if streams = invalid then return ""
+
+        for each s in streams
+            if s.Type = "Video"
+                w = 0
+                h = 0
+                if s.Width <> invalid then w = s.Width
+                if s.Height <> invalid then h = s.Height
+                if w = 0 and h = 0 then return ""
+                ' width-first so wide-scope 4K (3840x1600) isn't mislabeled
+                if w >= 3200 or h >= 2160 then return "4K"
+                if w >= 1280 or h >= 720 then return "HD"
+                return "SD"
+            end if
+        end for
+        return ""
+    end function
+
+end namespace

@@ -51,6 +51,12 @@
             <Rectangle id="focusBottom" width="220" height="4" color="#5CADE6" opacity="0.0" translation="[0, 326]" />
             <Rectangle id="focusLeft" width="4" height="330" color="#5CADE6" opacity="0.0" />
             <Rectangle id="focusRight" width="4" height="330" color="#5CADE6" opacity="0.0" translation="[216, 0]" />
+            <!-- Quality badge (bottom-right; 4K = Jellyfin purple, HD/SD = dark slate) -->
+            <Rectangle id="qualityBg" width="52" height="32" translation="[160, 290]" color="#0A0A10C8" visible="false" />
+            <Label id="qualityLabel" text="" color="#FFFFFFFF" horizAlign="center" vertAlign="center"
+                   width="52" height="32" translation="[160, 290]" visible="false">
+                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />
+            </Label>
             <!-- Watched badge (tvOS: checkmark.circle.fill, green/black palette, 29px) -->
             <Poster id="watchedBadge" uri="pkg:/images/watched_circle.png" width="29" height="29"
                     translation="[185, 6]" visible="false" />

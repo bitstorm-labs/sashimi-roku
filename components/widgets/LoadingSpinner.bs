@@ -1,8 +1,0 @@
-sub init()
-    m.messageLabel = m.top.findNode("messageLabel")
-    m.top.observeField("message", "onMessageChanged")
-end sub
-
-sub onMessageChanged()
-    m.messageLabel.text = m.top.message
-end sub
