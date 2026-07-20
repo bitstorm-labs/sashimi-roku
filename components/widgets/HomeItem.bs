@@ -18,6 +18,8 @@ sub init()
     m.newBadgeLabel = m.top.findNode("newBadgeLabel")
     m.progressBg = m.top.findNode("progressBg")
     m.progressBar = m.top.findNode("progressBar")
+    m.qualityBg = m.top.findNode("qualityBg")
+    m.qualityLabel = m.top.findNode("qualityLabel")
     m.titleLabel = m.top.findNode("titleLabel")
     m.subtitleLabel = m.top.findNode("subtitleLabel")
     m.itemWidth = 220
@@ -67,6 +69,9 @@ sub onSizeChanged()
     ' Scale from card center (tvOS scaleEffect anchors center)
     m.scaleGroup.scaleRotateCenter = [w / 2, m.posterHeight / 2]
 
+    ' Re-evaluate the quality chip now that portrait/landscape + size are known
+    applyQualityBadge()
+
     if m.isLandscape
         ' CW card internals (tvOS: pad H16/bottom14, progress under time-left row)
         m.cwScrim.width = w
@@ -105,6 +110,31 @@ sub setLabelFont(label as object, uri as string, size as integer)
     label.font = f
 end sub
 
+' Resolution chip (top-left). 4K glows Jellyfin purple; HD/SD sit on dark
+' slate. Hidden for circular (channel) cards and when the setting is off.
+sub applyQualityBadge()
+    content = m.top.itemContent
+    q = ""
+    if content <> invalid and content.doesExist("quality") and content.quality <> invalid then q = content.quality
+    ' Portrait posters only — landscape Continue Watching cards would place the
+    ' chip over the title, and (like the Apple clients) we skip landscape.
+    show = (q <> "" and not m.isCircular and not m.isLandscape and m.global.showQualityBadges = true)
+    m.qualityLabel.text = q
+    m.qualityLabel.visible = show
+    m.qualityBg.visible = show
+    if show
+        bx = m.itemWidth - 52 - 8
+        by = m.posterHeight - 32 - 8
+        m.qualityBg.translation = [bx, by]
+        m.qualityLabel.translation = [bx, by]
+    end if
+    if q = "4K"
+        m.qualityBg.color = "#BD3EEDFF"
+    else
+        m.qualityBg.color = "#0A0A10C8"
+    end if
+end sub
+
 sub onItemContentChanged()
     content = m.top.itemContent
     if content = invalid then return
@@ -127,6 +157,7 @@ sub onItemContentChanged()
     m.cwScrim.visible = false
     m.playGlyph.visible = false
     m.remainingLabel.visible = false
+    applyQualityBadge()
 
     if m.isCircular
         m.posterMask.visible = false

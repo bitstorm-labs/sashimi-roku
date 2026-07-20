@@ -1,5 +1,6 @@
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/Servers.bs"
+import "pkg:/source/utils/AppSettings.bs"
 
 ' tvOS-parity navigation: persistent top TabBar (Home/Library/Search/Settings)
 ' with root screens kept alive, plus a push stack for detail/grid screens.
@@ -19,6 +20,7 @@ sub init()
         deviceId: ""
         toastMessage: {}
         measuredBitrate: 0
+        showQualityBadges: (AppSettings.read("showQualityBadges", "true") = "true")
     })
 
     initDeviceId()

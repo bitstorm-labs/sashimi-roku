@@ -1,5 +1,6 @@
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/Quality.bs"
 import "pkg:/source/utils/YouTube.bs"
 
 ' tvOS-parity search, Roku-native input: persistent MiniKeyboard with LIVE
@@ -190,6 +191,7 @@ sub onSearchResults(response as object)
         child.addFields({ itemJson: "", isCircular: false })
         child.isCircular = isYT
         if isYT then item._forceYouTube = true
+        child.addFields({ quality: Quality.badge(item) })
         child.itemJson = FormatJSON(item)
     end for
 
