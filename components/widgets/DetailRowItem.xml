@@ -25,7 +25,7 @@
                 <Poster id="epThumb" width="240" height="135" loadWidth="240" loadHeight="135"
                         loadDisplayMode="scaleToZoom" />
             </MaskGroup>
-            <Rectangle id="epProgress" translation="[0, 131]" width="0" height="4" color="#5CADE6" visible="false" />
+            <Rectangle id="epProgress" translation="[0, 131]" width="0" height="4" color="#8C5CC7" visible="false" />
             <Poster id="epWatched" uri="pkg:/images/watched_circle.png" width="24" height="24"
                     translation="[208, 8]" visible="false" />
             <!-- next-up pulsing white stroke -->
@@ -37,10 +37,10 @@
             </Group>
             <!-- accent focus border -->
             <Group id="epFocus" opacity="0.0">
-                <Rectangle width="240" height="4" color="#5CADE6" />
-                <Rectangle width="240" height="4" color="#5CADE6" translation="[0, 131]" />
-                <Rectangle width="4" height="135" color="#5CADE6" />
-                <Rectangle width="4" height="135" color="#5CADE6" translation="[236, 0]" />
+                <Rectangle width="240" height="4" color="#8C5CC7" />
+                <Rectangle width="240" height="4" color="#8C5CC7" translation="[0, 131]" />
+                <Rectangle width="4" height="135" color="#8C5CC7" />
+                <Rectangle width="4" height="135" color="#8C5CC7" translation="[236, 0]" />
             </Group>
             <Label id="epName" text="" color="#FFFFFF" width="240" maxLines="1"
                    ellipsizeOnBoundary="true" translation="[0, 145]">
