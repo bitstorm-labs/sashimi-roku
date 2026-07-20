@@ -432,14 +432,19 @@ sub doGetItems(request as object)
 
     if result <> invalid and result.Items <> invalid
         print "[API] Found " + str(result.Items.count()) + " of " + str(result.TotalRecordCount) + " total items"
+        ctx = ""
+        if request.context <> invalid then ctx = request.context
         m.top.response = {
             success: true
             action: "getItems"
             items: result.Items
             totalRecordCount: result.TotalRecordCount
             startIndex: startIndex
+            context: ctx
         }
     else
+        ctx2 = ""
+        if request.context <> invalid then ctx2 = request.context
         m.top.response = {
             success: false
             action: "getItems"
@@ -447,6 +452,7 @@ sub doGetItems(request as object)
             items: []
             totalRecordCount: 0
             startIndex: startIndex
+            context: ctx2
         }
     end if
 end sub

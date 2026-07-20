@@ -3,6 +3,7 @@
     <interface>
         <field id="libraryData" type="assocarray" onChange="onLibraryDataChanged" />
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+        <field id="playItem" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
         <!-- Background -->
@@ -23,9 +24,16 @@
             font="font:SmallestSystemFont"
             color="#666666"
             horizAlign="right"
-            width="1728"
+            width="1360"
             translation="[96, 30]"
         />
+        <!-- Shuffle button (header; focusable via Up from the grid) -->
+        <Group id="shuffleBtn" translation="[1490, 20]">
+            <Rectangle id="shuffleBg" width="220" height="50" color="#2A2A33FF" />
+            <Label text="Shuffle" color="#FFFFFF" width="220" height="50" horizAlign="center" vertAlign="center">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+            </Label>
+        </Group>
 
         <!-- Content grid -->
         <MarkupGrid

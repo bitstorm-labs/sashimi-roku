@@ -108,6 +108,11 @@ sub onApiResponse()
             m.global.toastMessage = { message: "Updated" }
             enqueue({ action: "getItem", itemId: m.item.Id })
         end if
+    else if action = "getItems"
+        ' Shuffle result — play the random episode
+        if response.success and response.items <> invalid and response.items.count() > 0
+            m.top.playItem = { item: response.items[0], action: "play" }
+        end if
     end if
     pumpQueue()
 end sub
@@ -613,6 +618,9 @@ sub buildButtons()
     if m.itemType = "Episode" and item.SeriesId <> invalid
         defs.push({ kind: "series", label: "Series", primary: false })
     end if
+    if m.itemType = "Series"
+        defs.push({ kind: "shuffle", label: "Shuffle", primary: false })
+    end if
     defs.push({ kind: "more", label: "More", primary: false })
     m.detailButtons.buttonDefs = defs
 end sub
@@ -628,6 +636,9 @@ sub onButtonActivated(event as object)
         enqueue({ action: kind, itemId: item.Id })
     else if kind = "series"
         enqueue({ action: "getItem", itemId: item.SeriesId })
+    else if kind = "shuffle"
+        ' Play a random episode of this series
+        enqueue({ action: "getItems", parentId: item.Id, includeItemTypes: "Episode", sortBy: "Random", limit: 1 })
     else if kind = "more"
         showMoreDialog()
     end if
