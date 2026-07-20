@@ -98,10 +98,10 @@
         <Rectangle id="dotFill" width="0" height="5" color="#FFFFFF" opacity="0.9" translation="[80, 470]" />
 
         <!-- Focus border (tvOS: accent stroke 4 @ 60%) -->
-        <Rectangle id="focusTop" width="1820" height="4" color="#5CADE6" opacity="0.0" />
-        <Rectangle id="focusBottom" width="1820" height="4" color="#5CADE6" opacity="0.0" translation="[0, 508]" />
-        <Rectangle id="focusLeft" width="4" height="512" color="#5CADE6" opacity="0.0" />
-        <Rectangle id="focusRight" width="4" height="512" color="#5CADE6" opacity="0.0" translation="[1816, 0]" />
+        <Rectangle id="focusTop" width="1820" height="4" color="#8C5CC7" opacity="0.0" />
+        <Rectangle id="focusBottom" width="1820" height="4" color="#8C5CC7" opacity="0.0" translation="[0, 508]" />
+        <Rectangle id="focusLeft" width="4" height="512" color="#8C5CC7" opacity="0.0" />
+        <Rectangle id="focusRight" width="4" height="512" color="#8C5CC7" opacity="0.0" translation="[1816, 0]" />
 
         <!-- Auto-advance timer (tvOS: 6s) -->
         <Timer id="advanceTimer" repeat="true" duration="6" />
