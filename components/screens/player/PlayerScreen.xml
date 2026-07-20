@@ -50,9 +50,9 @@
 
             <!-- Scrubber -->
             <Rectangle id="osdScrubTrack" width="1760" height="6" color="#40FFFFFF" translation="[80,1000]" />
-            <Rectangle id="osdScrubFill" width="0" height="6" color="#FFFFFF" translation="[80,1000]" />
+            <Rectangle id="osdScrubFill" width="0" height="6" color="#8C5CC7" translation="[80,1000]" />
             <Group id="osdChapterTicks" translation="[80,997]" />
-            <Rectangle id="osdScrubKnob" width="8" height="22" color="#FFFFFF" translation="[76,992]" />
+            <Rectangle id="osdScrubKnob" width="8" height="22" color="#8C5CC7" translation="[76,992]" />
             <Label id="osdElapsed" text="0:00" color="#FFFFFF" width="200" translation="[80,1022]">
                 <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
             </Label>

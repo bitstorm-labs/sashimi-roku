@@ -47,10 +47,10 @@
             <Poster id="circularGlow" width="200" height="200"
                     uri="pkg:/images/circle_ring.png" opacity="0.0" visible="false" />
             <!-- Rectangular focus border (tvOS: accent stroke 4) -->
-            <Rectangle id="focusTop" width="220" height="4" color="#5CADE6" opacity="0.0" />
-            <Rectangle id="focusBottom" width="220" height="4" color="#5CADE6" opacity="0.0" translation="[0, 326]" />
-            <Rectangle id="focusLeft" width="4" height="330" color="#5CADE6" opacity="0.0" />
-            <Rectangle id="focusRight" width="4" height="330" color="#5CADE6" opacity="0.0" translation="[216, 0]" />
+            <Rectangle id="focusTop" width="220" height="4" color="#8C5CC7" opacity="0.0" />
+            <Rectangle id="focusBottom" width="220" height="4" color="#8C5CC7" opacity="0.0" translation="[0, 326]" />
+            <Rectangle id="focusLeft" width="4" height="330" color="#8C5CC7" opacity="0.0" />
+            <Rectangle id="focusRight" width="4" height="330" color="#8C5CC7" opacity="0.0" translation="[216, 0]" />
             <!-- Quality badge (bottom-right; 4K = Jellyfin purple, HD/SD = dark slate) -->
             <Rectangle id="qualityBg" width="52" height="32" translation="[160, 290]" color="#0A0A10C8" visible="false" />
             <Label id="qualityLabel" text="" color="#FFFFFFFF" horizAlign="center" vertAlign="center"
@@ -69,7 +69,7 @@
             </Label>
             <!-- Progress bar (tvOS: track #404040, fill accent) -->
             <Rectangle id="progressBg" translation="[0, 325]" width="220" height="5" color="#404040" visible="false" />
-            <Rectangle id="progressBar" translation="[0, 325]" width="0" height="5" color="#5CADE6" visible="false" />
+            <Rectangle id="progressBar" translation="[0, 325]" width="0" height="5" color="#8C5CC7" visible="false" />
         </Group>
         <!-- Title below poster (tvOS: centered 22 medium, single line) -->
         <Label

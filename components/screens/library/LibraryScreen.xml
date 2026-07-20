@@ -55,7 +55,7 @@
         <!-- Alphabet jump bar -->
         <LabelList
             id="alphaBar"
-            translation="[1780, 120]"
+            translation="[1740, 120]"
             itemSize="[80, 32]"
             numRows="26"
             visible="false"

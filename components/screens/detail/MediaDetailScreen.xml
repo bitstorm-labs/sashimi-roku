@@ -35,7 +35,7 @@
         <Label id="titleLabel" text="" color="#FFFFFF" width="1000" maxLines="2" translation="[60, 250]">
             <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="38" />
         </Label>
-        <Label id="endsAtLabel" text="" color="#5BADE6" maxLines="1" translation="[60, 312]">
+        <Label id="endsAtLabel" text="" color="#8C5CC7" maxLines="1" translation="[60, 312]">
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
         </Label>
         <Label id="metaLabel" text="" color="#BFBFBF" maxLines="1" translation="[60, 312]">

@@ -58,8 +58,7 @@ sub init()
     m.global.observeFieldScoped("serverUrl", "onServerReady")
 
     m.apiTask.observeFieldScoped("response", "onLibraries")
-    m.apiTask.control = "RUN"
-    m.apiTask.request = { action: "getLibraryViews" }
+    refreshLibraries()
 
     m.top.observeField("focusedChild", "onFocusChanged")
 
@@ -77,6 +76,15 @@ end function
 
 sub onServerReady()
     setAvatar()
+    ' Server changed — re-fetch the rail's libraries so a server switch shows
+    ' the new libraries without needing an app restart.
+    refreshLibraries()
+end sub
+
+' Fetch the library list for the active server (init + on every server change).
+sub refreshLibraries()
+    m.apiTask.control = "RUN"
+    m.apiTask.request = { action: "getLibraryViews" }
 end sub
 
 sub setAvatar()
