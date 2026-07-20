@@ -37,10 +37,10 @@
             </Group>
             <!-- accent focus border -->
             <Group id="epFocus" opacity="0.0">
-                <Rectangle width="240" height="4" color="#8C5CC7" />
-                <Rectangle width="240" height="4" color="#8C5CC7" translation="[0, 131]" />
-                <Rectangle width="4" height="135" color="#8C5CC7" />
-                <Rectangle width="4" height="135" color="#8C5CC7" translation="[236, 0]" />
+                <Rectangle width="240" height="4" color="#FFFFFF" />
+                <Rectangle width="240" height="4" color="#FFFFFF" translation="[0, 131]" />
+                <Rectangle width="4" height="135" color="#FFFFFF" />
+                <Rectangle width="4" height="135" color="#FFFFFF" translation="[236, 0]" />
             </Group>
             <Label id="epName" text="" color="#FFFFFF" width="240" maxLines="1"
                    ellipsizeOnBoundary="true" translation="[0, 145]">
