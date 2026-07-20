@@ -699,6 +699,11 @@ sub showRows()
     m.rowList.rowItemSize = itemSizes
     m.rowList.rowItemSpacing = itemSpacings
 
+    ' Force a clean re-layout on reload: nil the content first so the RowList
+    ' discards recycled item components (which otherwise keep a stale per-row
+    ' width). Without this, a reload-on-return raced the resize and left some
+    ' Continue Watching cards portrait-sized (and showed a stray quality chip).
+    if m.rowList.content <> invalid then m.rowList.content = invalid
     m.rowList.content = m.rowContent
     m.rowList.visible = true
     ' Take focus only if home already owns it (background refreshes must
