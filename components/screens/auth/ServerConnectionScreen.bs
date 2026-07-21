@@ -50,13 +50,16 @@ sub updateFormButtons()
         passwordLabel = "Password: ****"
     end if
 
-    m.formButtons.buttons = [
+    buttons = [
         serverLabel,
         usernameLabel,
         passwordLabel,
         "Connect",
         "Discover Servers"
     ]
+    ' Adding a server (already signed in) — offer an explicit way out.
+    if m.top.canCancel then buttons.push("Cancel")
+    m.formButtons.buttons = buttons
 end sub
 
 sub onFormButtonSelected()
@@ -79,6 +82,9 @@ sub onFormButtonSelected()
     else if index = 4
         ' Discover
         onDiscoverPressed()
+    else if index = 5 and m.top.canCancel
+        ' Cancel (only present when adding a server)
+        m.top.cancelled = true
     end if
 end sub
 
@@ -266,6 +272,12 @@ function onKeyEvent(key as string, press as boolean) as boolean
             if m.serverList.visible
                 hideDiscovery()
                 m.formButtons.setFocus(true)
+                return true
+            end if
+            ' Adding a server: Back cancels and returns to the main UI rather
+            ' than falling through and exiting the app.
+            if m.top.canCancel
+                m.top.cancelled = true
                 return true
             end if
         end if

@@ -161,10 +161,25 @@ sub showAuthScreen()
     m.top.signalBeacon("AppDialogInitiate")
     clearAllScreens()
     screen = createObject("roSGNode", "ServerConnectionScreen")
+    ' Adding a server while already signed in — let the user cancel back to
+    ' the current server instead of being stranded (or exiting the app).
+    screen.canCancel = hasSavedSession()
     screen.observeFieldScoped("loginSuccess", "onLoginSuccess")
+    screen.observeFieldScoped("cancelled", "onAuthCancelled")
     m.top.appendChild(screen)
     m.authScreen = screen
     screen.setFocus(true)
+end sub
+
+sub onAuthCancelled()
+    m.top.signalBeacon("AppDialogComplete")
+    if m.authScreen <> invalid
+        m.top.removeChild(m.authScreen)
+        m.authScreen = invalid
+    end if
+    ' Restore the still-active session's main UI.
+    restoreSession()
+    enterMainUI()
 end sub
 
 sub onLoginSuccess()
