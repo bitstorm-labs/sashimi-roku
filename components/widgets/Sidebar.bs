@@ -225,8 +225,11 @@ sub layout()
         m.versionLabel.width = 200
         m.versionLabel.horizAlign = "left"
     else
-        m.versionLabel.translation = [40, 1030]
-        m.versionLabel.width = 56
+        ' Width 120 (was 56 = avatar width): two-digit patch versions like
+        ' "v1.1.10" need ~68px at 18pt and were ellipsizing to "v1.1...".
+        ' x=8 keeps the label centered under the avatar circle (center 68).
+        m.versionLabel.translation = [8, 1030]
+        m.versionLabel.width = 120
         m.versionLabel.horizAlign = "center"
     end if
 
