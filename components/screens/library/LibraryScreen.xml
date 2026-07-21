@@ -43,6 +43,7 @@
             itemSpacing="[30, 40]"
             numColumns="6"
             numRows="3"
+            vertFocusAnimationStyle="fixedFocus"
             drawFocusFeedback="true"
             focusBitmapUri="pkg:/images/focus_ring_r16.9.png"
             itemComponentName="GridItem"
