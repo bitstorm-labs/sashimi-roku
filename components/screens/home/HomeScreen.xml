@@ -14,9 +14,16 @@
 
         <!-- Hero Banner (tvOS: 32:9 featured card) -->
         <!-- Hero scale lives in HeroBanner.bs (m.baseScale) — one source of truth -->
+        <!-- x=-18 centers the SCALED banner in the area right of the rail: the
+             screen group sits at +136 (rail), and the 0.84 scale about
+             scaleRotateCenter x=910 renders the left edge at tx + 910*(1-0.84)
+             = tx+145.6. Visible width 1920-136=1784, scaled banner 1529 ->
+             equal ~128px margins needs rendered-left 127.6 -> tx = -18.
+             (The old tx=50 predated the rail offset: 196px left / 60px right,
+             i.e. the banner sat visibly right of center.) -->
         <HeroBanner
             id="heroBanner"
-            translation="[50, 122]"
+            translation="[-18, 122]"
             visible="false"
         />
 
