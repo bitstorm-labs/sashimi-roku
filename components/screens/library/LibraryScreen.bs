@@ -21,6 +21,10 @@ sub init()
     m.sortOrder = "Ascending"
     m.filterPlayed = invalid
     m.filterFavorite = invalid
+    ' Active A-Z jump ("" = none). Kept as state so pagination and refreshes
+    ' preserve the letter view instead of silently reverting to the full list.
+    m.nameStartsWith = ""
+    m.nameLessThan = ""
     m.isYouTube = false
     m.canShuffle = false
     m.includeTypes = ""
@@ -104,7 +108,7 @@ sub loadItems(startIndex as integer)
     end if
     updateFilterLabel()
 
-    m.apiTask.request = {
+    req = {
         action: "getItems"
         parentId: m.libraryId
         sortBy: m.sortBy
@@ -115,6 +119,11 @@ sub loadItems(startIndex as integer)
         isFavorite: m.filterFavorite
         includeItemTypes: m.includeTypes
     }
+    ' A-Z jump letter (if active) rides along so paging + auto-refresh stay
+    ' inside the letter view and keep the active filters.
+    if m.nameStartsWith <> "" then req.nameStartsWith = m.nameStartsWith
+    if m.nameLessThan <> "" then req.nameLessThan = m.nameLessThan
+    m.apiTask.request = req
 end sub
 
 sub onApiResponse()
@@ -212,21 +221,18 @@ sub onAlphaSelected()
     index = m.alphaBar.itemSelected
     if index < 0 then return
     ' Index 0 is the "#" bucket; A-Z are shifted by one (index 1 = "A").
-    req = {
-        action: "getItems"
-        parentId: m.libraryId
-        sortBy: "SortName"
-        sortOrder: "Ascending"
-        limit: 50
-        startIndex: 0
-        includeItemTypes: m.includeTypes
-    }
+    ' Letter jumps imply name order; store it as state and route through
+    ' loadItems so filters, pagination, and refreshes all stay consistent.
+    m.sortBy = "SortName"
+    m.sortOrder = "Ascending"
     if index = 0
-        req.nameLessThan = "A"
+        m.nameStartsWith = ""
+        m.nameLessThan = "A"
     else
-        req.nameStartsWith = Chr(64 + index)
+        m.nameStartsWith = Chr(64 + index)
+        m.nameLessThan = ""
     end if
-    m.apiTask.request = req
+    loadItems(0)
 end sub
 
 sub updateFilterLabel()
@@ -239,8 +245,6 @@ sub updateFilterLabel()
         sortLabel = "Rating"
     else if m.sortBy = "Runtime"
         sortLabel = "Runtime"
-    else if m.sortBy = "PlayCount"
-        sortLabel = "Play Count"
     end if
 
     orderLabel = " (Asc)"
@@ -390,7 +394,12 @@ sub onSortButton()
         handled = false
     end if
 
-    if handled then loadItems(0)
+    if handled
+        ' Choosing a sort exits any active A-Z letter view.
+        m.nameStartsWith = ""
+        m.nameLessThan = ""
+        loadItems(0)
+    end if
     m.posterGrid.setFocus(true)
 end sub
 
@@ -425,6 +434,11 @@ sub onFilterButton()
         handled = false
     end if
 
-    if handled then loadItems(0)
+    if handled
+        ' Choosing a filter exits any active A-Z letter view.
+        m.nameStartsWith = ""
+        m.nameLessThan = ""
+        loadItems(0)
+    end if
     m.posterGrid.setFocus(true)
 end sub

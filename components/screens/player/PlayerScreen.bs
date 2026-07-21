@@ -332,8 +332,11 @@ sub onVideoState()
     else if state = "error"
         ' Force Direct Play opts out of the adaptive transcode fallbacks below:
         ' log and let the normal playback-error surface instead of silently
-        ' transcoding or stepping the bitrate down.
-        directPlayOnly = AppSettings.forceDirectPlay()
+        ' transcoding or stepping the bitrate down. Exception: if the stream
+        ' is ALREADY transcoding (burn-in subtitles override the setting in
+        ' JellyfinApi), keep the fallbacks — there's no direct-play purity
+        ' left to protect.
+        directPlayOnly = AppSettings.forceDirectPlay() and m.playMethod <> "Transcode"
 
         ' Direct-played container the hardware rejected (mkv edge cases):
         ' retry ONCE via forced HLS transcode before surfacing an error.

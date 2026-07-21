@@ -644,9 +644,12 @@ sub doGetPlaybackStream(request as object)
         body.EnableDirectStream = false
     end if
     ' Force Direct Play setting: tell the server not to transcode so it hands
-    ' back a direct-play/direct-stream source. (Selecting a burn-in subtitle
-    ' above still needs a re-encode, so those two options can't both apply.)
-    if request.forceDirectPlay <> invalid and request.forceDirectPlay = true
+    ' back a direct-play/direct-stream source. Exception: a selected burn-in
+    ' subtitle (above) REQUIRES a re-encode — with transcoding also disabled
+    ' the server would return zero sources and playback fails with a generic
+    ' error. The explicit subtitle choice wins over the global setting.
+    subtitleNeedsTranscode = (request.subtitleStreamIndex <> invalid and request.subtitleStreamIndex >= 0)
+    if request.forceDirectPlay <> invalid and request.forceDirectPlay = true and not subtitleNeedsTranscode
         body.EnableTranscoding = false
     end if
     result = Http.postJson(url, body)
