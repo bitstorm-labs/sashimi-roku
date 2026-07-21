@@ -2,6 +2,10 @@
 <component name="ServerConnectionScreen" extends="Group">
     <interface>
         <field id="loginSuccess" type="boolean" value="false" alwaysNotify="true" />
+        <!-- When true (adding a server while already signed in), the form shows
+             a Cancel button and Back returns to the main UI instead of exiting. -->
+        <field id="canCancel" type="boolean" value="false" />
+        <field id="cancelled" type="boolean" value="false" alwaysNotify="true" />
     </interface>
     <children>
         <!-- Background -->
