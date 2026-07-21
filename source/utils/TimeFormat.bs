@@ -1,0 +1,23 @@
+import "pkg:/source/utils/AppSettings.bs"
+
+' Shared wall-clock formatter honoring the 24-Hour Time setting.
+' 24h -> "21:41"; 12h -> "9:41 PM". Callers pass a 0-23 hour + 0-59 minute.
+namespace TimeFormat
+
+    function clock(h24 as integer, minute as integer) as string
+        mm = minute.toStr()
+        if minute < 10 then mm = "0" + mm
+        if AppSettings.use24HourTime()
+            hh = h24.toStr()
+            if h24 < 10 then hh = "0" + hh
+            return hh + ":" + mm
+        end if
+        ampm = "AM"
+        h = h24
+        if h >= 12 then ampm = "PM"
+        if h = 0 then h = 12
+        if h > 12 then h = h - 12
+        return h.toStr() + ":" + mm + " " + ampm
+    end function
+
+end namespace

@@ -429,6 +429,10 @@ sub doGetItems(request as object)
     if request.nameStartsWith <> invalid and request.nameStartsWith <> ""
         url += "&NameStartsWith=" + request.nameStartsWith
     end if
+    ' "#" jump-bar bucket: titles that sort before "A" (digits/symbols).
+    if request.nameLessThan <> invalid and request.nameLessThan <> ""
+        url += "&NameLessThan=" + request.nameLessThan
+    end if
 
     result = Http.getJson(url)
 
@@ -638,6 +642,15 @@ sub doGetPlaybackStream(request as object)
     if request.forceTranscode <> invalid and request.forceTranscode = true
         body.EnableDirectPlay = false
         body.EnableDirectStream = false
+    end if
+    ' Force Direct Play setting: tell the server not to transcode so it hands
+    ' back a direct-play/direct-stream source. Exception: a selected burn-in
+    ' subtitle (above) REQUIRES a re-encode — with transcoding also disabled
+    ' the server would return zero sources and playback fails with a generic
+    ' error. The explicit subtitle choice wins over the global setting.
+    subtitleNeedsTranscode = (request.subtitleStreamIndex <> invalid and request.subtitleStreamIndex >= 0)
+    if request.forceDirectPlay <> invalid and request.forceDirectPlay = true and not subtitleNeedsTranscode
+        body.EnableTranscoding = false
     end if
     result = Http.postJson(url, body)
     if result = invalid or result.MediaSources = invalid or result.MediaSources.count() = 0

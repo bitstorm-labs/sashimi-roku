@@ -21,6 +21,10 @@ sub init()
     m.sortOrder = "Ascending"
     m.filterPlayed = invalid
     m.filterFavorite = invalid
+    ' Active A-Z jump ("" = none). Kept as state so pagination and refreshes
+    ' preserve the letter view instead of silently reverting to the full list.
+    m.nameStartsWith = ""
+    m.nameLessThan = ""
     m.isYouTube = false
     m.canShuffle = false
     m.includeTypes = ""
@@ -32,8 +36,11 @@ sub init()
     m.posterGrid.observeFieldScoped("itemSelected", "onItemSelected")
     m.posterGrid.observeFieldScoped("itemFocused", "onItemFocused")
 
-    ' Build alphabet bar
+    ' Build alphabet bar: leading "#" (digits/symbols) then A-Z (27 entries).
     alphaContent = CreateObject("roSGNode", "ContentNode")
+    hashNode = CreateObject("roSGNode", "ContentNode")
+    hashNode.title = "#"
+    alphaContent.appendChild(hashNode)
     for i = 65 to 90
         letter = CreateObject("roSGNode", "ContentNode")
         letter.title = Chr(i)
@@ -101,7 +108,7 @@ sub loadItems(startIndex as integer)
     end if
     updateFilterLabel()
 
-    m.apiTask.request = {
+    req = {
         action: "getItems"
         parentId: m.libraryId
         sortBy: m.sortBy
@@ -112,6 +119,11 @@ sub loadItems(startIndex as integer)
         isFavorite: m.filterFavorite
         includeItemTypes: m.includeTypes
     }
+    ' A-Z jump letter (if active) rides along so paging + auto-refresh stay
+    ' inside the letter view and keep the active filters.
+    if m.nameStartsWith <> "" then req.nameStartsWith = m.nameStartsWith
+    if m.nameLessThan <> "" then req.nameLessThan = m.nameLessThan
+    m.apiTask.request = req
 end sub
 
 sub onApiResponse()
@@ -208,28 +220,35 @@ end sub
 sub onAlphaSelected()
     index = m.alphaBar.itemSelected
     if index < 0 then return
-    letter = Chr(65 + index)
-    m.apiTask.request = {
-        action: "getItems"
-        parentId: m.libraryId
-        sortBy: "SortName"
-        sortOrder: "Ascending"
-        limit: 50
-        startIndex: 0
-        nameStartsWith: letter
-        includeItemTypes: m.includeTypes
-    }
+    ' Index 0 is the "#" bucket; A-Z are shifted by one (index 1 = "A").
+    ' Letter jumps imply name order; store it as state and route through
+    ' loadItems so filters, pagination, and refreshes all stay consistent.
+    m.sortBy = "SortName"
+    m.sortOrder = "Ascending"
+    if index = 0
+        m.nameStartsWith = ""
+        m.nameLessThan = "A"
+    else
+        m.nameStartsWith = Chr(64 + index)
+        m.nameLessThan = ""
+    end if
+    loadItems(0)
 end sub
 
 sub updateFilterLabel()
     sortLabel = "Name"
     if m.sortBy = "DateCreated"
         sortLabel = "Date Added"
+    else if m.sortBy = "PremiereDate"
+        sortLabel = "Release Date"
     else if m.sortBy = "CommunityRating"
         sortLabel = "Rating"
-    else if m.sortBy = "PlayCount"
-        sortLabel = "Play Count"
+    else if m.sortBy = "Runtime"
+        sortLabel = "Runtime"
     end if
+
+    orderLabel = " (Asc)"
+    if m.sortOrder = "Descending" then orderLabel = " (Desc)"
 
     filterLabel = ""
     if m.filterPlayed = true
@@ -239,7 +258,7 @@ sub updateFilterLabel()
     end if
     if m.filterFavorite = true then filterLabel += " | Favorites"
 
-    m.filterLabel.text = "Sort: " + sortLabel + filterLabel + " | Press * for options"
+    m.filterLabel.text = "Sort: " + sortLabel + orderLabel + filterLabel + " | Press * for options"
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
@@ -298,19 +317,14 @@ sub doShuffle()
     }
 end sub
 
+' The sort/filter options grew past what one dialog holds cleanly, so this is
+' a root chooser that launches a dedicated Sort or Filter dialog (same
+' StandardMessageDialog style as before).
 sub showSortFilterDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Sort & Filter"
     dialog.message = [""]
-    dialog.buttons = [
-        "Sort: Name",
-        "Sort: Date Added",
-        "Sort: Rating",
-        "Filter: All",
-        "Filter: Unwatched",
-        "Filter: Favorites",
-        "Cancel"
-    ]
+    dialog.buttons = ["Sort...", "Filter...", "Cancel"]
     dialog.observeFieldScoped("buttonSelected", "onSortFilterButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -320,7 +334,40 @@ sub onSortFilterButton()
     if dialog = invalid then return
     index = dialog.buttonSelected
     dialog.close = true
+    if index = 0
+        showSortDialog()
+    else if index = 1
+        showFilterDialog()
+    else
+        m.posterGrid.setFocus(true)
+    end if
+end sub
 
+sub showSortDialog()
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Sort"
+    dialog.message = [""]
+    orderBtn = "Order: Ascending"
+    if m.sortOrder = "Descending" then orderBtn = "Order: Descending"
+    dialog.buttons = [
+        "Name",
+        "Date Added",
+        "Release Date",
+        "Rating",
+        "Runtime",
+        orderBtn,
+        "Cancel"
+    ]
+    dialog.observeFieldScoped("buttonSelected", "onSortButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onSortButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    index = dialog.buttonSelected
+    dialog.close = true
+    handled = true
     if index = 0
         m.sortBy = "SortName"
         m.sortOrder = "Ascending"
@@ -328,25 +375,70 @@ sub onSortFilterButton()
         m.sortBy = "DateCreated"
         m.sortOrder = "Descending"
     else if index = 2
-        m.sortBy = "CommunityRating"
+        m.sortBy = "PremiereDate"
         m.sortOrder = "Descending"
     else if index = 3
+        m.sortBy = "CommunityRating"
+        m.sortOrder = "Descending"
+    else if index = 4
+        m.sortBy = "Runtime"
+        m.sortOrder = "Ascending"
+    else if index = 5
+        ' Independent Ascending/Descending toggle — keeps the current sortBy.
+        if m.sortOrder = "Descending"
+            m.sortOrder = "Ascending"
+        else
+            m.sortOrder = "Descending"
+        end if
+    else
+        handled = false
+    end if
+
+    if handled
+        ' Choosing a sort exits any active A-Z letter view.
+        m.nameStartsWith = ""
+        m.nameLessThan = ""
+        loadItems(0)
+    end if
+    m.posterGrid.setFocus(true)
+end sub
+
+sub showFilterDialog()
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Filter"
+    dialog.message = [""]
+    dialog.buttons = ["All", "Unwatched", "Watched", "Favorites", "Cancel"]
+    dialog.observeFieldScoped("buttonSelected", "onFilterButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onFilterButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    index = dialog.buttonSelected
+    dialog.close = true
+    handled = true
+    if index = 0
         m.filterPlayed = invalid
         m.filterFavorite = invalid
-    else if index = 4
+    else if index = 1
         m.filterPlayed = false
         m.filterFavorite = invalid
-    else if index = 5
+    else if index = 2
+        m.filterPlayed = true
+        m.filterFavorite = invalid
+    else if index = 3
         m.filterFavorite = true
         m.filterPlayed = invalid
     else
-        m.posterGrid.setFocus(true)
-        return
+        handled = false
     end if
 
-    if index < 6
+    if handled
+        ' Choosing a filter exits any active A-Z letter view.
+        m.nameStartsWith = ""
+        m.nameLessThan = ""
         loadItems(0)
     end if
-
     m.posterGrid.setFocus(true)
 end sub
