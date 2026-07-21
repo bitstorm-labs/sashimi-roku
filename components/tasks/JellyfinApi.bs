@@ -429,6 +429,10 @@ sub doGetItems(request as object)
     if request.nameStartsWith <> invalid and request.nameStartsWith <> ""
         url += "&NameStartsWith=" + request.nameStartsWith
     end if
+    ' "#" jump-bar bucket: titles that sort before "A" (digits/symbols).
+    if request.nameLessThan <> invalid and request.nameLessThan <> ""
+        url += "&NameLessThan=" + request.nameLessThan
+    end if
 
     result = Http.getJson(url)
 

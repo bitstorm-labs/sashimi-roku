@@ -32,8 +32,11 @@ sub init()
     m.posterGrid.observeFieldScoped("itemSelected", "onItemSelected")
     m.posterGrid.observeFieldScoped("itemFocused", "onItemFocused")
 
-    ' Build alphabet bar
+    ' Build alphabet bar: leading "#" (digits/symbols) then A-Z (27 entries).
     alphaContent = CreateObject("roSGNode", "ContentNode")
+    hashNode = CreateObject("roSGNode", "ContentNode")
+    hashNode.title = "#"
+    alphaContent.appendChild(hashNode)
     for i = 65 to 90
         letter = CreateObject("roSGNode", "ContentNode")
         letter.title = Chr(i)
@@ -208,28 +211,40 @@ end sub
 sub onAlphaSelected()
     index = m.alphaBar.itemSelected
     if index < 0 then return
-    letter = Chr(65 + index)
-    m.apiTask.request = {
+    ' Index 0 is the "#" bucket; A-Z are shifted by one (index 1 = "A").
+    req = {
         action: "getItems"
         parentId: m.libraryId
         sortBy: "SortName"
         sortOrder: "Ascending"
         limit: 50
         startIndex: 0
-        nameStartsWith: letter
         includeItemTypes: m.includeTypes
     }
+    if index = 0
+        req.nameLessThan = "A"
+    else
+        req.nameStartsWith = Chr(64 + index)
+    end if
+    m.apiTask.request = req
 end sub
 
 sub updateFilterLabel()
     sortLabel = "Name"
     if m.sortBy = "DateCreated"
         sortLabel = "Date Added"
+    else if m.sortBy = "PremiereDate"
+        sortLabel = "Release Date"
     else if m.sortBy = "CommunityRating"
         sortLabel = "Rating"
+    else if m.sortBy = "Runtime"
+        sortLabel = "Runtime"
     else if m.sortBy = "PlayCount"
         sortLabel = "Play Count"
     end if
+
+    orderLabel = " (Asc)"
+    if m.sortOrder = "Descending" then orderLabel = " (Desc)"
 
     filterLabel = ""
     if m.filterPlayed = true
@@ -239,7 +254,7 @@ sub updateFilterLabel()
     end if
     if m.filterFavorite = true then filterLabel += " | Favorites"
 
-    m.filterLabel.text = "Sort: " + sortLabel + filterLabel + " | Press * for options"
+    m.filterLabel.text = "Sort: " + sortLabel + orderLabel + filterLabel + " | Press * for options"
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
@@ -298,19 +313,14 @@ sub doShuffle()
     }
 end sub
 
+' The sort/filter options grew past what one dialog holds cleanly, so this is
+' a root chooser that launches a dedicated Sort or Filter dialog (same
+' StandardMessageDialog style as before).
 sub showSortFilterDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Sort & Filter"
     dialog.message = [""]
-    dialog.buttons = [
-        "Sort: Name",
-        "Sort: Date Added",
-        "Sort: Rating",
-        "Filter: All",
-        "Filter: Unwatched",
-        "Filter: Favorites",
-        "Cancel"
-    ]
+    dialog.buttons = ["Sort...", "Filter...", "Cancel"]
     dialog.observeFieldScoped("buttonSelected", "onSortFilterButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -320,7 +330,40 @@ sub onSortFilterButton()
     if dialog = invalid then return
     index = dialog.buttonSelected
     dialog.close = true
+    if index = 0
+        showSortDialog()
+    else if index = 1
+        showFilterDialog()
+    else
+        m.posterGrid.setFocus(true)
+    end if
+end sub
 
+sub showSortDialog()
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Sort"
+    dialog.message = [""]
+    orderBtn = "Order: Ascending"
+    if m.sortOrder = "Descending" then orderBtn = "Order: Descending"
+    dialog.buttons = [
+        "Name",
+        "Date Added",
+        "Release Date",
+        "Rating",
+        "Runtime",
+        orderBtn,
+        "Cancel"
+    ]
+    dialog.observeFieldScoped("buttonSelected", "onSortButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onSortButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    index = dialog.buttonSelected
+    dialog.close = true
+    handled = true
     if index = 0
         m.sortBy = "SortName"
         m.sortOrder = "Ascending"
@@ -328,25 +371,60 @@ sub onSortFilterButton()
         m.sortBy = "DateCreated"
         m.sortOrder = "Descending"
     else if index = 2
-        m.sortBy = "CommunityRating"
+        m.sortBy = "PremiereDate"
         m.sortOrder = "Descending"
     else if index = 3
+        m.sortBy = "CommunityRating"
+        m.sortOrder = "Descending"
+    else if index = 4
+        m.sortBy = "Runtime"
+        m.sortOrder = "Ascending"
+    else if index = 5
+        ' Independent Ascending/Descending toggle — keeps the current sortBy.
+        if m.sortOrder = "Descending"
+            m.sortOrder = "Ascending"
+        else
+            m.sortOrder = "Descending"
+        end if
+    else
+        handled = false
+    end if
+
+    if handled then loadItems(0)
+    m.posterGrid.setFocus(true)
+end sub
+
+sub showFilterDialog()
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Filter"
+    dialog.message = [""]
+    dialog.buttons = ["All", "Unwatched", "Watched", "Favorites", "Cancel"]
+    dialog.observeFieldScoped("buttonSelected", "onFilterButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onFilterButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    index = dialog.buttonSelected
+    dialog.close = true
+    handled = true
+    if index = 0
         m.filterPlayed = invalid
         m.filterFavorite = invalid
-    else if index = 4
+    else if index = 1
         m.filterPlayed = false
         m.filterFavorite = invalid
-    else if index = 5
+    else if index = 2
+        m.filterPlayed = true
+        m.filterFavorite = invalid
+    else if index = 3
         m.filterFavorite = true
         m.filterPlayed = invalid
     else
-        m.posterGrid.setFocus(true)
-        return
+        handled = false
     end if
 
-    if index < 6
-        loadItems(0)
-    end if
-
+    if handled then loadItems(0)
     m.posterGrid.setFocus(true)
 end sub
