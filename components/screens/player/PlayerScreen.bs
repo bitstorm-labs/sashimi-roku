@@ -1,6 +1,7 @@
 import "pkg:/source/utils/AppSettings.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/TimeFormat.bs"
 
 ' tvOS PlayerViewModel parity on Roku. Design rules learned the hard way:
 '  - The screen NEVER gives remote focus to a child node. Every key lands in
@@ -104,6 +105,10 @@ sub init()
     m.curSegment = invalid
     m.skipVisible = false
     m.forceTranscode = false
+    ' Auto-skip guard: each segment is auto-skipped at most once per playback
+    ' (keyed by segType+startSec) so a user who seeks back into it isn't yanked
+    ' forward again — the manual pill still lets them re-skip.
+    m.skippedSegments = {}
 
     ' Seek acceleration
     m.seekSpan = CreateObject("roTimespan")
@@ -163,6 +168,10 @@ end sub
 sub requestStream(item as object)
     req = { action: "getPlaybackStream", itemId: item.Id }
     if m.forceTranscode then req.forceTranscode = true
+    ' Force Direct Play: ask the server for a direct-play/direct-stream source
+    ' and never proactively transcode. The adaptive fallbacks (HLS retry /
+    ' bitrate step-down) are also disabled while this is on (see onVideoState).
+    if AppSettings.forceDirectPlay() then req.forceDirectPlay = true
     req.subtitleStreamIndex = m.curSubIdx
     if m.curAudIdx >= 0 then req.audioStreamIndex = m.curAudIdx
     cap = 0
@@ -260,6 +269,7 @@ sub onStreamReady(r as object)
     buildButtons()
     m.segments = []
     m.curSegment = invalid
+    m.skippedSegments = {}
     hideSkipPill()
     if m.item.Type <> invalid and m.item.Type = "Episode"
         enqueue({ action: "getIntroSegments", itemId: m.item.Id })
@@ -320,9 +330,14 @@ sub onVideoState()
         nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
         if m.startedReported and nearEnd then onPlaybackEnded()
     else if state = "error"
+        ' Force Direct Play opts out of the adaptive transcode fallbacks below:
+        ' log and let the normal playback-error surface instead of silently
+        ' transcoding or stepping the bitrate down.
+        directPlayOnly = AppSettings.forceDirectPlay()
+
         ' Direct-played container the hardware rejected (mkv edge cases):
         ' retry ONCE via forced HLS transcode before surfacing an error.
-        if not m.forceTranscode and m.playMethod <> "Transcode"
+        if not directPlayOnly and not m.forceTranscode and m.playMethod <> "Transcode"
             m.forceTranscode = true
             m.statusLabel.visible = true
             m.statusLabel.text = "Loading..."
@@ -346,7 +361,7 @@ sub onVideoState()
         ' spot before surfacing an error (adaptive fallback for weak remote
         ' downstreams). A finish/error genuinely near the end is not a stall.
         nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
-        if m.startedReported and not nearEnd and m.stepDownIdx < (m.stepDownTiers.count() - 1)
+        if not directPlayOnly and m.startedReported and not nearEnd and m.stepDownIdx < (m.stepDownTiers.count() - 1)
             m.stepDownIdx = m.stepDownIdx + 1
             m.stepDownBps = m.stepDownTiers[m.stepDownIdx]
             m.pendingStartSecs = Int(m.lastPosition)
@@ -357,6 +372,7 @@ sub onVideoState()
             return
         end if
 
+        if directPlayOnly then print "[Player] Force Direct Play on - skipping HLS/step-down fallback; surfacing playback error"
         m.statusLabel.visible = true
         m.statusLabel.text = "Playback error."
         m.progressTimer.control = "stop"
@@ -387,10 +403,29 @@ sub checkSegment(posSecs as dynamic)
         end if
     end for
     if active <> invalid
+        ' Auto-Skip Intro/Credits: when the matching setting is ON, seek past
+        ' the segment automatically the first time we enter it. The guard means
+        ' seeking back in shows the manual pill again but never re-yanks.
+        isCredits = (LCase(active.segType) = "credits")
+        autoSkip = false
+        if isCredits
+            autoSkip = AppSettings.autoSkipCredits()
+        else
+            autoSkip = AppSettings.autoSkipIntro()
+        end if
+        segKey = active.segType + "_" + Int(active.startSec).toStr()
+        if autoSkip and not m.skippedSegments.DoesExist(segKey)
+            m.skippedSegments[segKey] = true
+            m.seeking = false
+            m.video.seek = active.endSec
+            m.curSegment = invalid
+            hideSkipPill()
+            return
+        end if
         if m.curSegment = invalid or m.curSegment.segType <> active.segType
             m.curSegment = active
             label = "Skip Intro"
-            if LCase(active.segType) = "credits" then label = "Skip Credits"
+            if isCredits then label = "Skip Credits"
             m.skipPillLabel.text = label + "  " + Chr(8226) + "  OK"
             m.skipPill.visible = true
             m.skipVisible = true
@@ -973,15 +1008,10 @@ function formatTime(totalSecs as dynamic) as string
     return mins.toStr() + ":" + ss
 end function
 
+' 24-Hour Time setting is honored via the shared TimeFormat helper (OSD clock
+' + "Finishes at"); 24h -> "21:41", 12h -> "9:41 PM".
 function formatClock(h24 as integer, minute as integer) as string
-    ampm = "AM"
-    h = h24
-    if h >= 12 then ampm = "PM"
-    if h = 0 then h = 12
-    if h > 12 then h = h - 12
-    mm = minute.toStr()
-    if minute < 10 then mm = "0" + mm
-    return h.toStr() + ":" + mm + " " + ampm
+    return TimeFormat.clock(h24, minute)
 end function
 
 ' ---------- Reporting ----------

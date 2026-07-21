@@ -1,6 +1,7 @@
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/YouTube.bs"
+import "pkg:/source/utils/TimeFormat.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/genres/overview)
@@ -276,14 +277,8 @@ sub setHeader(item as object)
             totalMin = dt.GetHours() * 60 + dt.GetMinutes() + Int(item.RunTimeTicks / 600000000)
             eh = (totalMin \ 60) mod 24
             em = totalMin mod 60
-            ampm = "AM"
-            h12 = eh
-            if h12 >= 12 then ampm = "PM"
-            if h12 = 0 then h12 = 12
-            if h12 > 12 then h12 = h12 - 12
-            ems = em.toStr()
-            if em < 10 then ems = "0" + ems
-            m.endsAtText = "Ends at " + h12.toStr() + ":" + ems + " " + ampm
+            ' 24-Hour Time setting honored via shared helper
+            m.endsAtText = "Ends at " + TimeFormat.clock(eh, em)
         end if
     else if m.itemType = "Series"
         if item.ProductionYear <> invalid then meta.push(str(item.ProductionYear).Trim())
@@ -312,14 +307,8 @@ sub setHeader(item as object)
             totalMin2 = dt2.GetHours() * 60 + dt2.GetMinutes() + Int(item.RunTimeTicks / 600000000)
             eh2 = (totalMin2 \ 60) mod 24
             em2 = totalMin2 mod 60
-            ampm2 = "AM"
-            h122 = eh2
-            if h122 >= 12 then ampm2 = "PM"
-            if h122 = 0 then h122 = 12
-            if h122 > 12 then h122 = h122 - 12
-            ems2 = em2.toStr()
-            if em2 < 10 then ems2 = "0" + ems2
-            m.endsAtText = "Ends at " + h122.toStr() + ":" + ems2 + " " + ampm2
+            ' 24-Hour Time setting honored via shared helper
+            m.endsAtText = "Ends at " + TimeFormat.clock(eh2, em2)
         end if
     end if
     metaStr = ""
