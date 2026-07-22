@@ -697,6 +697,7 @@ sub doGetPlaybackStream(request as object)
     audTracks = []
     videoRes = ""
     videoCodec = ""
+    srcVideoBps = 0   ' source video stream bitrate, for the delivered-rate calc
     if ms.MediaStreams <> invalid
         for each s in ms.MediaStreams
             t = ""
@@ -726,11 +727,29 @@ sub doGetPlaybackStream(request as object)
                     videoRes = str(h).Trim() + "p"
                 end if
                 if s.Codec <> invalid then videoCodec = UCase(s.Codec)
+                if s.BitRate <> invalid then srcVideoBps = s.BitRate
                 ' Fall back to the video stream's own bitrate when the source
                 ' omits an overall Bitrate, so the OSD speed chip is never blank
                 if msBitrate = 0 and s.BitRate <> invalid then msBitrate = s.BitRate
             end if
         end for
+    end if
+
+    ' Chip bitrate = what's actually DELIVERED, not the source file's rate.
+    ' Direct Play/Stream deliver the source untouched, so msBitrate (source) is
+    ' right. A transcode delivers the target instead: video = min(source,
+    ' target) — the min covers both an audio-only transcode (video COPIED at
+    ' the source rate) and a real re-encode (video capped at the lower target,
+    ' e.g. burn-in subtitles) — plus the transcoded audio target. Parsed from
+    ' the TranscodingUrl's VideoBitrate/AudioBitrate params (no extra request).
+    if playMethod = "Transcode"
+        tVid = urlIntParam(streamUrl, "VideoBitrate")
+        tAud = urlIntParam(streamUrl, "AudioBitrate")
+        if tVid > 0
+            dv = tVid
+            if srcVideoBps > 0 and srcVideoBps < dv then dv = srcVideoBps
+            msBitrate = dv + tAud
+        end if
     end if
 
     m.top.response = {
@@ -749,6 +768,18 @@ sub doGetPlaybackStream(request as object)
         bitrate: msBitrate
     }
 end sub
+
+' Extract an integer query-string parameter (e.g. VideoBitrate) from a URL.
+' Returns 0 when absent.
+function urlIntParam(url as string, key as string) as integer
+    marker = key + "="
+    p = Instr(1, url, marker)
+    if p = 0 then return 0
+    rest = Mid(url, p + Len(marker))
+    amp = Instr(1, rest, "&")
+    if amp > 0 then rest = Left(rest, amp - 1)
+    return Int(Val(rest))
+end function
 
 ' Resolve a server-relative path (TranscodingUrl/DirectStreamUrl already carry
 ' their own query string incl. api_key) against the server base.
