@@ -309,6 +309,10 @@ sub onVideoState()
         m.statusLabel.visible = false
         m.isPaused = false
         updatePlayPauseUi()
+        ' Give a fresh auto-hide countdown once playback (re)starts while the
+        ' OSD is up — covers unpausing and slow reloads (subtitle burn-in) that
+        ' outlast the initial one-shot timer.
+        if m.osdVisible and m.zone <> "menu" then bumpOsd()
         if not m.startedReported
             m.startedReported = true
             report("reportStart", currentTicks(), false)
@@ -330,6 +334,11 @@ sub onVideoState()
         nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
         if m.startedReported and nearEnd then onPlaybackEnded()
     else if state = "error"
+        ' Roku Video node error detail — the only reliable signal for WHY a
+        ' stream was rejected (codec/level/segment/network). Logged for support.
+        ei = m.video.errorInfo
+        print "[Player] VIDEO ERROR code="; m.video.errorCode; " msg="; m.video.errorMsg; " method="; m.playMethod; " started="; m.startedReported
+        if ei <> invalid then print "[Player] errorInfo: "; formatJson(ei)
         ' Force Direct Play opts out of the adaptive transcode fallbacks below:
         ' log and let the normal playback-error surface instead of silently
         ' transcoding or stepping the bitrate down. Exception: if the stream
@@ -359,15 +368,34 @@ sub onVideoState()
             return
         end if
 
-        ' Mid-stream error after playback started = a bandwidth stall the Roku
-        ' couldn't ride out. Step the bitrate down and resume from the same
-        ' spot before surfacing an error (adaptive fallback for weak remote
-        ' downstreams). A finish/error genuinely near the end is not a stall.
+        ' Bitrate step-down. Two triggers:
+        '  (a) a mid-stream stall after playback started (weak downstream the
+        '      Roku couldn't ride out — it hard-errors where AVPlayer rebuffers), OR
+        '  (b) a transcode that ERRORED BEFORE IT EVER STARTED. When a file's
+        '      video is already h264, a high bitrate cap makes the server
+        '      stream-COPY the video (only the audio is transcoded, e.g. DTS->AAC).
+        '      A low-power device (the onn soundbar) then can't begin a ~15Mbps
+        '      1080p stream and errors at t=0 with no position to resume from.
+        '      Stepping the cap down forces the server to RE-ENCODE the video to
+        '      a bitrate the hardware can actually start. (Same file plays on
+        '      iPad, which has no trouble with 15Mbps — this is device-specific.)
+        ' A finish/error genuinely near the end is not a stall.
         nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
-        if not directPlayOnly and m.startedReported and not nearEnd and m.stepDownIdx < (m.stepDownTiers.count() - 1)
+        onTranscode = (m.playMethod = "Transcode" or m.forceTranscode)
+        stallAfterStart = (m.startedReported and not nearEnd)
+        coldTranscodeFail = (not m.startedReported and onTranscode)
+        if not directPlayOnly and (stallAfterStart or coldTranscodeFail) and m.stepDownIdx < (m.stepDownTiers.count() - 1)
             m.stepDownIdx = m.stepDownIdx + 1
             m.stepDownBps = m.stepDownTiers[m.stepDownIdx]
-            m.pendingStartSecs = Int(m.lastPosition)
+            ' Resume where we were on a mid-stream stall; on a cold t=0 fail
+            ' honor the original play/resume intent (lastPosition is still 0).
+            if m.startedReported
+                m.pendingStartSecs = Int(m.lastPosition)
+            else if m.top.playAction <> "play"
+                m.pendingStartSecs = resumeSeconds()
+            else
+                m.pendingStartSecs = 0
+            end if
             m.statusLabel.visible = true
             m.statusLabel.text = "Adjusting quality..."
             m.video.control = "stop"
@@ -488,9 +516,14 @@ end sub
 
 sub onOsdTimer()
     ' Auto-fade like tvOS: hide from any zone after inactivity while playing.
-    ' Menus never auto-close (the timer is stopped while one is open).
-    if m.isPaused then return
-    if m.zone = "menu" then return
+    ' osdTimer is one-shot (repeat=false). If we can't hide yet — paused, a
+    ' menu is open, or a mid-playback reload (e.g. a subtitle burn-in) is still
+    ' buffering — we must RESCHEDULE rather than fall through, otherwise the
+    ' timer dies and the OSD sticks on screen until it's dismissed by hand.
+    if m.isPaused or m.zone = "menu" or m.video.state <> "playing"
+        m.osdTimer.control = "start"
+        return
+    end if
     hideOsd()
 end sub
 
