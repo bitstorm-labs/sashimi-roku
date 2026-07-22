@@ -660,7 +660,16 @@ sub showMoreDialog()
     else
         dialog.message = [""]
     end if
-    dialog.buttons = [favLabel, "Cancel"]
+    buttons = [favLabel]
+    ' Episodes: marking just this episode watched only advances Next Up to
+    ' the next episode — the show never leaves Continue Watching. Marking the
+    ' SERIES watched is the only Jellyfin mechanism that removes it
+    ' (verified against 10.11; there is no hide-from-next-up endpoint).
+    if m.itemType = "Episode" and m.item.SeriesId <> invalid
+        buttons.push("Mark Series as Watched")
+    end if
+    buttons.push("Cancel")
+    dialog.buttons = buttons
     dialog.observeFieldScoped("buttonSelected", "onMoreDialogButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -670,11 +679,17 @@ sub onMoreDialogButton()
     if dialog = invalid then return
     idx = dialog.buttonSelected
     dialog.close = true
+    hasSeriesBtn = (m.itemType = "Episode" and m.item.SeriesId <> invalid)
     if idx = 0
         act = "markFavorite"
         if m.item.UserData <> invalid and m.item.UserData.IsFavorite = true then act = "removeFavorite"
         enqueue({ action: act, itemId: m.item.Id })
         enqueue({ action: "getItem", itemId: m.item.Id })
+    else if idx = 1 and hasSeriesBtn
+        ' Mark the whole series watched -> the show leaves Continue Watching.
+        enqueue({ action: "markPlayed", itemId: m.item.SeriesId })
+        enqueue({ action: "getItem", itemId: m.item.Id })
+        m.global.toastMessage = { message: "Series marked as watched" }
     end if
     focusZone("buttons")
 end sub
