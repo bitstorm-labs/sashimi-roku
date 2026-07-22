@@ -309,6 +309,10 @@ sub onVideoState()
         m.statusLabel.visible = false
         m.isPaused = false
         updatePlayPauseUi()
+        ' Give a fresh auto-hide countdown once playback (re)starts while the
+        ' OSD is up — covers unpausing and slow reloads (subtitle burn-in) that
+        ' outlast the initial one-shot timer.
+        if m.osdVisible and m.zone <> "menu" then bumpOsd()
         if not m.startedReported
             m.startedReported = true
             report("reportStart", currentTicks(), false)
@@ -512,9 +516,14 @@ end sub
 
 sub onOsdTimer()
     ' Auto-fade like tvOS: hide from any zone after inactivity while playing.
-    ' Menus never auto-close (the timer is stopped while one is open).
-    if m.isPaused then return
-    if m.zone = "menu" then return
+    ' osdTimer is one-shot (repeat=false). If we can't hide yet — paused, a
+    ' menu is open, or a mid-playback reload (e.g. a subtitle burn-in) is still
+    ' buffering — we must RESCHEDULE rather than fall through, otherwise the
+    ' timer dies and the OSD sticks on screen until it's dismissed by hand.
+    if m.isPaused or m.zone = "menu" or m.video.state <> "playing"
+        m.osdTimer.control = "start"
+        return
+    end if
     hideOsd()
 end sub
 
