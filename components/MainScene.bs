@@ -39,6 +39,10 @@ sub init()
     ' Multi-server: migrate legacy single auth, observe switch requests
     Servers.migrate()
     m.global.addFields({ switchServerId: "" })
+    ' Set by detail screens after a watched-state mutation; Home consumes it to
+    ' refresh immediately on return (bypassing the 20s debounce) so Continue
+    ' Watching never shows a stale just-dismissed show.
+    m.global.addFields({ watchStateDirty: false })
     m.global.observeFieldScoped("switchServerId", "onSwitchServer")
 
     m.pendingDeepLink = invalid

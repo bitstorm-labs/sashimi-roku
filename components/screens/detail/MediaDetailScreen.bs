@@ -107,6 +107,9 @@ sub onApiResponse()
     else if action = "markPlayed" or action = "markUnplayed"
         if response.success and m.item <> invalid
             m.global.toastMessage = { message: "Updated" }
+            ' Home must refresh on return even inside its 20s debounce —
+            ' the just-toggled show otherwise lingers in Continue Watching.
+            m.global.watchStateDirty = true
             enqueue({ action: "getItem", itemId: m.item.Id })
         end if
     else if action = "getItems"
