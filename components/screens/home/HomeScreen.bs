@@ -89,7 +89,9 @@ sub onFocusDelegate()
         ' NEVER reload while a build chain is in flight: two interleaved chains
         ' shuffle row indices and corrupt every row's layout/content.
         now = CreateObject("roDateTime").AsSeconds()
-        if m.lastLoadTime <> invalid and (now - m.lastLoadTime) > 20
+        dirty = (m.global.watchStateDirty = true)
+        if dirty then m.global.watchStateDirty = false
+        if dirty or (m.lastLoadTime <> invalid and (now - m.lastLoadTime) > 20)
             if m.chainBusy
                 m.reloadPending = true
             else
