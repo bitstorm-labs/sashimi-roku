@@ -5,19 +5,29 @@
         <field id="focusPercent" type="float" onChange="onFocusChanged" />
     </interface>
     <children>
-        <!-- Focus ring (behind poster, slightly larger) -->
-        <Rectangle id="focusRing" width="220" height="325" translation="[-5, -5]" color="#FFFFFF" opacity="0.0" />
-        <Rectangle id="cardBg" width="210" height="315" color="#121215" />
-        <Rectangle id="dimOverlay" width="210" height="315" color="#000000" opacity="0.25" />
-        <Poster
-            id="posterImage"
-            width="210"
-            height="315"
-            loadWidth="210"
-            loadHeight="315"
-            loadDisplayMode="scaleToZoom"
-            scaleRotateCenter="[105, 157]"
-        />
+        <!-- Poster with rounded corners (r12, matching HomeItem); the mask
+             group scales as a unit on focus. cardBg + dimOverlay live inside so
+             they're clipped to the same rounded corners (a square cardBg behind
+             makes dark posters read as square-cornered). -->
+        <MaskGroup id="posterMask" maskUri="pkg:/images/poster_mask_r12.png"
+                   maskSize="[210, 315]" scaleRotateCenter="[105, 157]">
+            <Rectangle id="cardBg" width="210" height="315" color="#121215" />
+            <Poster
+                id="posterImage"
+                width="210"
+                height="315"
+                loadWidth="210"
+                loadHeight="315"
+                loadDisplayMode="scaleToZoom"
+            />
+            <Rectangle id="dimOverlay" width="210" height="315" color="#000000" opacity="0.25" />
+        </MaskGroup>
+        <!-- Rounded focus ring ON TOP at the exact card bounds so it hugs the
+             rounded corners without spilling past the grid cell (which clips).
+             Scales with the poster on focus. -->
+        <Poster id="focusRing" uri="pkg:/images/focus_ring_r16.9.png"
+                width="210" height="315" translation="[0, 0]"
+                scaleRotateCenter="[105, 157]" opacity="0.0" />
         <!-- Quality badge (bottom-right; 4K = Jellyfin purple, HD/SD = dark slate) -->
         <Rectangle id="qualityBg" width="50" height="30" translation="[152, 277]" color="#0A0A10C8" visible="false" />
         <Label id="qualityLabel" text="" color="#FFFFFFFF" horizAlign="center" vertAlign="center"
