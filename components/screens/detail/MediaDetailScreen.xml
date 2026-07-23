@@ -32,6 +32,13 @@
                     loadDisplayMode="scaleToZoom" />
         </MaskGroup>
 
+        <!-- YouTube channel name beside the avatar (tvOS parity). Vertically
+             centered on the 120px avatar (y 60-180): height 48 at y=96. -->
+        <Label id="channelLabel" text="" color="#BFBFBF" width="1100" maxLines="1"
+               height="48" vertAlign="center" translation="[210, 96]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="32" />
+        </Label>
+
         <Label id="titleLabel" text="" color="#FFFFFF" width="1000" maxLines="2" translation="[60, 250]">
             <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="38" />
         </Label>
