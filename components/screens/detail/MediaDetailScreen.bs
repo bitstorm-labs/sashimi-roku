@@ -779,6 +779,10 @@ sub onEpisodesLoaded(response as object)
         else if ep.SeriesId <> invalid
             child.HDPosterUrl = ImageUrl.primary(ep.SeriesId, 480)
         end if
+        ' Carry the YouTube flag into each episode so opening one from a
+        ' channel's detail keeps the channel avatar + name header (the fetched
+        ' episode alone may not self-detect as YouTube).
+        if m.isYouTube then ep._forceYouTube = true
         child.itemJson = FormatJSON(ep)
         if ep.UserData <> invalid
             if ep.UserData.Played <> invalid then child.isPlayed = ep.UserData.Played
