@@ -493,6 +493,12 @@ sub addContinueWatchingRow(items as object)
 
         child.addFields({ itemJson: "", isPlayed: false, playedPercentage: 0, remainingText: "", badgeCount: 0 })
         child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
+        ' Explicit card style so HomeItem knows this is a landscape CW card from
+        ' the CONTENT (onItemContentChanged always fires on recycle), not from a
+        ' width-change side-channel (onSizeChanged only fires when width changes,
+        ' so a recycled portrait cell reused here could keep stale portrait state
+        ' and wrongly show quality/rating chips).
+        child.addFields({ cardStyle: "landscape" })
         child.itemJson = FormatJSON(item)
         child.remainingText = formatRemaining(item)
 
@@ -722,24 +728,29 @@ sub showRows()
             itemSpacings.push([40, 0])
         end if
     end for
-    m.rowList.rowItemSize = itemSizes
-    m.rowList.rowItemSpacing = itemSpacings
-
     ' Force a clean re-layout on reload: nil the content, then set it back on
     ' the NEXT tick (relayoutTimer). Setting it synchronously right after nil
     ' doesn't give the RowList a render pass to discard recycled item
-    ' components, so a reload-on-return reused a portrait cell for a landscape
-    ' Continue Watching card — the wrong width stuck and the card rendered
-    ' portrait (with a stray quality/rating chip). Deferring guarantees the
-    ' new rowItemSize is committed to fresh cells.
+    ' components. Critically, rowItemSize is (re)applied AFTER the content lands
+    ' (in onRelayoutFire), not before — assigning rowItemSize to an already-
+    ' populated RowList is what forces it to re-measure every row, so a recycled
+    ' portrait cell reused for the landscape CW row actually gets the 440 width
+    ' instead of keeping its stale 220 (which rendered the CW card portrait with
+    ' stray quality/rating chips).
     m.rowList.content = invalid
     m.pendingRowContent = m.rowContent
+    m.pendingRowItemSizes = itemSizes
+    m.pendingRowSpacings = itemSpacings
     m.relayoutTimer.control = "start"
 end sub
 
 sub onRelayoutFire()
     if m.pendingRowContent = invalid then return
     m.rowList.content = m.pendingRowContent
+    ' rowItemSize AFTER content -> RowList re-measures all rows against fresh
+    ' sizes, resizing any recycled cells to their new row's width.
+    m.rowList.rowItemSize = m.pendingRowItemSizes
+    m.rowList.rowItemSpacing = m.pendingRowSpacings
     m.pendingRowContent = invalid
     m.rowList.visible = true
     ' Take focus only if home already owns it (background refreshes must
