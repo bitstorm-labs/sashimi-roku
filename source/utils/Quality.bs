@@ -33,4 +33,12 @@ namespace Quality
         return ""
     end function
 
+    ' Community (TMDb) review rating for cover art. Returns the raw 0-10 float
+    ' (0.0 when the item has no rating) so callers can gate on > 0.
+    function rating(item as object) as float
+        if item = invalid then return 0.0
+        if item.CommunityRating = invalid then return 0.0
+        return item.CommunityRating
+    end function
+
 end namespace
