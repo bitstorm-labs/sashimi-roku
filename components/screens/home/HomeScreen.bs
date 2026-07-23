@@ -348,15 +348,21 @@ end sub
 
 sub onItemsByIdsLoaded(response as object)
     badges = {}
+    ratings = {}
     if response.success and response.items <> invalid
         for each s in response.items
             if s.UserData <> invalid and s.UserData.UnplayedItemCount <> invalid
                 badges[s.Id] = s.UserData.UnplayedItemCount
             end if
+            ' Series' overall rating, so episode cards can show it instead of the
+            ' episode's own rating (the card renders the series poster + name).
+            if s.CommunityRating <> invalid
+                ratings[s.Id] = s.CommunityRating
+            end if
         end for
     end if
     if m.pendingRow <> invalid
-        addRow(m.pendingRow.title, m.pendingRow.items, m.pendingRow.isYouTube, badges)
+        addRow(m.pendingRow.title, m.pendingRow.items, m.pendingRow.isYouTube, badges, ratings)
         m.pendingRow = invalid
     end if
     advanceLatest()
@@ -496,7 +502,7 @@ sub addContinueWatchingRow(items as object)
     end for
 end sub
 
-sub addRow(title as string, items as object, isYouTube = false as boolean, badgeMap = invalid as dynamic)
+sub addRow(title as string, items as object, isYouTube = false as boolean, badgeMap = invalid as dynamic, ratingMap = invalid as dynamic)
     if m.rowContent = invalid then return
 
     rowIndex = m.rowContent.getChildCount()
@@ -568,6 +574,19 @@ sub addRow(title as string, items as object, isYouTube = false as boolean, badge
         if isYouTube then item._forceYouTube = true
         child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
         child.itemJson = FormatJSON(item)
+
+        ' Episode cards render the SERIES poster + name, so they must show the
+        ' SERIES' overall rating (not the episode's) when the user hasn't opted
+        ' into episode ratings. Plumb seriesRating only for episode items; the
+        ' series rating comes from the same batched lookup used for badges (no
+        ' extra API call). Absent from the map -> 0 (rating chip hidden), so an
+        ' episode's own rating never leaks onto a series poster.
+        if item.SeriesId <> invalid and item.SeriesId <> "" and not isYouTube
+            child.addFields({ seriesRating: 0.0 })
+            if ratingMap <> invalid and ratingMap.DoesExist(item.SeriesId)
+                child.seriesRating = ratingMap[item.SeriesId]
+            end if
+        end if
 
         if item.UserData <> invalid
             if item.UserData.Played <> invalid and item.UserData.Played = true
