@@ -1,5 +1,6 @@
 sub init()
     m.focusRing = m.top.findNode("focusRing")
+    m.posterMask = m.top.findNode("posterMask")
     m.posterImage = m.top.findNode("posterImage")
     m.dimOverlay = m.top.findNode("dimOverlay")
     m.titleLabel = m.top.findNode("titleLabel")
@@ -95,7 +96,8 @@ sub onFocusChanged()
         return
     end if
     scale = 1.0 + (fp * 0.05)
-    m.posterImage.scale = [scale, scale]
+    ' Scale the rounded mask group as a unit (not the raw poster inside it).
+    m.posterMask.scale = [scale, scale]
     m.dimOverlay.opacity = 0.3 - (fp * 0.3)
     m.focusRing.opacity = fp * 0.9
     if fp > 0.5

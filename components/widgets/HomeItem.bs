@@ -9,10 +9,7 @@ sub init()
     m.circularMask = m.top.findNode("circularMask")
     m.circularPoster = m.top.findNode("circularPoster")
     m.circularGlow = m.top.findNode("circularGlow")
-    m.focusTop = m.top.findNode("focusTop")
-    m.focusBottom = m.top.findNode("focusBottom")
-    m.focusLeft = m.top.findNode("focusLeft")
-    m.focusRight = m.top.findNode("focusRight")
+    m.focusRing = m.top.findNode("focusRing")
     m.watchedBadge = m.top.findNode("watchedBadge")
     m.newBadge = m.top.findNode("newBadge")
     m.newBadgeLabel = m.top.findNode("newBadgeLabel")
@@ -56,12 +53,9 @@ sub onSizeChanged()
     m.posterImage.height = m.posterHeight
     m.posterImage.loadWidth = w
     m.posterImage.loadHeight = m.posterHeight
-    m.focusTop.width = w
-    m.focusBottom.width = w
-    m.focusBottom.translation = [0, m.posterHeight - 4]
-    m.focusLeft.height = m.posterHeight
-    m.focusRight.height = m.posterHeight
-    m.focusRight.translation = [w - 4, 0]
+    m.focusRing.width = w + 8
+    m.focusRing.height = m.posterHeight + 8
+    m.focusRing.translation = [-4, -4]
     m.watchedBadge.translation = [w - 35, 6]
     m.newBadge.translation = [w - 48, 6]
     m.newBadgeLabel.translation = [w - 48, 6]
@@ -145,10 +139,7 @@ sub onItemContentChanged()
     end if
 
     ' Reset state
-    m.focusTop.opacity = 0.0
-    m.focusBottom.opacity = 0.0
-    m.focusLeft.opacity = 0.0
-    m.focusRight.opacity = 0.0
+    m.focusRing.opacity = 0.0
     m.watchedBadge.visible = false
     m.newBadge.visible = false
     m.newBadgeLabel.visible = false
@@ -165,10 +156,7 @@ sub onItemContentChanged()
         m.circularGlow.visible = true
         m.circularGlow.opacity = 0.0
         m.cardBg.visible = false
-        m.focusTop.visible = false
-        m.focusBottom.visible = false
-        m.focusLeft.visible = false
-        m.focusRight.visible = false
+        m.focusRing.visible = false
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.circularPoster.uri = content.HDPosterUrl
         end if
@@ -183,10 +171,7 @@ sub onItemContentChanged()
         m.circularMask.visible = false
         m.circularGlow.visible = false
         m.cardBg.visible = true
-        m.focusTop.visible = true
-        m.focusBottom.visible = true
-        m.focusLeft.visible = true
-        m.focusRight.visible = true
+        m.focusRing.visible = true
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.posterImage.uri = content.HDPosterUrl
         end if
@@ -262,15 +247,9 @@ sub applyFocusVisuals(fp as float)
 
     ' tvOS: accent stroke fades in with focus; no dimming of unfocused cards
     if fp > 0.1
-        m.focusTop.opacity = fp
-        m.focusBottom.opacity = fp
-        m.focusLeft.opacity = fp
-        m.focusRight.opacity = fp
+        m.focusRing.opacity = fp
     else
-        m.focusTop.opacity = 0.0
-        m.focusBottom.opacity = 0.0
-        m.focusLeft.opacity = 0.0
-        m.focusRight.opacity = 0.0
+        m.focusRing.opacity = 0.0
     end if
 end sub
 

@@ -46,11 +46,11 @@
             <!-- Circular focus ring -->
             <Poster id="circularGlow" width="200" height="200"
                     uri="pkg:/images/circle_ring.png" opacity="0.0" visible="false" />
-            <!-- Rectangular focus border (tvOS: accent stroke 4) -->
-            <Rectangle id="focusTop" width="220" height="4" color="#FFFFFF" opacity="0.0" />
-            <Rectangle id="focusBottom" width="220" height="4" color="#FFFFFF" opacity="0.0" translation="[0, 326]" />
-            <Rectangle id="focusLeft" width="4" height="330" color="#FFFFFF" opacity="0.0" />
-            <Rectangle id="focusRight" width="4" height="330" color="#FFFFFF" opacity="0.0" translation="[216, 0]" />
+            <!-- Rounded focus ring (tvOS: accent stroke) — one 9-patch that
+                 hugs the poster's rounded corners instead of a square 4-rect
+                 border. Sized in onSizeChanged for portrait vs landscape. -->
+            <Poster id="focusRing" uri="pkg:/images/focus_ring_r16.9.png"
+                    width="228" height="338" translation="[-4, -4]" opacity="0.0" />
             <!-- Quality badge (bottom-right; 4K = Jellyfin purple, HD/SD = dark slate) -->
             <Rectangle id="qualityBg" width="52" height="32" translation="[160, 290]" color="#0A0A10C8" visible="false" />
             <Label id="qualityLabel" text="" color="#FFFFFFFF" horizAlign="center" vertAlign="center"
