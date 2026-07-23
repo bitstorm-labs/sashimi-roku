@@ -57,6 +57,8 @@ sub processRequest()
         doGetItems(request)
     else if action = "getItem"
         doGetItem(request)
+    else if action = "getAncestors"
+        doGetAncestors(request)
     else if action = "getLocalTrailers"
         doGetLocalTrailers(request)
     else if action = "getSeasons"
@@ -478,6 +480,20 @@ sub doGetItem(request as object)
     else
         m.top.response = { success: false, action: "getItem", error: "Could not load item.", context: ctx }
     end if
+end sub
+
+' Ancestor chain up to the library (CollectionFolder). Used to identify a
+' YouTube item that carries no self-signal (Pinchflat channel not named
+' "… - Videos", path without "youtube") when it arrives via deep link / Top
+' Shelf with no originating flag. Returns a JSON array of ancestors.
+sub doGetAncestors(request as object)
+    itemId = request.itemId
+    url = Http.apiUrl("/Items/" + itemId + "/Ancestors")
+    url += "?UserId=" + m.global.userId
+    result = Http.getJson(url)
+    ancestors = []
+    if result <> invalid and GetInterface(result, "ifArray") <> invalid then ancestors = result
+    m.top.response = { success: true, action: "getAncestors", items: ancestors, itemId: itemId }
 end sub
 
 ' Local trailer files (from Trailarr etc.) that Jellyfin exposes as playable
