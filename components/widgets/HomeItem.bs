@@ -53,9 +53,13 @@ sub onSizeChanged()
     m.posterImage.height = m.posterHeight
     m.posterImage.loadWidth = w
     m.posterImage.loadHeight = m.posterHeight
-    m.focusRing.width = w + 8
-    m.focusRing.height = m.posterHeight + 8
-    m.focusRing.translation = [-4, -4]
+    ' Ring sits at the EXACT card bounds (not larger/offset) so it can't spill
+    ' past the RowList cell and get clipped ("cut off in spots"). The 9-patch
+    ' stroke hugs the poster's rounded edge; it's on top of the poster and
+    ' inside scaleGroup, so it scales with the card.
+    m.focusRing.width = w
+    m.focusRing.height = m.posterHeight
+    m.focusRing.translation = [0, 0]
     m.watchedBadge.translation = [w - 35, 6]
     m.newBadge.translation = [w - 48, 6]
     m.newBadgeLabel.translation = [w - 48, 6]
