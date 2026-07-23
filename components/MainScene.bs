@@ -77,7 +77,9 @@ sub processDeepLink()
     while m.navStack.count() > 0
         popScreen()
     end while
-    item = { Id: dl.contentId }
+    ' _deepLink lets the detail resolve YouTube-ness from the library ancestor
+    ' (no originating flag exists on a deep-link / Top Shelf entry).
+    item = { Id: dl.contentId, _deepLink: true }
     screen = createObject("roSGNode", "MediaDetailScreen")
     if screen = invalid then return
     screen.observeFieldScoped("selectedItem", "onItemSelected")

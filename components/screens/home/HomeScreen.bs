@@ -499,6 +499,13 @@ sub addContinueWatchingRow(items as object)
         ' so a recycled portrait cell reused here could keep stale portrait state
         ' and wrongly show quality/rating chips).
         child.addFields({ cardStyle: "landscape" })
+        ' Thread the YouTube flag onto the serialized item (like the library,
+        ' Library, and Search rows do) so the detail screen shows the channel
+        ' avatar + name. Without it, a YouTube video resumed from Continue
+        ' Watching reaches the detail with no reliable YouTube signal (getItem
+        ' may lack Path, and channels aren't always named " - Videos"), so it
+        ' rendered as a plain episode with a missing series-logo header.
+        if isYouTubeItem then item._forceYouTube = true
         child.itemJson = FormatJSON(item)
         child.remainingText = formatRemaining(item)
 
