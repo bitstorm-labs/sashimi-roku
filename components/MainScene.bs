@@ -22,6 +22,7 @@ sub init()
         measuredBitrate: 0
         showQualityBadges: (AppSettings.read("showQualityBadges", "true") = "true")
         showReviewRatings: (AppSettings.read("showReviewRatings", "true") = "true")
+        useEpisodeRatings: (AppSettings.read("useEpisodeRatings", "false") = "true")
     })
 
     initDeviceId()

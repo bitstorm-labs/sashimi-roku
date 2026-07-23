@@ -39,6 +39,12 @@ end sub
 sub applyRatingBadge(content as object)
     rating = 0.0
     if content <> invalid and content.doesExist("communityRating") and content.communityRating <> invalid then rating = content.communityRating
+    ' Episode cards show the SERIES poster, so prefer the SERIES' overall rating
+    ' over the episode's unless the user opted into episode-level ratings.
+    ' seriesRating is only plumbed onto episode cards (>= 0 = series rating).
+    if content <> invalid and not m.global.useEpisodeRatings and content.doesExist("seriesRating") and content.seriesRating <> invalid
+        rating = content.seriesRating
+    end if
     show = (rating > 0 and not m.isCircular and m.global.showReviewRatings = true)
     m.ratingMask.visible = show
     m.tmdbLogo.visible = show
