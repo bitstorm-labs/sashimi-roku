@@ -5,12 +5,13 @@
         <field id="focusPercent" type="float" onChange="onFocusChanged" />
     </interface>
     <children>
-        <Rectangle id="cardBg" width="210" height="315" color="#121215" />
         <!-- Poster with rounded corners (r12, matching HomeItem); the mask
-             group scales as a unit on focus. dimOverlay lives inside so it's
-             clipped to the same rounded corners. -->
+             group scales as a unit on focus. cardBg + dimOverlay live inside so
+             they're clipped to the same rounded corners (a square cardBg behind
+             makes dark posters read as square-cornered). -->
         <MaskGroup id="posterMask" maskUri="pkg:/images/poster_mask_r12.png"
                    maskSize="[210, 315]" scaleRotateCenter="[105, 157]">
+            <Rectangle id="cardBg" width="210" height="315" color="#121215" />
             <Poster
                 id="posterImage"
                 width="210"

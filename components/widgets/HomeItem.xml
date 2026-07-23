@@ -11,10 +11,12 @@
     <children>
         <!-- Everything that scales on focus lives in this group (tvOS scaleEffect 1.05) -->
         <Group id="scaleGroup">
-            <!-- Card background -->
-            <Rectangle id="cardBg" width="220" height="330" color="#1F1F1F" />
-            <!-- Portrait/landscape poster with rounded corners -->
+            <!-- Portrait/landscape poster with rounded corners. cardBg lives
+                 INSIDE the mask so its corners are clipped rounded too —
+                 otherwise the square card bg pokes out behind the rounded
+                 poster and dark images (e.g. Forged in Fire) read as square. -->
             <MaskGroup id="posterMask" maskUri="pkg:/images/poster_mask_r12.png" maskSize="[220, 330]">
+                <Rectangle id="cardBg" width="220" height="330" color="#1F1F1F" />
                 <Poster
                     id="posterImage"
                     width="220"
