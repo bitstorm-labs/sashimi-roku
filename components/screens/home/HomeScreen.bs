@@ -481,7 +481,7 @@ sub addContinueWatchingRow(items as object)
         end if
 
         child.addFields({ itemJson: "", isPlayed: false, playedPercentage: 0, remainingText: "", badgeCount: 0 })
-        child.addFields({ quality: Quality.badge(item) })
+        child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
         child.itemJson = FormatJSON(item)
         child.remainingText = formatRemaining(item)
 
@@ -566,7 +566,7 @@ sub addRow(title as string, items as object, isYouTube = false as boolean, badge
         ' Store item data (+ forceYouTubeStyle flag for the detail screen)
         child.addFields({ itemJson: "", isPlayed: false, playedPercentage: 0, badgeCount: 0 })
         if isYouTube then item._forceYouTube = true
-        child.addFields({ quality: Quality.badge(item) })
+        child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
         child.itemJson = FormatJSON(item)
 
         if item.UserData <> invalid
