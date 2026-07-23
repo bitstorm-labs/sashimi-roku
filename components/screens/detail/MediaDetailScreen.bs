@@ -99,6 +99,8 @@ sub onApiResponse()
         else
             onItemLoaded(response)
         end if
+    else if action = "getAncestors"
+        onAncestorsLoaded(response)
     else if action = "getPlaybackInfo"
         onPlaybackInfoLoaded(response)
     else if action = "getSeasons"
@@ -142,10 +144,41 @@ sub onItemDataChanged()
     m.loadingLabel.visible = true
     itemId = ""
     if data.Id <> invalid then itemId = data.Id
-    if itemId <> "" then enqueue({ action: "getItem", itemId: itemId })
+    if itemId = "" then return
+    ' Deep-link / Top Shelf items carry no originating YouTube flag and may not
+    ' self-identify (Pinchflat channel not named "… - Videos", path without
+    ' "youtube"). For a non-autoplay detail, resolve it from the library
+    ' ancestor FIRST so the header renders right the first time. In-app items
+    ' already carry the flag and skip this entirely (no extra request).
+    isDeepLink = (data._deepLink <> invalid and data._deepLink = true)
+    if isDeepLink and not m.forceYouTube and not m.top.autoPlay
+        m.pendingItemId = itemId
+        enqueue({ action: "getAncestors", itemId: itemId })
+    else
+        enqueue({ action: "getItem", itemId: itemId })
+    end if
 end sub
 
 ' ---------- Item load ----------
+
+' Deep-link YouTube resolution: if the item's library ancestor is a YouTube
+' library, force YouTube styling before the item loads/renders, so a Top Shelf
+' item whose channel isn't named "… - Videos" still gets the channel header.
+sub onAncestorsLoaded(response as object)
+    if response.success and response.items <> invalid
+        for each anc in response.items
+            name = ""
+            if anc.Name <> invalid then name = anc.Name
+            if YT.isLibraryName(name)
+                m.forceYouTube = true
+                exit for
+            end if
+        end for
+    end if
+    itemId = m.pendingItemId
+    m.pendingItemId = invalid
+    if itemId <> invalid and itemId <> "" then enqueue({ action: "getItem", itemId: itemId })
+end sub
 
 sub onItemLoaded(response as object)
     m.loadingLabel.visible = false
@@ -779,6 +812,10 @@ sub onEpisodesLoaded(response as object)
         else if ep.SeriesId <> invalid
             child.HDPosterUrl = ImageUrl.primary(ep.SeriesId, 480)
         end if
+        ' Carry the YouTube flag into each episode so opening one from a
+        ' channel's detail keeps the channel avatar + name header (the fetched
+        ' episode alone may not self-detect as YouTube).
+        if m.isYouTube then ep._forceYouTube = true
         child.itemJson = FormatJSON(ep)
         if ep.UserData <> invalid
             if ep.UserData.Played <> invalid then child.isPlayed = ep.UserData.Played
