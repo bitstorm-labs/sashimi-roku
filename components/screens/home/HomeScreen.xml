@@ -78,5 +78,10 @@
         </Animation>
 
         <JellyfinApi id="apiTask" />
+        <!-- Fires one tick after nil-ing the RowList content so recycled item
+             components are actually discarded before the new content lands —
+             otherwise a reload-on-return reuses a portrait cell for a landscape
+             Continue Watching card (wrong width sticks). -->
+        <Timer id="relayoutTimer" duration="0.05" repeat="false" />
     </children>
 </component>

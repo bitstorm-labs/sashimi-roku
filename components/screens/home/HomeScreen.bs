@@ -13,6 +13,8 @@ sub init()
     m.loadingLabel = m.top.findNode("loadingLabel")
     m.emptyLabel = m.top.findNode("emptyLabel")
     m.apiTask = m.top.findNode("apiTask")
+    m.relayoutTimer = m.top.findNode("relayoutTimer")
+    m.relayoutTimer.observeFieldScoped("fire", "onRelayoutFire")
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
@@ -272,6 +274,9 @@ sub onNextUpLoaded(response as object)
     end if
 
     m.rowContent = CreateObject("roSGNode", "ContentNode")
+    ' Reset so a stale index from the previous load can't tag a library row as
+    ' the landscape CW row (addContinueWatchingRow re-sets it when CW exists).
+    m.continueWatchingRowIndex = invalid
 
     if m.continueWatchingItems.count() > 0 and m.cwEnabled
         addContinueWatchingRow(m.continueWatchingItems)
@@ -701,12 +706,22 @@ sub showRows()
     m.rowList.rowItemSize = itemSizes
     m.rowList.rowItemSpacing = itemSpacings
 
-    ' Force a clean re-layout on reload: nil the content first so the RowList
-    ' discards recycled item components (which otherwise keep a stale per-row
-    ' width). Without this, a reload-on-return raced the resize and left some
-    ' Continue Watching cards portrait-sized (and showed a stray quality chip).
-    if m.rowList.content <> invalid then m.rowList.content = invalid
-    m.rowList.content = m.rowContent
+    ' Force a clean re-layout on reload: nil the content, then set it back on
+    ' the NEXT tick (relayoutTimer). Setting it synchronously right after nil
+    ' doesn't give the RowList a render pass to discard recycled item
+    ' components, so a reload-on-return reused a portrait cell for a landscape
+    ' Continue Watching card — the wrong width stuck and the card rendered
+    ' portrait (with a stray quality/rating chip). Deferring guarantees the
+    ' new rowItemSize is committed to fresh cells.
+    m.rowList.content = invalid
+    m.pendingRowContent = m.rowContent
+    m.relayoutTimer.control = "start"
+end sub
+
+sub onRelayoutFire()
+    if m.pendingRowContent = invalid then return
+    m.rowList.content = m.pendingRowContent
+    m.pendingRowContent = invalid
     m.rowList.visible = true
     ' Take focus only if home already owns it (background refreshes must
     ' never steal the remote). Land on the CW row with the hero VISIBLE
