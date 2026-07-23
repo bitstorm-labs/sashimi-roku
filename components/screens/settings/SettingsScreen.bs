@@ -56,6 +56,7 @@ sub init()
         { key: "use24HourTime", title: "24-Hour Time", kind: "toggle", default: "false" },
         { key: "showQualityBadges", title: "Show Quality Badges", kind: "toggle", default: "true" },
         { key: "showReviewRatings", title: "Show Review Ratings", kind: "toggle", default: "true" },
+        { key: "useEpisodeRatings", title: "Use Episode Ratings", kind: "toggle", default: "false" },
         { key: "", title: "Version", kind: "info", value: m.versionText },
         { key: "", title: "Sign Out", kind: "signout" }
     ]
@@ -183,6 +184,8 @@ sub activateRow(index as integer)
             m.global.showQualityBadges = (AppSettings.read("showQualityBadges", "true") = "true")
         else if item.key = "showReviewRatings"
             m.global.showReviewRatings = (AppSettings.read("showReviewRatings", "true") = "true")
+        else if item.key = "useEpisodeRatings"
+            m.global.useEpisodeRatings = (AppSettings.read("useEpisodeRatings", "false") = "true")
         end if
         m.rows[index].value.text = currentValueLabel(item)
     else if item.kind = "picker"

@@ -13,6 +13,8 @@ sub init()
     m.loadingLabel = m.top.findNode("loadingLabel")
     m.emptyLabel = m.top.findNode("emptyLabel")
     m.apiTask = m.top.findNode("apiTask")
+    m.relayoutTimer = m.top.findNode("relayoutTimer")
+    m.relayoutTimer.observeFieldScoped("fire", "onRelayoutFire")
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
@@ -272,6 +274,9 @@ sub onNextUpLoaded(response as object)
     end if
 
     m.rowContent = CreateObject("roSGNode", "ContentNode")
+    ' Reset so a stale index from the previous load can't tag a library row as
+    ' the landscape CW row (addContinueWatchingRow re-sets it when CW exists).
+    m.continueWatchingRowIndex = invalid
 
     if m.continueWatchingItems.count() > 0 and m.cwEnabled
         addContinueWatchingRow(m.continueWatchingItems)
@@ -348,15 +353,21 @@ end sub
 
 sub onItemsByIdsLoaded(response as object)
     badges = {}
+    ratings = {}
     if response.success and response.items <> invalid
         for each s in response.items
             if s.UserData <> invalid and s.UserData.UnplayedItemCount <> invalid
                 badges[s.Id] = s.UserData.UnplayedItemCount
             end if
+            ' Series' overall rating, so episode cards can show it instead of the
+            ' episode's own rating (the card renders the series poster + name).
+            if s.CommunityRating <> invalid
+                ratings[s.Id] = s.CommunityRating
+            end if
         end for
     end if
     if m.pendingRow <> invalid
-        addRow(m.pendingRow.title, m.pendingRow.items, m.pendingRow.isYouTube, badges)
+        addRow(m.pendingRow.title, m.pendingRow.items, m.pendingRow.isYouTube, badges, ratings)
         m.pendingRow = invalid
     end if
     advanceLatest()
@@ -482,6 +493,12 @@ sub addContinueWatchingRow(items as object)
 
         child.addFields({ itemJson: "", isPlayed: false, playedPercentage: 0, remainingText: "", badgeCount: 0 })
         child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
+        ' Explicit card style so HomeItem knows this is a landscape CW card from
+        ' the CONTENT (onItemContentChanged always fires on recycle), not from a
+        ' width-change side-channel (onSizeChanged only fires when width changes,
+        ' so a recycled portrait cell reused here could keep stale portrait state
+        ' and wrongly show quality/rating chips).
+        child.addFields({ cardStyle: "landscape" })
         child.itemJson = FormatJSON(item)
         child.remainingText = formatRemaining(item)
 
@@ -496,7 +513,7 @@ sub addContinueWatchingRow(items as object)
     end for
 end sub
 
-sub addRow(title as string, items as object, isYouTube = false as boolean, badgeMap = invalid as dynamic)
+sub addRow(title as string, items as object, isYouTube = false as boolean, badgeMap = invalid as dynamic, ratingMap = invalid as dynamic)
     if m.rowContent = invalid then return
 
     rowIndex = m.rowContent.getChildCount()
@@ -568,6 +585,19 @@ sub addRow(title as string, items as object, isYouTube = false as boolean, badge
         if isYouTube then item._forceYouTube = true
         child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
         child.itemJson = FormatJSON(item)
+
+        ' Episode cards render the SERIES poster + name, so they must show the
+        ' SERIES' overall rating (not the episode's) when the user hasn't opted
+        ' into episode ratings. Plumb seriesRating only for episode items; the
+        ' series rating comes from the same batched lookup used for badges (no
+        ' extra API call). Absent from the map -> 0 (rating chip hidden), so an
+        ' episode's own rating never leaks onto a series poster.
+        if item.SeriesId <> invalid and item.SeriesId <> "" and not isYouTube
+            child.addFields({ seriesRating: 0.0 })
+            if ratingMap <> invalid and ratingMap.DoesExist(item.SeriesId)
+                child.seriesRating = ratingMap[item.SeriesId]
+            end if
+        end if
 
         if item.UserData <> invalid
             if item.UserData.Played <> invalid and item.UserData.Played = true
@@ -698,15 +728,30 @@ sub showRows()
             itemSpacings.push([40, 0])
         end if
     end for
-    m.rowList.rowItemSize = itemSizes
-    m.rowList.rowItemSpacing = itemSpacings
+    ' Force a clean re-layout on reload: nil the content, then set it back on
+    ' the NEXT tick (relayoutTimer). Setting it synchronously right after nil
+    ' doesn't give the RowList a render pass to discard recycled item
+    ' components. Critically, rowItemSize is (re)applied AFTER the content lands
+    ' (in onRelayoutFire), not before — assigning rowItemSize to an already-
+    ' populated RowList is what forces it to re-measure every row, so a recycled
+    ' portrait cell reused for the landscape CW row actually gets the 440 width
+    ' instead of keeping its stale 220 (which rendered the CW card portrait with
+    ' stray quality/rating chips).
+    m.rowList.content = invalid
+    m.pendingRowContent = m.rowContent
+    m.pendingRowItemSizes = itemSizes
+    m.pendingRowSpacings = itemSpacings
+    m.relayoutTimer.control = "start"
+end sub
 
-    ' Force a clean re-layout on reload: nil the content first so the RowList
-    ' discards recycled item components (which otherwise keep a stale per-row
-    ' width). Without this, a reload-on-return raced the resize and left some
-    ' Continue Watching cards portrait-sized (and showed a stray quality chip).
-    if m.rowList.content <> invalid then m.rowList.content = invalid
-    m.rowList.content = m.rowContent
+sub onRelayoutFire()
+    if m.pendingRowContent = invalid then return
+    m.rowList.content = m.pendingRowContent
+    ' rowItemSize AFTER content -> RowList re-measures all rows against fresh
+    ' sizes, resizing any recycled cells to their new row's width.
+    m.rowList.rowItemSize = m.pendingRowItemSizes
+    m.rowList.rowItemSpacing = m.pendingRowSpacings
+    m.pendingRowContent = invalid
     m.rowList.visible = true
     ' Take focus only if home already owns it (background refreshes must
     ' never steal the remote). Land on the CW row with the hero VISIBLE
