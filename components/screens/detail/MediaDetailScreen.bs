@@ -20,6 +20,7 @@ sub init()
     m.moviePoster = m.top.findNode("moviePoster")
     m.channelMask = m.top.findNode("channelMask")
     m.channelImage = m.top.findNode("channelImage")
+    m.channelLabel = m.top.findNode("channelLabel")
     m.titleLabel = m.top.findNode("titleLabel")
     m.metaLabel = m.top.findNode("metaLabel")
     m.endsAtLabel = m.top.findNode("endsAtLabel")
@@ -256,6 +257,7 @@ sub setHeader(item as object)
     m.logoImage.visible = false
     m.moviePosterMask.visible = false
     m.channelMask.visible = false
+    m.channelLabel.visible = false
     m.titleLabel.visible = true
     layoutHeader()
 
@@ -337,7 +339,19 @@ sub setHeader(item as object)
     else if m.isYouTube
         m.channelMask.visible = true
         channelId = item.Id
-        if item.SeriesId <> invalid then channelId = item.SeriesId
+        if item.SeriesId <> invalid
+            ' YouTube episode: avatar = the channel (series) art, and show the
+            ' channel name beside it (tvOS parity — the episode/video title
+            ' stays in titleLabel below). Channel-page items keep their name in
+            ' titleLabel, so only episodes need the extra label.
+            channelId = item.SeriesId
+            cname = ""
+            if item.SeriesName <> invalid then cname = YT.cleanTitle(item.SeriesName)
+            if cname <> ""
+                m.channelLabel.text = cname
+                m.channelLabel.visible = true
+            end if
+        end if
         m.channelImage.uri = ImageUrl.primary(channelId, 240)
     else if m.itemType = "Series"
         ' Series swap the title text for the logo (onLogoStatus hides title).
