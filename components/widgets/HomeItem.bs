@@ -15,6 +15,7 @@ sub init()
     m.newBadgeLabel = m.top.findNode("newBadgeLabel")
     m.progressBg = m.top.findNode("progressBg")
     m.progressBar = m.top.findNode("progressBar")
+    m.qualityMask = m.top.findNode("qualityMask")
     m.qualityBg = m.top.findNode("qualityBg")
     m.qualityLabel = m.top.findNode("qualityLabel")
     m.titleLabel = m.top.findNode("titleLabel")
@@ -119,11 +120,11 @@ sub applyQualityBadge()
     show = (q <> "" and not m.isCircular and not m.isLandscape and m.global.showQualityBadges = true)
     m.qualityLabel.text = q
     m.qualityLabel.visible = show
-    m.qualityBg.visible = show
+    m.qualityMask.visible = show
     if show
         bx = m.itemWidth - 52 - 8
         by = m.posterHeight - 32 - 8
-        m.qualityBg.translation = [bx, by]
+        m.qualityMask.translation = [bx, by]
         m.qualityLabel.translation = [bx, by]
     end if
     if q = "4K"

@@ -28,8 +28,12 @@
         <Poster id="focusRing" uri="pkg:/images/focus_ring_r16.9.png"
                 width="210" height="315" translation="[0, 0]"
                 scaleRotateCenter="[105, 157]" opacity="0.0" />
-        <!-- Quality badge (bottom-right; 4K = Jellyfin purple, HD/SD = dark slate) -->
-        <Rectangle id="qualityBg" width="50" height="30" translation="[152, 277]" color="#0A0A10C8" visible="false" />
+        <!-- Quality badge (bottom-right; 4K = Jellyfin purple, HD/SD = dark slate).
+             The colored bg lives in a rounded mask so its corners match the card. -->
+        <MaskGroup id="qualityMask" maskUri="pkg:/images/badge_mask_r6.png"
+                   maskSize="[50, 30]" translation="[152, 277]" visible="false">
+            <Rectangle id="qualityBg" width="50" height="30" color="#0A0A10C8" />
+        </MaskGroup>
         <Label id="qualityLabel" text="" color="#FFFFFFFF" horizAlign="center" vertAlign="center"
                width="50" height="30" translation="[152, 277]" visible="false">
             <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />

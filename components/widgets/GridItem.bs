@@ -9,6 +9,7 @@ sub init()
     m.circleMask = m.top.findNode("circleMask")
     m.circlePoster = m.top.findNode("circlePoster")
     m.circleRing = m.top.findNode("circleRing")
+    m.qualityMask = m.top.findNode("qualityMask")
     m.qualityBg = m.top.findNode("qualityBg")
     m.qualityLabel = m.top.findNode("qualityLabel")
     m.isCircular = false
@@ -22,7 +23,7 @@ sub applyQualityBadge(content as object)
     show = (q <> "" and not m.isCircular and m.global.showQualityBadges = true)
     m.qualityLabel.text = q
     m.qualityLabel.visible = show
-    m.qualityBg.visible = show
+    m.qualityMask.visible = show
     if q = "4K"
         m.qualityBg.color = "#BD3EEDFF"
     else
