@@ -34,18 +34,27 @@ sub onSizeChanged()
     h = m.top.height
     if w = 0 or h = 0 then return
     m.itemWidth = w
+    applyLayout()
+end sub
 
+' Lay out poster, mask, focus ring, badges and labels for the current width +
+' card style. Called from BOTH onSizeChanged (width changed) and
+' onItemContentChanged (card style may have changed on recycle). The landscape
+' vs portrait DECISION comes from m.isLandscape (set from content), never from
+' the width — a recycled portrait cell reused as a landscape CW card must not
+' keep portrait state just because its onSizeChanged didn't happen to re-fire.
+sub applyLayout()
     if m.isCircular then return
+    w = m.itemWidth
+    if w = 0 then return
 
-    if w > 250
+    if m.isLandscape
         ' Continue Watching landscape card (tvOS: 440x248, radius 16)
-        m.isLandscape = true
         m.posterHeight = Int(w * 0.5625)
         m.posterMask.maskUri = "pkg:/images/wide_mask_r16.png"
         m.posterMask.maskSize = [w, m.posterHeight]
     else
         ' Portrait poster (tvOS: 220x330, radius 12)
-        m.isLandscape = false
         m.posterHeight = Int(w * 1.5)
         m.posterMask.maskUri = "pkg:/images/poster_mask_r12.png"
         m.posterMask.maskSize = [w, m.posterHeight]
@@ -146,6 +155,13 @@ sub applyRatingBadge()
     content = m.top.itemContent
     rating = 0.0
     if content <> invalid and content.doesExist("communityRating") and content.communityRating <> invalid then rating = content.communityRating
+    ' For episode-of-a-series cards (Recently Added TV), the card shows the
+    ' SERIES poster/title, so it must show the SERIES' overall rating — not the
+    ' episode's — unless the user opted into episode-level ratings. seriesRating
+    ' is only plumbed onto episode cards (>= 0 = series rating, may be 0 = hidden).
+    if content <> invalid and not m.global.useEpisodeRatings and content.doesExist("seriesRating") and content.seriesRating <> invalid
+        rating = content.seriesRating
+    end if
     show = (rating > 0 and not m.isCircular and not m.isLandscape and m.global.showReviewRatings = true)
     m.ratingMask.visible = show
     m.tmdbLogo.visible = show
@@ -176,6 +192,19 @@ sub onItemContentChanged()
     if content.doesExist("isCircular") and content.isCircular = true
         m.isCircular = true
     end if
+
+    ' Card style is CONTENT-driven. This handler always fires when RowList
+    ' assigns content to a (possibly recycled) cell, so deriving isLandscape
+    ' here — not from a width-change in onSizeChanged that may not fire for a
+    ' recycled cell — is what keeps a reused portrait cell from rendering the
+    ' landscape CW card with stray quality/rating chips.
+    m.isLandscape = false
+    if content.doesExist("cardStyle") and content.cardStyle = "landscape"
+        m.isLandscape = true
+    end if
+    ' Re-apply poster/mask/label sizing for the (now known) style at the current
+    ' width, so the mask matches even if onSizeChanged doesn't re-fire.
+    applyLayout()
 
     ' Reset state
     m.focusRing.opacity = 0.0

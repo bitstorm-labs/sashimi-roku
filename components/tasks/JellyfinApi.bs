@@ -308,7 +308,8 @@ sub doGetIntroSegments(request as object)
     m.top.response = { success: true, action: "getIntroSegments", segments: segments, itemId: request.itemId }
 end sub
 
-' Batched item fetch (one call for N series) — used for "X new" badges.
+' Batched item fetch (one call for N series) — used for "X new" badges and the
+' series' overall CommunityRating (so episode cards can show the SERIES rating).
 sub doGetItemsByIds(request as object)
     ids = request.ids
     idStr = ""
@@ -316,7 +317,7 @@ sub doGetItemsByIds(request as object)
         if i > 0 then idStr += ","
         idStr += ids[i]
     end for
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items?Ids=" + idStr + "&Fields=UserData")
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items?Ids=" + idStr + "&Fields=UserData,CommunityRating")
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
         m.top.response = { success: true, action: "getItemsByIds", items: result.Items }
