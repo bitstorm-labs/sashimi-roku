@@ -12,6 +12,9 @@ sub init()
     m.qualityMask = m.top.findNode("qualityMask")
     m.qualityBg = m.top.findNode("qualityBg")
     m.qualityLabel = m.top.findNode("qualityLabel")
+    m.ratingMask = m.top.findNode("ratingMask")
+    m.tmdbLogo = m.top.findNode("tmdbLogo")
+    m.ratingLabel = m.top.findNode("ratingLabel")
     m.isCircular = false
 end sub
 
@@ -30,6 +33,26 @@ sub applyQualityBadge(content as object)
         m.qualityBg.color = "#0A0A10C8"
     end if
 end sub
+
+' Community review rating chip (bottom-left; TMDb logo + rating). Hidden for
+' circular (channel) cards, items without a rating, and when the setting is off.
+sub applyRatingBadge(content as object)
+    rating = 0.0
+    if content <> invalid and content.doesExist("communityRating") and content.communityRating <> invalid then rating = content.communityRating
+    show = (rating > 0 and not m.isCircular and m.global.showReviewRatings = true)
+    m.ratingMask.visible = show
+    m.tmdbLogo.visible = show
+    m.ratingLabel.visible = show
+    if show then m.ratingLabel.text = formatRating(rating)
+end sub
+
+' 0-10 float to one decimal ("8.0", "7.5") without locale surprises.
+function formatRating(r as float) as string
+    r10 = Int(r * 10 + 0.5)
+    whole = r10 \ 10
+    frac = r10 mod 10
+    return whole.toStr() + "." + frac.toStr()
+end function
 
 sub onItemContentChanged()
     content = m.top.itemContent
@@ -74,6 +97,7 @@ sub onItemContentChanged()
     end if
 
     applyQualityBadge(content)
+    applyRatingBadge(content)
 end sub
 
 sub onFocusChanged()

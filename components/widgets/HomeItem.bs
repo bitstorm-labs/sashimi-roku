@@ -18,6 +18,9 @@ sub init()
     m.qualityMask = m.top.findNode("qualityMask")
     m.qualityBg = m.top.findNode("qualityBg")
     m.qualityLabel = m.top.findNode("qualityLabel")
+    m.ratingMask = m.top.findNode("ratingMask")
+    m.tmdbLogo = m.top.findNode("tmdbLogo")
+    m.ratingLabel = m.top.findNode("ratingLabel")
     m.titleLabel = m.top.findNode("titleLabel")
     m.subtitleLabel = m.top.findNode("subtitleLabel")
     m.itemWidth = 220
@@ -68,8 +71,9 @@ sub onSizeChanged()
     ' Scale from card center (tvOS scaleEffect anchors center)
     m.scaleGroup.scaleRotateCenter = [w / 2, m.posterHeight / 2]
 
-    ' Re-evaluate the quality chip now that portrait/landscape + size are known
+    ' Re-evaluate the quality + rating chips now that portrait/landscape + size are known
     applyQualityBadge()
+    applyRatingBadge()
 
     if m.isLandscape
         ' CW card internals (tvOS: pad H16/bottom14, progress under time-left row)
@@ -134,6 +138,36 @@ sub applyQualityBadge()
     end if
 end sub
 
+' Community review rating chip (bottom-left; TMDb logo + rating). Portrait
+' posters only — landscape Continue Watching cards would collide with the CW
+' scrim/title, matching the quality chip's gating. Left margin mirrors the
+' quality chip's right margin; sits just above the full-width progress bar.
+sub applyRatingBadge()
+    content = m.top.itemContent
+    rating = 0.0
+    if content <> invalid and content.doesExist("communityRating") and content.communityRating <> invalid then rating = content.communityRating
+    show = (rating > 0 and not m.isCircular and not m.isLandscape and m.global.showReviewRatings = true)
+    m.ratingMask.visible = show
+    m.tmdbLogo.visible = show
+    m.ratingLabel.visible = show
+    if show
+        m.ratingLabel.text = formatRating(rating)
+        bx = 8
+        by = m.posterHeight - 32 - 8
+        m.ratingMask.translation = [bx, by]
+        m.tmdbLogo.translation = [bx + 8, by + 4]
+        m.ratingLabel.translation = [bx + 8 + 34 + 4, by]
+    end if
+end sub
+
+' 0-10 float to one decimal ("8.0", "7.5") without locale surprises.
+function formatRating(r as float) as string
+    r10 = Int(r * 10 + 0.5)
+    whole = r10 \ 10
+    frac = r10 mod 10
+    return whole.toStr() + "." + frac.toStr()
+end function
+
 sub onItemContentChanged()
     content = m.top.itemContent
     if content = invalid then return
@@ -154,6 +188,7 @@ sub onItemContentChanged()
     m.playGlyph.visible = false
     m.remainingLabel.visible = false
     applyQualityBadge()
+    applyRatingBadge()
 
     if m.isCircular
         m.posterMask.visible = false

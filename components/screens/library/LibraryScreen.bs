@@ -179,7 +179,7 @@ sub onItemsLoaded(response as object)
         child.isCircular = m.isYouTube
         ' Thread forceYouTubeStyle to the detail screen (tvOS parity)
         if m.isYouTube then item._forceYouTube = true
-        child.addFields({ quality: Quality.badge(item) })
+        child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
         child.itemJson = FormatJSON(item)
     end for
 

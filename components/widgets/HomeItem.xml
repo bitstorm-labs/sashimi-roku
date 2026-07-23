@@ -62,6 +62,19 @@
                    width="52" height="32" translation="[160, 290]" visible="false">
                 <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />
             </Label>
+            <!-- Review rating badge (bottom-left; TMDb logo + community rating).
+                 Position is set dynamically in applyRatingBadge (mirrors the
+                 quality chip's dynamic bottom-right placement). -->
+            <MaskGroup id="ratingMask" maskUri="pkg:/images/badge_mask_r6.png"
+                       maskSize="[88, 32]" translation="[8, 290]" visible="false">
+                <Rectangle id="ratingBg" width="88" height="32" color="#0A0A10C8" />
+            </MaskGroup>
+            <Poster id="tmdbLogo" uri="pkg:/images/tmdb_logo_tv.png" width="34" height="24"
+                    translation="[16, 294]" visible="false" />
+            <Label id="ratingLabel" text="" color="#FFFFFFFF" horizAlign="left" vertAlign="center"
+                   width="40" height="32" translation="[56, 290]" visible="false">
+                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />
+            </Label>
             <!-- Watched badge (tvOS: checkmark.circle.fill, green/black palette, 29px) -->
             <Poster id="watchedBadge" uri="pkg:/images/watched_circle.png" width="29" height="29"
                     translation="[185, 6]" visible="false" />

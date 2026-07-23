@@ -191,7 +191,7 @@ sub onSearchResults(response as object)
         child.addFields({ itemJson: "", isCircular: false })
         child.isCircular = isYT
         if isYT then item._forceYouTube = true
-        child.addFields({ quality: Quality.badge(item) })
+        child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
         child.itemJson = FormatJSON(item)
     end for
 
