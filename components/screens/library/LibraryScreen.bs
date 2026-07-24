@@ -199,7 +199,9 @@ end sub
 sub onItemFocused()
     focusIndex = m.posterGrid.itemFocused
     if focusIndex > m.loadedItems - 15 and m.loadedItems < m.totalItems and not m.isLoading
-        print "[Library] Loading more at " + str(m.loadedItems)
+        #if DEBUG
+            print "[Library] Loading more at " + str(m.loadedItems)
+        #end if
         loadItems(m.loadedItems)
     end if
 end sub

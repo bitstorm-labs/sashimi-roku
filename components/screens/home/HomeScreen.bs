@@ -155,7 +155,9 @@ sub onLibrariesLoaded(response as object)
 
     applyHomeRowConfig()
 
-    print "[Home] Loaded " + str(m.libraries.count()) + " libraries"
+    #if DEBUG
+        print "[Home] Loaded " + str(m.libraries.count()) + " libraries"
+    #end if
     m.apiTask.request = { action: "getResumeItems", limit: 20 }
 end sub
 
@@ -242,14 +244,18 @@ sub onResumeItemsLoaded(response as object)
             end if
         end for
         m.continueWatchingItems = deduped
-        print "[Home] Loaded " + str(deduped.count()) + " resume items (deduped from " + str(response.items.count()) + ")"
+        #if DEBUG
+            print "[Home] Loaded " + str(deduped.count()) + " resume items (deduped from " + str(response.items.count()) + ")"
+        #end if
     end if
     m.apiTask.request = { action: "getNextUp", limit: 20 }
 end sub
 
 sub onNextUpLoaded(response as object)
     if response.success and response.items <> invalid
-        print "[Home] Loaded " + str(response.items.count()) + " next up items"
+        #if DEBUG
+            print "[Home] Loaded " + str(response.items.count()) + " next up items"
+        #end if
         ' tvOS merge order: NextUp first (a just-finished episode surfaces its
         ' successor at the FRONT of the row), then Resume, deduped by series.
         merged = []
