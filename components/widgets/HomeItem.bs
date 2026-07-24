@@ -228,6 +228,8 @@ sub onItemContentChanged()
         m.focusRing.visible = false
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.circularPoster.uri = content.HDPosterUrl
+        else
+            m.circularPoster.uri = ""
         end if
         ' tvOS circular caption: 20 medium centered
         m.titleLabel.horizAlign = "center"
@@ -243,11 +245,15 @@ sub onItemContentChanged()
         m.focusRing.visible = true
         if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
             m.posterImage.uri = content.HDPosterUrl
+        else
+            m.posterImage.uri = ""
         end if
     end if
 
     if content.title <> invalid
         m.titleLabel.text = content.title
+    else
+        m.titleLabel.text = ""
     end if
 
     ' Subtitle only on Continue Watching (landscape) cards — tvOS posters are title-only
