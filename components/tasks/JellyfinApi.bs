@@ -368,6 +368,9 @@ sub doGetNextUp(request as object)
     url = Http.apiUrl("/Shows/NextUp")
     url += "?UserId=" + m.global.userId
     url += "&Limit=" + str(limit).Trim()
+    ' Deep-link mediaType="series" needs the *next* episode for this one show
+    ' (Roku calls this a smart bookmark), not the global Next Up row.
+    if request.seriesId <> invalid and request.seriesId <> "" then url += "&SeriesId=" + request.seriesId
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     url += "&EnableRewatching=false&DisableFirstEpisode=false"
@@ -376,9 +379,9 @@ sub doGetNextUp(request as object)
         #if DEBUG
             print "[API] Found " + str(result.Items.count()) + " next up items"
         #end if
-        m.top.response = { success: true, action: "getNextUp", items: result.Items }
+        m.top.response = { success: true, action: "getNextUp", items: result.Items, context: request.context }
     else
-        m.top.response = { success: true, action: "getNextUp", items: [] }
+        m.top.response = { success: true, action: "getNextUp", items: [], context: request.context }
     end if
 end sub
 
@@ -653,9 +656,9 @@ sub doGetEpisodes(request as object)
     if seasonId <> "" then url += "&SeasonId=" + seasonId
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
-        m.top.response = { success: true, action: "getEpisodes", items: result.Items, seriesId: seriesId, seasonId: seasonId }
+        m.top.response = { success: true, action: "getEpisodes", items: result.Items, seriesId: seriesId, seasonId: seasonId, context: request.context }
     else
-        m.top.response = { success: true, action: "getEpisodes", items: [], seriesId: seriesId, seasonId: seasonId }
+        m.top.response = { success: true, action: "getEpisodes", items: [], seriesId: seriesId, seasonId: seasonId, context: request.context }
     end if
 end sub
 
