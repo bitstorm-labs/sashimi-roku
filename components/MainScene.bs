@@ -49,6 +49,10 @@ sub init()
     ' ("" = nothing chosen yet, "OFF" = explicitly disabled). Raw stream
     ' indexes are per-file, so the player re-matches by title each episode.
     m.global.addFields({ sessionSubtitleTitle: "" })
+    ' Set by any screen that gets a 401/403 back: the stored token is no longer
+    ' valid, so the only correct move is to sign out and re-authenticate.
+    m.global.addFields({ sessionExpired: false })
+    m.global.observeField("sessionExpired", "onSessionExpired")
     m.global.observeFieldScoped("switchServerId", "onSwitchServer")
 
     m.pendingDeepLink = invalid
@@ -158,6 +162,19 @@ sub restoreSession()
     m.global.serverUrl = Registry.getServerUrl()
     m.global.authToken = Registry.getAuthToken()
     m.global.userId = Registry.getUserId()
+end sub
+
+' An expired/revoked token cannot be retried around -- clear the stored auth
+' and send the user back to sign-in rather than leaving a dead UI up.
+sub onSessionExpired()
+    if not m.global.sessionExpired then return
+    m.global.sessionExpired = false
+    Registry.clearAuth()
+    m.global.serverUrl = ""
+    m.global.authToken = ""
+    m.global.userId = ""
+    m.global.toastMessage = { message: "Session expired - please sign in again" }
+    showAuthScreen()
 end sub
 
 sub onGlobalToast()
