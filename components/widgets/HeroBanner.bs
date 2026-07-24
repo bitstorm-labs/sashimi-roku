@@ -4,6 +4,10 @@ import "pkg:/source/utils/YouTube.bs"
 sub init()
     m.tmdbLogo = m.top.findNode("tmdbLogo")
     m.heroImage = m.top.findNode("heroImage")
+    m.heroFadeLeft = m.top.findNode("heroFadeLeft")
+    ' Snap the left fade to the fitted image's actual left edge per image —
+    ' the decoded bitmap size is only known once the poster loads.
+    m.heroImage.observeFieldScoped("loadStatus", "onHeroImageStatus")
     m.heroTitle = m.top.findNode("heroTitle")
     m.heroSubtitle = m.top.findNode("heroSubtitle")
     m.heroMeta = m.top.findNode("heroMeta")
@@ -33,6 +37,27 @@ sub init()
     m.advanceTimer.observeFieldScoped("fire", "onAdvanceTimer")
 
     m.top.observeField("focusedChild", "onFocusChanged")
+end sub
+
+' Place the left fade AT the fitted image's left edge. The Poster decodes at
+' loadWidth/loadHeight preserving aspect, so bitmapWidth after "ready" is the
+' fitted width; scaleToFit centers it in the 1274-wide region at x=546, so
+' the edge is at 546 + (1274 - fittedW)/2. A 16:9 backdrop lands ~x=728 —
+' the old fixed x=546 fade was ~64% spent by then and a hard line showed.
+' 2px overlap hides decode rounding; clamp keeps full-region art unchanged.
+sub onHeroImageStatus()
+    if m.heroImage.loadStatus <> "ready"
+        ' New image loading: park the fade at the region start so a stale
+        ' position from the previous slide can't sit mid-image.
+        m.heroFadeLeft.translation = [546, 0]
+        return
+    end if
+    bw = m.heroImage.bitmapWidth
+    if bw = invalid or bw <= 0 or bw > 1274 then bw = 1274
+    edgeX = 546 + Int((1274 - bw) / 2)
+    fadeX = edgeX - 2
+    if fadeX < 546 then fadeX = 546
+    m.heroFadeLeft.translation = [fadeX, 0]
 end sub
 
 sub onContentChanged()
