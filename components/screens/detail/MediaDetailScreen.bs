@@ -927,6 +927,23 @@ sub commitRows()
     m.rowList.rowHeights = heights
     m.rowList.content = m.rowContent
     m.rowList.visible = true
+
+    ' tvOS parity: scroll the episode strip to the CURRENT episode so its
+    ' breathing ring is on-screen (it was always drawn, but for episodes deep
+    ' in a season it sat scrolled off to the right where nobody saw it).
+    ' jumpToRowItem also pre-positions descent focus onto that episode; if the
+    ' episode row isn't the first row, jump back vertically so the layout
+    ' still opens at the top.
+    if m.currentEpIndex <> invalid
+        epRow = -1
+        for i = 0 to m.rowKinds.count() - 1
+            if m.rowKinds[i] = "episode" then epRow = i : exit for
+        end for
+        if epRow >= 0
+            m.rowList.jumpToRowItem = [epRow, m.currentEpIndex]
+            if epRow > 0 then m.rowList.jumpToItem = 0
+        end if
+    end if
 end sub
 
 sub onRowItemSelected()
