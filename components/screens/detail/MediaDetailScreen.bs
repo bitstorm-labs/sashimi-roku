@@ -43,6 +43,8 @@ sub init()
     m.detailButtons = m.top.findNode("detailButtons")
     m.rowList = m.top.findNode("rowList")
     m.loadingLabel = m.top.findNode("loadingLabel")
+    m.errorLabel = m.top.findNode("errorLabel")
+    m.errorRetry = m.top.findNode("errorRetry")
     m.apiTask = m.top.findNode("apiTask")
 
     rowFont = CreateObject("roSGNode", "Font")
@@ -59,6 +61,7 @@ sub init()
 
     m.item = invalid
     m.itemType = ""
+    m.requestedItemId = ""      ' kept for Retry after a failed load
     m.isYouTube = false
     m.forceYouTube = false
     m.isDeepLink = false
@@ -138,7 +141,12 @@ sub onApiResponse()
 end sub
 
 sub onFocusDelegate()
-    if m.top.hasFocus() and m.item <> invalid
+    if not m.top.hasFocus() then return
+    ' Retry is the only focusable node while the error panel is up (m.item is
+    ' invalid there, so focusZone has nothing to focus).
+    if m.errorRetry.visible
+        m.errorRetry.setFocus(true)
+    else if m.item <> invalid
         focusZone(m.zone)
     end if
 end sub
@@ -149,10 +157,12 @@ sub onItemDataChanged()
     ' forceYouTubeStyle threaded from the originating screen (tvOS parity) —
     ' the fresh getItem result loses the flag, so remember it here.
     m.forceYouTube = (data._forceYouTube <> invalid and data._forceYouTube = true)
+    hideLoadError()
     m.loadingLabel.visible = true
     itemId = ""
     if data.Id <> invalid then itemId = data.Id
     if itemId = "" then return
+    m.requestedItemId = itemId
     ' Deep-link / Top Shelf items carry no originating YouTube flag and may not
     ' self-identify (Pinchflat channel not named "… - Videos", path without
     ' "youtube"). For a non-autoplay detail, resolve it from the library
@@ -194,9 +204,20 @@ sub onItemLoaded(response as object)
     if not response.success
         ' Cert 5.2: an invalid/unavailable contentId must pop an error and land
         ' on the home screen. Silently returning left a blank detail screen.
-        if m.top.autoPlay or m.isDeepLink then m.top.deepLinkFailed = true
+        if m.top.autoPlay or m.isDeepLink
+            m.top.deepLinkFailed = true
+        else if m.item <> invalid
+            ' A re-fetch after a watched-state toggle failing changes nothing
+            ' that is already on screen — keep the detail and just say so.
+            m.global.toastMessage = { message: "Couldn't reach the server - try again" }
+        else
+            ' In-app navigation has a screen to go back to, so stay put and
+            ' offer a retry instead of popping the user home.
+            showLoadError()
+        end if
         return
     end if
+    hideLoadError()
 
     m.item = response.item
     item = m.item
@@ -252,6 +273,27 @@ sub onItemLoaded(response as object)
             m.top.playItem = { item: item, action: "resume" }
         end if
     end if
+end sub
+
+' ---------- Failed load ----------
+
+sub showLoadError()
+    m.errorLabel.text = "Couldn't load this title."
+    m.errorLabel.visible = true
+    m.errorRetry.visible = true
+    if m.top.isInFocusChain() then m.errorRetry.setFocus(true)
+end sub
+
+sub hideLoadError()
+    m.errorLabel.visible = false
+    m.errorRetry.visible = false
+end sub
+
+sub retryLoad()
+    if m.requestedItemId = "" then return
+    hideLoadError()
+    m.loadingLabel.visible = true
+    enqueue({ action: "getItem", itemId: m.requestedItemId })
 end sub
 
 ' Deep-link series resolution (cert 5.2). NextUp comes back empty for a fully
@@ -1027,6 +1069,14 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
+
+    ' Must precede the m.item guard: a failed load never sets m.item, which is
+    ' exactly when the Retry button is the only thing on screen.
+    if key = "OK" and m.errorRetry.hasFocus()
+        retryLoad()
+        return true
+    end if
+
     if m.item = invalid then return false
 
     ' The RowList and DetailButtons handle their own keys; the screen only

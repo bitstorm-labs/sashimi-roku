@@ -108,6 +108,20 @@
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="28" />
         </Label>
 
+        <!-- Failed item load. m.item stays invalid, so nothing else on this
+             screen is focusable or even rendered — Retry is a real focusable
+             node so the screen is not a dead blank rectangle. -->
+        <Label id="errorLabel" text="" color="#888888"
+               horizAlign="center" width="1920" translation="[0, 470]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="28" />
+        </Label>
+        <Group id="errorRetry" translation="[860, 560]" visible="false">
+            <Rectangle width="200" height="56" color="#8C5CC7FF" />
+            <Label text="Retry" color="#FFFFFF" width="200" height="56" horizAlign="center" vertAlign="center">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+            </Label>
+        </Group>
+
         <JellyfinApi id="apiTask" />
     </children>
 </component>

@@ -516,12 +516,25 @@ function handleServersKey(key as string) as boolean
         return true
     else if key = "options"
         if m.svIndex < m.svList.count()
-            Servers.remove(m.svList[m.svIndex].id)
+            removedId = m.svList[m.svIndex].id
+            wasActive = (removedId = Servers.getActiveId())
+            Servers.remove(removedId)
             m.svList = Servers.getAll()
             if not Registry.hasAuth()
                 m.svOpen = false
                 if m.svPanel <> invalid then m.svPanel.visible = false
                 m.top.signOut = true
+                return true
+            end if
+            if wasActive
+                ' Servers.remove() promotes the replacement in the registry
+                ' only; m.global still holds the deleted server's url/token and
+                ' that is what Http reads, so every later request went to the
+                ' server the user just removed. switchServerId is the one path
+                ' that reloads m.global and rebuilds the UI.
+                m.svOpen = false
+                if m.svPanel <> invalid then m.svPanel.visible = false
+                m.global.switchServerId = Servers.getActiveId()
                 return true
             end if
             if m.svIndex > m.svList.count() then m.svIndex = m.svList.count()

@@ -57,6 +57,15 @@ sub init()
 
     m.pendingDeepLink = invalid
 
+    ' Discarded screens waiting for their API task to be stopped (see
+    ' retireScreen). The timer only runs while that list is non-empty.
+    m.pendingReap = []
+    m.reapTimer = CreateObject("roSGNode", "Timer")
+    m.reapTimer.repeat = true
+    m.reapTimer.duration = 1
+    m.reapTimer.observeFieldScoped("fire", "onReapTick")
+    m.top.appendChild(m.reapTimer)
+
     if hasSavedSession()
         restoreSession()
         enterMainUI()
@@ -177,6 +186,12 @@ end sub
 sub onSwitchServer()
     id = m.global.switchServerId
     if id = invalid or id = "" then return
+    ' addFields() cannot declare alwaysNotify, so SceneGraph only notifies on a
+    ' CHANGE: leaving the consumed id in place made an identical second request
+    ' ("Add Server" twice, or re-picking the already-active server) a silent
+    ' no-op. Clearing it here re-arms the field. The write below re-enters this
+    ' handler with "", which the guard above drops.
+    m.global.switchServerId = ""
     if id = "__add__"
         showAuthScreen()
         return
@@ -232,6 +247,10 @@ end sub
 sub showAuthScreen()
     m.top.signalBeacon("AppDialogInitiate")
     clearAllScreens()
+    ' A second login screen appended over the first is full-screen, unfocused
+    ' and unreachable — only the newest is ever removed on success, so the dead
+    ' one stays on top of the app forever. Never keep more than one.
+    dismissAuthScreen()
     screen = createObject("roSGNode", "ServerConnectionScreen")
     ' Adding a server while already signed in — let the user cancel back to
     ' the current server instead of being stranded (or exiting the app).
@@ -243,12 +262,16 @@ sub showAuthScreen()
     screen.setFocus(true)
 end sub
 
+sub dismissAuthScreen()
+    if m.authScreen = invalid then return
+    m.top.removeChild(m.authScreen)
+    retireScreen(m.authScreen)
+    m.authScreen = invalid
+end sub
+
 sub onAuthCancelled()
     m.top.signalBeacon("AppDialogComplete")
-    if m.authScreen <> invalid
-        m.top.removeChild(m.authScreen)
-        m.authScreen = invalid
-    end if
+    dismissAuthScreen()
     ' Restore the still-active session's main UI.
     restoreSession()
     enterMainUI()
@@ -258,10 +281,7 @@ sub onLoginSuccess()
     m.top.signalBeacon("AppDialogComplete")
     ' Record/refresh this login in the multi-server list
     Servers.addFromCurrentAuth()
-    if m.authScreen <> invalid
-        m.top.removeChild(m.authScreen)
-        m.authScreen = invalid
-    end if
+    dismissAuthScreen()
     enterMainUI()
     processDeepLink()
 end sub
@@ -275,11 +295,21 @@ end sub
 sub measureConnection()
     ' Background bandwidth probe so the first play uses a link-appropriate
     ' Auto bitrate (no stall on weak remote downstreams).
+    ' enterMainUI() runs again on every login, auth-cancel and server switch, so
+    ' drop any earlier probe first — its thread would otherwise sit in wait()
+    ' for the life of the channel.
+    stopBandwidthProbe()
     task = createObject("roSGNode", "JellyfinApi")
     task.observeFieldScoped("response", "onBandwidthMeasured")
     m.bwTask = task
     task.control = "RUN"
     task.request = { action: "measureBandwidth" }
+end sub
+
+sub stopBandwidthProbe()
+    if m.bwTask = invalid then return
+    m.bwTask.control = "stop"
+    m.bwTask = invalid
 end sub
 
 sub onBandwidthMeasured()
@@ -291,6 +321,8 @@ sub onBandwidthMeasured()
             print "[BW] measured " + str(Int(r.bitrate / 1000000)).Trim() + " Mbps"
         #end if
     end if
+    ' One-shot probe: nothing else is ever asked of this task.
+    stopBandwidthProbe()
 end sub
 
 sub enterMainUI()
@@ -467,6 +499,7 @@ sub popScreen()
 
     screen = m.navStack.pop()
     m.top.removeChild(screen)
+    retireScreen(screen)
 
     if m.navStack.count() > 0
         m.currentScreen = m.navStack.peek()
@@ -484,13 +517,48 @@ sub clearAllScreens()
     while m.navStack.count() > 0
         screen = m.navStack.pop()
         m.top.removeChild(screen)
+        retireScreen(screen)
     end while
     for each key in m.rootScreens
         m.top.removeChild(m.rootScreens[key])
+        retireScreen(m.rootScreens[key])
     end for
     m.rootScreens = {}
     m.currentScreen = invalid
     m.sidebar.visible = false
+end sub
+
+' ---------- Task reaping ----------
+' Every screen owns a JellyfinApi task whose loop parks in wait(). A parked
+' task holds a reference to its own node, so removeChild alone can never free
+' the screen graph it belongs to — browsing leaked a thread and a full screen
+' per navigation. Only control="stop" releases it.
+'
+' The stop is deferred rather than immediate because screens fire a last
+' request on their way out (the player sets reportStopped in the same tick as
+' done, and the task only picks the field up on the next one) and stopping a
+' task kills whatever it is holding, in flight or queued.
+sub retireScreen(screen as object)
+    if screen = invalid then return
+    m.pendingReap.push({ screen: screen, ticks: 5 })
+    ' Only on the empty -> non-empty edge: "start" restarts a running timer, so
+    ' a fast run of navigations would keep pushing the tick out.
+    if m.pendingReap.count() = 1 then m.reapTimer.control = "start"
+end sub
+
+sub onReapTick()
+    remaining = []
+    for each pending in m.pendingReap
+        pending.ticks = pending.ticks - 1
+        if pending.ticks > 0
+            remaining.push(pending)
+        else
+            task = pending.screen.findNode("apiTask")
+            if task <> invalid then task.control = "stop"
+        end if
+    end for
+    m.pendingReap = remaining
+    if m.pendingReap.count() = 0 then m.reapTimer.control = "stop"
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
@@ -514,7 +582,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
         ' On Home root: let the OS exit the channel
         return false
     else if key = "options"
-        if m.navStack.count() = 0
+        ' The login screen leaves navStack empty, so this used to offer the
+        ' switcher there — and "Add Server" from it re-entered showAuthScreen().
+        if m.navStack.count() = 0 and m.authScreen = invalid
             showServerSwitchDialog()
             return true
         end if
