@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <component name="ServerDiscoveryTask" extends="Task">
     <interface>
-        <field id="startDiscovery" type="boolean" alwaysNotify="true" />
-        <field id="servers" type="array" />
+        <!-- alwaysNotify: an empty array must still notify, otherwise a scan
+             that finds nothing never clears the "Searching..." status. -->
+        <field id="servers" type="array" alwaysNotify="true" />
     </interface>
 </component>

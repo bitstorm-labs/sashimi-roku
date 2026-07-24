@@ -278,14 +278,21 @@ sub doGetLibraryViews()
         print "[API] Getting library views"
     #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/Views")
-    result = Http.getJson(url)
+    meta = {}
+    result = Http.getJson(url, meta)
     if result <> invalid and result.Items <> invalid
         #if DEBUG
             print "[API] Found " + str(result.Items.count()) + " libraries"
         #end if
         m.top.response = { success: true, action: "getLibraryViews", items: result.Items }
     else
-        m.top.response = { success: false, action: "getLibraryViews", error: "Could not load libraries." }
+        ' Surface the status so the UI can tell "log in again" (401) from
+        ' "server unreachable" (0/5xx) instead of spinning forever.
+        code = 0
+        if meta.statusCode <> invalid then code = meta.statusCode
+        msg = "Could not reach your server."
+        if code = 401 or code = 403 then msg = "Your session has expired. Please sign in again."
+        m.top.response = { success: false, action: "getLibraryViews", error: msg, statusCode: code }
     end if
 end sub
 
