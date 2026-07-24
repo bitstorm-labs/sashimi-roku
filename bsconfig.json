@@ -11,7 +11,7 @@
     "fonts/**/*"
   ],
   "autoImportComponentScript": true,
-  "sourceMap": true,
+  "sourceMap": false,
   "diagnosticFilters": [
     {
       "src": "tests/**/*"
