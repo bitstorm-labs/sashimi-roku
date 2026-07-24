@@ -917,9 +917,10 @@ sub commitRows()
             spacings.push([30, 0])
             heights.push(300.0)
         else
-            sizes.push([140, 220])
-            spacings.push([24, 0])
-            heights.push(270.0)
+            ' Cast: 168w so most names fit one line; extra height for 2-line wraps
+            sizes.push([168, 248])
+            spacings.push([20, 0])
+            heights.push(296.0)
         end if
     end for
     m.rowList.rowItemSize = sizes

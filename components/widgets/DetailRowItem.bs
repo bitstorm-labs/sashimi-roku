@@ -70,6 +70,11 @@ sub onContentChanged()
         end if
         m.castName.text = c.title
         m.castRole.text = c.description
+        ' Names wrap to two lines — sit the role under however tall the name is.
+        r = m.castName.boundingRect()
+        roleY = 116 + r.height + 4
+        if roleY < 144 then roleY = 144
+        m.castRole.translation = [0, roleY]
         m.castRing.opacity = 0.0
     end if
 end sub
