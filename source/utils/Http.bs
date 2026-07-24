@@ -19,7 +19,11 @@ namespace Http
         return result
     end function
 
-    function getJson(url as string) as dynamic
+    ' meta (optional): an AA that receives { statusCode } so callers can tell a
+    ' 401 from a timeout from a 5xx. Collapsing everything to invalid is what
+    ' made an expired token indistinguishable from "server down" and left the
+    ' home screen spinning forever.
+    function getJson(url as string, meta = invalid as object) as dynamic
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")
         request.SetMessagePort(port)
@@ -34,21 +38,26 @@ namespace Http
             msg = wait(30000, port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 code = msg.GetResponseCode()
+                if meta <> invalid then meta.statusCode = code
                 if code >= 200 and code < 300
                     return ParseJSON(msg.GetString())
                 else
                     #if DEBUG
-                        print "HTTP GET error: " + str(code) + " for " + url
+                        print "HTTP GET error: " + str(code)
                     #end if
                     return invalid
                 end if
             else
+                ' Timed out: cancel so the transfer does not linger on the thread
+                request.AsyncCancel()
+                if meta <> invalid then meta.statusCode = 0
                 #if DEBUG
-                    print "HTTP GET timeout for " + url
+                    print "HTTP GET timeout"
                 #end if
                 return invalid
             end if
         end if
+        if meta <> invalid then meta.statusCode = -1
         return invalid
     end function
 

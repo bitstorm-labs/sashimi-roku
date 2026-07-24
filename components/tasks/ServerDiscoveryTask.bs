@@ -2,20 +2,44 @@ sub init()
     m.top.functionName = "discover"
 end sub
 
+' Jellyfin LAN discovery: broadcast "Who is JellyfinServer?" to UDP 7359 and
+' collect JSON replies for ~3s.
+'
+' The previous implementation called socket.SetSendToPort(), which does not
+' exist on roDatagramSocket (ifSocket exposes SetSendToAddress, which takes an
+' roSocketAddress carrying BOTH host and port). That raised "member function
+' not found", killed this task thread before it could ever assign m.top.servers,
+' and left the auth screen on "Searching for servers..." forever. It also
+' waited on "roDatagramEvent", which is not a Roku event type -- datagram
+' sockets emit roSocketEvent -- and never called NotifyReadable(), so replies
+' could not have been delivered even if the send had worked.
 sub discover()
     servers = []
     seenUrls = {}
 
     socket = CreateObject("roDatagramSocket")
-    port = CreateObject("roMessagePort")
-    socket.SetMessagePort(port)
-    socket.SetBroadcast(true)
-    socket.SetSendToAddress("255.255.255.255")
-    socket.SetSendToPort(7359)
+    if socket = invalid
+        m.top.servers = servers
+        return
+    end if
 
-    byteArray = CreateObject("roByteArray")
-    byteArray.FromAsciiString("Who is JellyfinServer?")
-    socket.Send(byteArray)
+    msgPort = CreateObject("roMessagePort")
+    socket.SetMessagePort(msgPort)
+    socket.NotifyReadable(true)
+    socket.SetBroadcast(true)
+
+    ' Bind locally (port 0 = let the OS choose) so replies have somewhere to land
+    localAddr = CreateObject("roSocketAddress")
+    localAddr.SetHostName("0.0.0.0")
+    localAddr.SetPort(0)
+    socket.SetAddress(localAddr)
+
+    destAddr = CreateObject("roSocketAddress")
+    destAddr.SetHostName("255.255.255.255")
+    destAddr.SetPort(7359)
+    socket.SetSendToAddress(destAddr)
+
+    socket.SendStr("Who is JellyfinServer?")
 
     timeout = 3000
     timer = CreateObject("roTimespan")
@@ -25,28 +49,32 @@ sub discover()
         remaining = timeout - timer.TotalMilliseconds()
         if remaining <= 0 then exit while
 
-        msg = wait(remaining, port)
-        if msg = invalid then exit while
+        msg = wait(remaining, msgPort)
+        if msg = invalid then exit while          ' wait() timed out
 
-        if type(msg) = "roDatagramEvent"
-            response = msg.GetString()
-            parsed = ParseJSON(response)
-            if parsed <> invalid and parsed.Address <> invalid
-                serverUrl = parsed.Address
-                serverName = "Jellyfin Server"
-                if parsed.Name <> invalid then serverName = parsed.Name
+        if type(msg) = "roSocketEvent" and socket.IsReadable()
+            response = socket.ReceiveStr(2048)
+            if response <> invalid and response <> ""
+                parsed = ParseJSON(response)
+                if parsed <> invalid and parsed.Address <> invalid and type(parsed.Address) = "String"
+                    serverUrl = parsed.Address
+                    serverName = "Jellyfin Server"
+                    if parsed.Name <> invalid and type(parsed.Name) = "String" then serverName = parsed.Name
 
-                if not seenUrls.DoesExist(serverUrl)
-                    seenUrls[serverUrl] = true
-                    servers.push({
-                        serverUrl: serverUrl
-                        serverName: serverName
-                    })
+                    if serverUrl <> "" and not seenUrls.DoesExist(serverUrl)
+                        seenUrls[serverUrl] = true
+                        servers.push({
+                            serverUrl: serverUrl
+                            serverName: serverName
+                        })
+                    end if
                 end if
             end if
         end if
     end while
 
     socket.Close()
+    ' alwaysNotify on this field: an empty result must still notify so the UI
+    ' can show "No servers found" instead of spinning forever.
     m.top.servers = servers
 end sub
