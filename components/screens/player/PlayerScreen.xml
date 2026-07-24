@@ -85,6 +85,10 @@
         <Timer id="osdTimer" repeat="false" duration="5" />
         <Timer id="clockTimer" repeat="true" duration="15" />
         <Timer id="seekTimer" repeat="false" duration="0.5" />
+        <!-- Cert 4.8: the viewer can flip Roku's global caption setting from the
+             system "*" overlay without ever leaving playback, so the app has to
+             notice out-of-band. GetCaptionsMode() is a cheap local read. -->
+        <Timer id="captionTimer" repeat="true" duration="2" />
         <Animation id="osdAnim" duration="0.25" easeFunction="outQuad">
             <FloatFieldInterpolator id="osdInterp" key="[0.0,1.0]" keyValue="[0.0,1.0]" fieldToInterp="osd.opacity" />
         </Animation>

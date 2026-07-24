@@ -58,6 +58,14 @@ sub init()
     m.osdTimer.observeFieldScoped("fire", "onOsdTimer")
     m.clockTimer.observeFieldScoped("fire", "onClockTimer")
     m.seekTimer.observeFieldScoped("fire", "onSeekTimer")
+    m.captionTimer = m.top.findNode("captionTimer")
+    m.captionTimer.observeFieldScoped("fire", "onCaptionTimer")
+    ' Cert 4.8: honour the Roku-level caption setting. Subtitles here are burned
+    ' in server-side, so there is no native caption track for Roku to toggle --
+    ' the app has to translate the global setting into a track choice itself.
+    m.deviceInfo = CreateObject("roDeviceInfo")
+    m.lastCaptionsMode = captionsMode()
+    m.captionTimer.control = "start"
 
     ' Playback state
     m.item = invalid
@@ -237,8 +245,13 @@ sub onStreamReady(r as object)
             for each t in m.subTracks
                 if t.title = want and pick = -1 then pick = t.index
             end for
-        else if (want = invalid or want = "") and AppSettings.subtitlesDefaultOn() and m.subTracks.count() > 0
-            pick = m.subTracks[0].index
+        else if (want = invalid or want = "") and m.subTracks.count() > 0
+            ' Precedence: an explicit choice this session wins (handled above),
+            ' then the Roku global caption setting, then the app's own
+            ' Subtitles-On-By-Default preference.
+            if captionsMode() = "On" or AppSettings.subtitlesDefaultOn()
+                pick = m.subTracks[0].index
+            end if
         end if
         if pick >= 0
             m.curSubIdx = pick
@@ -862,6 +875,42 @@ sub applyMenuSelection()
     bumpOsd()
 end sub
 
+' ---------- Global captions (cert 4.8) ----------
+
+function captionsMode() as string
+    if m.deviceInfo = invalid then return "Off"
+    mode = m.deviceInfo.GetCaptionsMode()
+    if mode = invalid or mode = "" then return "Off"
+    return mode
+end function
+
+' Polled rather than event-driven: roDeviceInfo's caption event needs a message
+' port, which a render-thread component has no loop to service. The read is a
+' cheap local lookup and only does work when the value actually changes.
+sub onCaptionTimer()
+    mode = captionsMode()
+    if mode = m.lastCaptionsMode then return
+    m.lastCaptionsMode = mode
+    applyCaptionsMode(mode)
+end sub
+
+' "On instant replay" and "When mute" are dynamic modes that a burned-in
+' subtitle track cannot follow (the burn-in is baked into the transcode), so
+' they are deliberately left alone rather than half-honoured.
+sub applyCaptionsMode(mode as string)
+    if mode = "On"
+        if m.curSubIdx <> -1 or m.subTracks.count() = 0 then return
+        m.curSubIdx = m.subTracks[0].index
+        m.global.sessionSubtitleTitle = m.subTracks[0].title
+        restartStream()
+    else if mode = "Off"
+        if m.curSubIdx = -1 then return
+        m.curSubIdx = -1
+        m.global.sessionSubtitleTitle = "OFF"
+        restartStream()
+    end if
+end sub
+
 sub closeMenu()
     m.osdMenu.visible = false
     m.menuKind = ""
@@ -1204,13 +1253,16 @@ function onKeyEvent(key as string, press as boolean) as boolean
         else if key = "OK"
             applyMenuSelection()
             return true
-        else if key = "back" or key = "left" or key = "options"
+        else if key = "back" or key = "left"
             closeMenu()
             m.zone = "buttons"
             restyleButtons()
             bumpOsd()
             return true
         end if
+        ' Cert 4.4 reserves "*" for Roku's own system overlay during playback —
+        ' the app must never consume it, in any zone.
+        if key = "options" then return false
         return true   ' swallow everything else while a menu is open
     end if
 
@@ -1244,6 +1296,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
             bumpOsd()
             return true
         end if
+        if key = "options" then return false
         return true
     end if
 
@@ -1270,12 +1323,6 @@ function onKeyEvent(key as string, press as boolean) as boolean
         togglePlayPause()
         showOsd()
         bumpOsd()
-        return true
-    end if
-
-    if key = "options"
-        showOsd()
-        openMenu("subs")
         return true
     end if
 
