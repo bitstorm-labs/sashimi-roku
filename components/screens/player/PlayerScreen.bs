@@ -61,6 +61,12 @@ sub init()
     m.captionTimer = m.top.findNode("captionTimer")
     m.captionTimer.observeFieldScoped("fire", "onCaptionTimer")
     m.bufferTimer = m.top.findNode("bufferTimer")
+    m.tpGroup = m.top.findNode("trickplayGroup")
+    m.tpBorder = m.top.findNode("trickplayBorder")
+    m.tpImage = m.top.findNode("trickplayImage")
+    m.tpTime = m.top.findNode("trickplayTime")
+    m.tp = invalid       ' trick-play geometry for the current item (cert 4.7)
+    m.tpSheet = -1       ' sheet already loaded, so scrubbing doesn't refetch it
     m.bufferTimer.observeFieldScoped("fire", "onBufferTimer")
     ' Cert 4.8: honour the Roku-level caption setting. Subtitles here are burned
     ' in server-side, so there is no native caption track for Roku to toggle --
@@ -327,6 +333,7 @@ sub onStreamReady(r as object)
     m.playMethod = r.playMethod
     m.runTimeTicks = r.runTimeTicks
     if r.runTimeTicks <> invalid and r.runTimeTicks > 0 then m.durationSecs = Int(r.runTimeTicks / 10000000&)
+    setTrickplay(r.trickplay, r.itemId)
     if r.subtitleTracks <> invalid then m.subTracks = sortSubTracks(r.subtitleTracks)
     if r.audioTracks <> invalid then m.audTracks = r.audioTracks
 
@@ -655,6 +662,7 @@ sub showOsd()
 end sub
 
 sub hideOsd()
+    hideTrickplay()
     closeMenu()
     m.zone = "scrub"
     restyleButtons()
@@ -1038,6 +1046,11 @@ sub previewScrubber(target as dynamic)
 end sub
 
 sub drawScrubber(position as dynamic)
+    if m.seeking
+        showTrickplay(position)
+    else
+        hideTrickplay()
+    end if
     dur = m.durationSecs
     fillW = 0
     if dur > 0
@@ -1054,6 +1067,113 @@ sub drawScrubber(position as dynamic)
     remaining = dur - position
     if remaining < 0 then remaining = 0
     m.osdRemaining.text = "-" + formatTime(remaining)
+end sub
+
+' ---------- Trick-play thumbnails (cert 4.7) ----------
+' Roku's native trick play requires a BIF file; Jellyfin serves only JPEG tile
+' sheets, so the frame is composed here. Geometry is read from the item's own
+' Trickplay metadata rather than assumed -- it is per media source, and this
+' server has sheets from two different tile configurations in flight.
+
+sub setTrickplay(info as object, itemId as dynamic)
+    m.tp = invalid
+    m.tpSheet = -1
+    hideTrickplay()
+    if info = invalid or itemId = invalid or itemId = "" then return
+    ' Cert 4.7 only asks for thumbnails above 15 minutes, and a short clip
+    ' yields too few tiles to be worth the fetch.
+    if m.durationSecs <= 900 then return
+
+    best = invalid
+    for each srcId in info
+        byWidth = info[srcId]
+        for each w in byWidth
+            cand = byWidth[w]
+            if cand.Width <> invalid and cand.TileWidth <> invalid and cand.Interval <> invalid and cand.Interval > 0
+                if best = invalid or cand.Width > best.Width then best = cand
+            end if
+        end for
+    end for
+    if best = invalid then return
+
+    tileW = best.TileWidth
+    tileH = best.TileHeight
+    if tileH = invalid or tileH <= 0 then tileH = 1
+    m.tp = {
+        itemId: itemId
+        width: best.Width
+        height: best.Height
+        tileW: tileW
+        tileH: tileH
+        perSheet: tileW * tileH
+        count: best.ThumbnailCount
+        interval: best.Interval
+    }
+
+    ' The window is exactly one tile; the Poster behind it is the whole sheet.
+    m.tpGroup.clippingRect = [0, 0, m.tp.width, m.tp.height]
+    m.tpBorder.width = m.tp.width
+    m.tpBorder.height = m.tp.height
+    m.tpImage.width = m.tp.width * m.tp.tileW
+    m.tpImage.height = m.tp.height * m.tp.tileH
+    m.tpImage.loadWidth = m.tpImage.width
+    m.tpImage.loadHeight = m.tpImage.height
+    m.tpTime.width = m.tp.width
+end sub
+
+sub showTrickplay(position as dynamic)
+    if m.tp = invalid or m.durationSecs <= 0
+        hideTrickplay()
+        return
+    end if
+
+    idx = Int((position * 1000.0#) / m.tp.interval)
+    if idx < 0 then idx = 0
+    if m.tp.count <> invalid and m.tp.count > 0 and idx > m.tp.count - 1 then idx = m.tp.count - 1
+
+    sheet = Int(idx / m.tp.perSheet)
+    within = idx mod m.tp.perSheet
+    row = Int(within / m.tp.tileW)
+    col = within mod m.tp.tileW
+
+    ' Sheets are ~1 MB, so only refetch when the sheet actually changes.
+    if sheet <> m.tpSheet
+        m.tpSheet = sheet
+        m.tpImage.uri = tileSheetUrl(sheet)
+    end if
+    m.tpImage.translation = [-col * m.tp.width, -row * m.tp.height]
+
+    ' Centre on the scrub knob, clamped to the bar's own extent (x 80..1840).
+    frac = position / m.durationSecs
+    if frac < 0 then frac = 0
+    if frac > 1 then frac = 1
+    knobX = 80 + Int(1760 * frac)
+    x = knobX - Int(m.tp.width / 2)
+    if x < 80 then x = 80
+    if x > 1840 - m.tp.width then x = 1840 - m.tp.width
+    y = 1003 - m.tp.height - 46
+
+    m.tpGroup.translation = [x, y]
+    m.tpTime.translation = [x, y + m.tp.height + 6]
+    m.tpTime.text = formatTime(position)
+    m.tpGroup.visible = true
+    m.tpTime.visible = true
+end sub
+
+' Built here rather than in the API task because the Poster fetches its own URI
+' from the render thread. A Poster cannot attach an Authorization header, so the
+' token rides in the query string -- the same unavoidable case as every other
+' artwork URL in the app.
+function tileSheetUrl(sheet as integer) as string
+    base = m.global.serverUrl
+    if base = invalid or base = "" then return ""
+    if Right(base, 1) = "/" then base = Left(base, Len(base) - 1)
+    return base + "/Videos/" + m.tp.itemId + "/Trickplay/" + str(m.tp.width).Trim() + "/" + str(sheet).Trim() + ".jpg?api_key=" + m.global.authToken
+end function
+
+sub hideTrickplay()
+    if m.tpGroup <> invalid then m.tpGroup.visible = false
+    if m.tpTime <> invalid then m.tpTime.visible = false
 end sub
 
 sub togglePlayPause()
