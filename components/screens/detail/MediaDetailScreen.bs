@@ -13,8 +13,9 @@ import "pkg:/source/utils/TimeFormat.bs"
 
 sub init()
     m.backdropImage = m.top.findNode("backdropImage")
-    m.backdropFadeLeft = m.top.findNode("backdropFadeLeft")
-    m.backdropFadeBottom = m.top.findNode("backdropFadeBottom")
+    m.backdropMask = m.top.findNode("backdropMask")
+    ' Snap the feather mask to the fitted image once its decoded size is known.
+    m.backdropImage.observeFieldScoped("loadStatus", "onBackdropStatus")
     m.logoImage = m.top.findNode("logoImage")
     m.moviePosterMask = m.top.findNode("moviePosterMask")
     m.moviePoster = m.top.findNode("moviePoster")
@@ -250,11 +251,38 @@ sub layoutHeader()
         m.metaLabel.translation = [60, 358]
         m.ratingsGroup.translation = [60, 398]
         m.tagsGroup.translation = [60, 446]
-        m.detailButtons.translation = [60, 596]
-        m.overviewLabel.translation = [60, 500]
+        ' Buttons ABOVE the overview (tvOS parity — movies already do this;
+        ' series/episodes had Play below the description).
+        m.detailButtons.translation = [60, 500]
+        m.overviewLabel.translation = [60, 596]
         m.overviewLabel.width = 940
         m.overviewLabel.maxLines = 2
     end if
+end sub
+
+' Fit the feather mask to the image's real rendered rect. scaleToFit CENTERS
+' the decoded image inside the poster's region, so a fixed-size mask feathers
+' the region's edges, not the image's — leaving hard top/bottom lines on 16:9
+' art (same bug class as the hero fixes). The decoded bitmap preserves aspect,
+' so refit poster + mask to the aspect-correct size, anchored top-right (tvOS).
+sub onBackdropStatus()
+    if m.backdropImage.loadStatus <> "ready" then return
+    bw = m.backdropImage.bitmapWidth
+    bh = m.backdropImage.bitmapHeight
+    if bw = invalid or bh = invalid or bw <= 0 or bh <= 0 then return
+    rw = m.backdropRegionW
+    rh = m.backdropRegionH
+    if bw * rh > bh * rw
+        fw = rw
+        fh = Int(rw * bh / bw)
+    else
+        fh = rh
+        fw = Int(rh * bw / bh)
+    end if
+    m.backdropImage.width = fw
+    m.backdropImage.height = fh
+    m.backdropMask.maskSize = [fw, fh]
+    m.backdropMask.translation = [m.backdropRight - fw, 60]
 end sub
 
 sub setBackdrop(item as object)
@@ -263,13 +291,17 @@ sub setBackdrop(item as object)
         frac = 0.55
         if m.isYouTube then frac = 0.65
     end if
-    w = Int(1920 * frac)
-    x = 1920 - 140 - w
-    m.backdropImage.width = w
-    m.backdropImage.translation = [x, 60]
-    m.backdropFadeLeft.translation = [x, 60]
-    m.backdropFadeBottom.translation = [x, 440]
-    m.backdropFadeBottom.width = w + 140
+    ' Region the image fits INTO (tvOS width fractions, right margin 140).
+    ' onBackdropStatus shrinks poster + feather mask to the fitted image and
+    ' re-anchors top-right once the decoded size is known.
+    m.backdropRegionW = Int(1920 * frac)
+    m.backdropRegionH = 580
+    m.backdropRight = 1920 - 140
+    m.backdropMask.translation = [m.backdropRight - m.backdropRegionW, 60]
+    m.backdropMask.maskSize = [m.backdropRegionW, m.backdropRegionH]
+    m.backdropImage.width = m.backdropRegionW
+    m.backdropImage.height = m.backdropRegionH
+    m.backdropImage.translation = [0, 0]
 
     itemId = item.Id
     uri = ""

@@ -10,13 +10,18 @@
         <!-- Background (matches app gradient) -->
         <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
 
-        <!-- Backdrop: top-right, fitted, feathered left edge (tvOS Plex-style) -->
-        <Poster id="backdropImage" width="864" height="580" loadWidth="1728" loadHeight="1160"
-                loadDisplayMode="scaleToFit" translation="[916, 60]" />
-        <Poster id="backdropFadeLeft" uri="pkg:/images/hero_fade_left.png"
-                width="420" height="580" translation="[916, 60]" />
-        <Poster id="backdropFadeBottom" uri="pkg:/images/hero_fade_bottom.png"
-                width="1004" height="200" translation="[916, 440]" />
+        <!-- Backdrop: top-right, fitted, feathered on ALL edges (tvOS parity —
+             MediaDetailView masks the image with stacked gradients so every
+             edge melts into the background). The feather mask + group are
+             resized in onBackdropStatus to hug the FITTED image: scaleToFit
+             centers the image inside this region, so fade strips anchored at
+             the region's edges missed the image's real edges (hard top/bottom
+             lines) — the same class of bug as the hero fixes. -->
+        <MaskGroup id="backdropMask" maskUri="pkg:/images/backdrop_feather.png"
+                   maskSize="[864, 580]" translation="[916, 60]">
+            <Poster id="backdropImage" width="864" height="580" loadWidth="1728" loadHeight="1160"
+                    loadDisplayMode="scaleToFit" />
+        </MaskGroup>
 
         <!-- ===== Fixed header ===== -->
         <Poster id="logoImage" width="760" height="210" loadDisplayMode="scaleToFit"
@@ -70,12 +75,12 @@
         </Label>
 
         <Label id="overviewLabel" text="" color="#BFBFBF" width="940" maxLines="2"
-               wrap="true" translation="[60, 488]">
+               wrap="true" translation="[60, 596]">
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="24" />
         </Label>
 
         <!-- Action buttons (focusable component) -->
-        <DetailButtons id="detailButtons" translation="[60, 596]" />
+        <DetailButtons id="detailButtons" translation="[60, 500]" />
 
         <!-- ===== One multi-row RowList: seasons / episodes / cast ===== -->
         <RowList
