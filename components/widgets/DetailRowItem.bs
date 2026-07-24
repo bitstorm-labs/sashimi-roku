@@ -45,7 +45,11 @@ sub onContentChanged()
         m.isSelected = c.doesExist("isSelected") and c.isSelected = true
         applyPillState(0.0)
     else if m.kind = "episode"
-        if c.HDPosterUrl <> invalid and c.HDPosterUrl <> "" then m.epThumb.uri = c.HDPosterUrl
+        if c.HDPosterUrl <> invalid and c.HDPosterUrl <> ""
+            m.epThumb.uri = c.HDPosterUrl
+        else
+            m.epThumb.uri = ""
+        end if
         m.epName.text = c.title
         m.epSub.text = c.description
         m.epWatched.visible = c.doesExist("isPlayed") and c.isPlayed = true

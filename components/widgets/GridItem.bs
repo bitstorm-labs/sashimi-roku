@@ -64,6 +64,18 @@ sub onItemContentChanged()
     content = m.top.itemContent
     if content = invalid then return
 
+    ' MarkupGrid recycles cells, and onFocusChanged is the only other writer of
+    ' these fields -- so without an explicit reset a reused cell keeps the
+    ' previous item's zoom, dim and highlight until it happens to be focused.
+    m.posterMask.scale = [1.0, 1.0]
+    m.circleMask.scale = [1.0, 1.0]
+    m.focusRing.scale = [1.0, 1.0]
+    m.focusRing.opacity = 0.0
+    m.circleRing.opacity = 0.0
+    m.dimOverlay.opacity = 0.3
+    m.titleLabel.color = "0xAAAAAAFF"
+    m.titleLabel.repeatCount = 0
+
     ' Circular channel card (tvOS: 200x200 circle, centered title, no year)
     m.isCircular = content.doesExist("isCircular") and content.isCircular = true
     if m.isCircular
@@ -72,7 +84,11 @@ sub onItemContentChanged()
         m.dimOverlay.visible = false
         m.focusRing.visible = false
         m.circleMask.visible = true
-        if content.HDPosterUrl <> invalid then m.circlePoster.uri = content.HDPosterUrl
+        if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
+            m.circlePoster.uri = content.HDPosterUrl
+        else
+            m.circlePoster.uri = ""
+        end if
         m.titleLabel.translation = [10, 252]
         m.subtitleLabel.visible = false
     else
@@ -90,20 +106,32 @@ sub onItemContentChanged()
 
     if content.HDPosterUrl <> invalid and content.HDPosterUrl <> ""
         m.posterImage.uri = content.HDPosterUrl
+    else
+        m.posterImage.uri = ""
     end if
 
     if content.shortDescriptionLine1 <> invalid
         m.titleLabel.text = content.shortDescriptionLine1
     else if content.title <> invalid
         m.titleLabel.text = content.title
+    else
+        m.titleLabel.text = ""
     end if
 
     if content.shortDescriptionLine2 <> invalid
         m.subtitleLabel.text = content.shortDescriptionLine2
+    else
+        m.subtitleLabel.text = ""
     end if
 
     applyQualityBadge(content)
     applyRatingBadge(content)
+
+    ' Re-derive the focus visuals from the cell's ACTUAL focusPercent rather
+    ' than leaving the unfocused defaults above. If content is reassigned to the
+    ' cell that currently holds focus (a grid refresh), the defaults alone would
+    ' drop its highlight until the focus engine happened to fire again.
+    onFocusChanged()
 end sub
 
 sub onFocusChanged()
