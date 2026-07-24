@@ -880,10 +880,21 @@ sub doGetPlaybackStream(request as object)
         end if
     end if
 
+    ' Trick-play geometry (cert 4.7) is per-item and per-media-source, and the
+    ' player has no other fetch to hang it off. One small extra GET at stream
+    ' negotiation is cheaper than threading Trickplay through every screen that
+    ' can hand the player an item.
+    trickplay = invalid
+    tpResult = Http.getJson(Http.apiUrl("/Items") + "?Ids=" + itemId + "&Fields=Trickplay")
+    if tpResult <> invalid and tpResult.Items <> invalid and tpResult.Items.count() > 0
+        trickplay = tpResult.Items[0].Trickplay
+    end if
+
     m.top.response = {
         success: true
         action: "getPlaybackStream"
         itemId: itemId
+        trickplay: trickplay
         url: streamUrl
         streamFormat: streamFormat
         playSessionId: playSessionId
