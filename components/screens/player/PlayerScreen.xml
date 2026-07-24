@@ -81,6 +81,21 @@
         </Group>
 
         <JellyfinApi id="apiTask" />
+        <!-- Trick-play thumbnail (cert 4.7). Roku's built-in trick play needs a
+             BIF file and Jellyfin serves none, only JPEG tile sheets -- so the
+             frame is drawn here: clippingRect is sized to ONE tile, and the
+             Poster behind it holds the whole sheet, shifted so the wanted tile
+             lands inside the window. Both are sized at runtime from the item's
+             own Trickplay metadata. -->
+        <Group id="trickplayGroup" visible="false">
+            <Rectangle id="trickplayBorder" color="#000000CC" />
+            <Poster id="trickplayImage" />
+        </Group>
+        <Label id="trickplayTime" text="" color="#FFFFFF" horizAlign="center"
+               visible="false">
+            <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="22" />
+        </Label>
+
         <Timer id="progressTimer" repeat="true" duration="5" />
         <Timer id="osdTimer" repeat="false" duration="5" />
         <Timer id="clockTimer" repeat="true" duration="15" />
