@@ -21,8 +21,14 @@
                 translation="[546, 0]"
             />
 
-            <!-- Left fade over the image's left edge (tvOS gradient mask) -->
+            <!-- Left fade over the image's left edge (tvOS gradient mask).
+                 Repositioned in onHeroImageStatus: scaleToFit CENTERS the
+                 fitted image in the 1274-wide region, so a 16:9 image's left
+                 edge sits ~182px right of the region start — a fade anchored
+                 at the region start is already ~64% spent by the edge and a
+                 harsh vertical line shows. -->
             <Poster
+                id="heroFadeLeft"
                 uri="pkg:/images/hero_fade_left.png"
                 width="500"
                 height="512"
