@@ -79,6 +79,14 @@ sub onQueryChanged()
     if q = ""
         m.queryLabel.text = "Search movies, shows..."
         m.queryLabel.color = "#666666"
+        ' Cancel any in-flight debounce. Without this, the timer armed by the
+        ' last keystroke still fires and repaints results over the idle state
+        ' the user just asked for by clearing the field. Clearing currentQuery
+        ' also makes the stale-response guard in onApiResponse drop whatever
+        ' request is already on the wire.
+        m.debounceTimer.control = "stop"
+        m.pendingQuery = ""
+        m.currentQuery = ""
         showIdleState()
         return
     end if
@@ -137,16 +145,25 @@ sub onApiResponse()
         ' ignore stale responses from earlier keystrokes
         if response.query <> invalid and response.query <> m.currentQuery then return
         onSearchResults(response)
-        if response.items <> invalid and response.items.count() > 0 then saveToHistory(m.currentQuery)
     end if
 end sub
 
 sub onSearchResults(response as object)
-    if not response.success then return
+    if not response.success
+        ' Silently returning left the "Searching..." label up indefinitely, so a
+        ' failed request was indistinguishable from a slow one.
+        m.statusLabel.text = "Couldn't search right now. Check your connection and try again."
+        if m.resultsGrid.isInFocusChain() then m.keyboard.setFocus(true)
+        m.resultsGrid.visible = false
+        return
+    end if
 
     items = response.items
     if items.count() = 0
         m.statusLabel.text = "No results found for " + chr(34) + m.currentQuery + chr(34)
+        ' Hand focus back before hiding: an invisible grid that still holds
+        ' focus swallows every keypress and the screen looks frozen.
+        if m.resultsGrid.isInFocusChain() then m.keyboard.setFocus(true)
         m.resultsGrid.visible = false
         return
     end if
@@ -204,6 +221,11 @@ end sub
 sub onResultSelected()
     index = m.resultsGrid.itemSelected
     if index < 0 then return
+    ' Record history here rather than on every debounced search. Search runs per
+    ' keystroke, so saving on results filled the recent list with every prefix
+    ' ("b", "ba", "bat", ...). Opening a result is the point the query is known
+    ' to be what the user actually meant.
+    if m.currentQuery <> invalid and m.currentQuery <> "" then saveToHistory(m.currentQuery)
     child = m.gridContent.getChild(index)
     if child = invalid then return
     if child.itemJson <> invalid and child.itemJson <> ""

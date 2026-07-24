@@ -1,5 +1,14 @@
 namespace Http
 
+    ' Percent-encode a value for use in a query string. roUrlTransfer.Escape is
+    ' the platform's encoder; anything interpolated into a URL must go through
+    ' it. A raw multi-word search term turned the space into a literal space,
+    ' which truncated the request at the first word.
+    function escape(value as string) as string
+        if value = "" then return ""
+        return CreateObject("roUrlTransfer").Escape(value)
+    end function
+
     function authHeader() as string
         parts = []
         parts.push("MediaBrowser Client=""Sashimi""")
