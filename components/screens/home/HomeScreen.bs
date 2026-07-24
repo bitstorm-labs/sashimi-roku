@@ -142,7 +142,25 @@ sub onApiResponse()
 end sub
 
 sub onLibrariesLoaded(response as object)
-    if not response.success then return
+    if not response.success
+        ' Do NOT just return: chainBusy would stay true forever, which also
+        ' disables the 30s auto-refresh AND the focus-return reload, leaving
+        ' "Loading your library..." on screen for the rest of the session.
+        m.chainBusy = false
+        m.reloadPending = false
+        m.loadingLabel.visible = false
+        m.rowList.visible = false
+        msg = "Could not reach your server."
+        if response.error <> invalid and response.error <> "" then msg = response.error
+        m.emptyLabel.text = msg
+        m.emptyLabel.visible = true
+        ' An expired/rejected token needs a re-login, not a retry. MainScene
+        ' observes this and routes to the auth screen.
+        code = 0
+        if response.statusCode <> invalid then code = response.statusCode
+        if code = 401 or code = 403 then m.global.sessionExpired = true
+        return
+    end if
 
     m.libraries = []
     for each lib in response.items

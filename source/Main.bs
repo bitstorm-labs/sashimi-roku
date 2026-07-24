@@ -19,15 +19,24 @@ sub main(args as dynamic)
 
     ' Memory monitoring (static-analysis advisories): subscribe to low-memory
     ' signals so pressure is at least visible in the debug console.
+    ' Guarded: roAppMemoryMonitor requires run_as_process=1 and is only
+    ' supported on current models. Unguarded, an invalid here threw before the
+    ' message loop below was ever reached -- no loop means no isScreenClosed()
+    ' and no roInput deep links, i.e. the channel exits at launch. This is
+    ' debug telemetry; it must never be able to take down startup.
     di = CreateObject("roDeviceInfo")
-    di.setMessagePort(m.port)
-    di.EnableLowGeneralMemoryEvent(true)
+    if di <> invalid
+        di.setMessagePort(m.port)
+        di.EnableLowGeneralMemoryEvent(true)
+    end if
     appMem = CreateObject("roAppMemoryMonitor")
-    appMem.setMessagePort(m.port)
-    appMem.EnableMemoryWarningEvent(true)
-    #if DEBUG
-        print "[Mem] limit%: "; appMem.GetMemoryLimitPercent(); " availKB: "; appMem.GetChannelAvailableMemory(); " limits: "; appMem.GetChannelMemoryLimit()
-    #end if
+    if appMem <> invalid
+        appMem.setMessagePort(m.port)
+        appMem.EnableMemoryWarningEvent(true)
+        #if DEBUG
+            print "[Mem] limit%: "; appMem.GetMemoryLimitPercent(); " availKB: "; appMem.GetChannelAvailableMemory(); " limits: "; appMem.GetChannelMemoryLimit()
+        #end if
+    end if
 
     while true
         msg = wait(0, m.port)
