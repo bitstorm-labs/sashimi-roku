@@ -36,6 +36,12 @@ sub init()
 
     m.advanceTimer.observeFieldScoped("fire", "onAdvanceTimer")
 
+    ' The banner is never destroyed (MainScene caches the home screen for the
+    ' whole session), so the 6s rotator has to be stopped explicitly whenever
+    ' the banner is off screen — otherwise it pulls a 1280px backdrop and
+    ' rebuilds every dot node through an entire movie.
+    m.top.observeField("visible", "applyAutoAdvance")
+
     m.top.observeField("focusedChild", "onFocusChanged")
 end sub
 
@@ -74,6 +80,9 @@ sub onContentChanged()
         item = {}
         if child.itemJson <> invalid and child.itemJson <> ""
             item = ParseJSON(child.itemJson)
+            ' Truncated/garbled JSON returns invalid; dereferencing it here is a
+            ' render-thread crash, and an empty hero slide is survivable.
+            if type(item) <> "roAssociativeArray" then item = {}
         end if
         item.title = child.title
         item.description = child.description
@@ -84,7 +93,25 @@ sub onContentChanged()
     buildDots(0)
     m.currentIndex = 0
     showItem(0)
-    m.advanceTimer.control = "start"
+    applyAutoAdvance()
+end sub
+
+' Single gate for the rotator: run only when this node is visible, the owning
+' screen says it is on screen, and there is more than one slide to rotate.
+sub applyAutoAdvance()
+    if m.items = invalid then return
+    if m.top.visible and m.top.autoAdvance and m.items.count() > 1
+        ' The progress fill is keyed to the timer's 6s, so both restart together
+        ' or the dot finishes filling long before the slide changes.
+        m.dotAnim.control = "stop"
+        m.dotFill.width = 0
+        m.dotAnim.control = "start"
+        m.advanceTimer.control = "stop"
+        m.advanceTimer.control = "start"
+    else
+        m.advanceTimer.control = "stop"
+        m.dotAnim.control = "stop"
+    end if
 end sub
 
 ' tvOS page indicators: left-aligned row — active track 48x5, others 12x5.
@@ -147,6 +174,11 @@ sub showItem(index as integer)
         m.heroImage.uri = ImageUrl.backdrop(item.SeriesId, 1280)
     else if item.HDPosterUrl <> invalid and item.HDPosterUrl <> ""
         m.heroImage.uri = item.HDPosterUrl
+    else
+        ' Every source above is optional, and the Poster is reused across
+        ' slides — without this the previous item's artwork sits behind the
+        ' new title.
+        m.heroImage.uri = ""
     end if
 
     ' Detect YouTube content (unified helper)
@@ -199,7 +231,9 @@ sub showItem(index as integer)
             meta += str(item.ProductionYear).Trim()
         end if
         if item.RunTimeTicks <> invalid
-            minutes = Int(item.RunTimeTicks / 600000000)
+            ' Double divisor: ticks are LongInteger and 32-bit Float can't hold
+            ' 7.2e10 exactly, so a plain divisor can truncate a 120m film to 119.
+            minutes = Int(item.RunTimeTicks / 600000000.0#)
             if minutes > 0
                 hours = Int(minutes / 60)
                 mins = minutes mod 60
@@ -271,8 +305,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
             if m.items.count() > 0
                 m.currentIndex = (m.currentIndex + 1) mod m.items.count()
                 showItem(m.currentIndex)
-                m.advanceTimer.control = "stop"
-                m.advanceTimer.control = "start"
+                applyAutoAdvance()
             end if
             return true
         else if key = "left"
@@ -280,8 +313,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
                 m.currentIndex = m.currentIndex - 1
                 if m.currentIndex < 0 then m.currentIndex = m.items.count() - 1
                 showItem(m.currentIndex)
-                m.advanceTimer.control = "stop"
-                m.advanceTimer.control = "start"
+                applyAutoAdvance()
             end if
             return true
         else if key = "OK"
