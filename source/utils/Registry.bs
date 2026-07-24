@@ -71,6 +71,14 @@ namespace Registry
         deleteSection("auth")
     end sub
 
+    ' Full sign-out: the saved-servers list stores a token per entry, so
+    ' clearing only "auth" left credentials on the device that Servers.activate
+    ' would write straight back -- sign-out was cosmetic.
+    sub clearAllAuth()
+        deleteSection("auth")
+        deleteSection("servers")
+    end sub
+
     function hasAuth() as boolean
         return getServerUrl() <> "" and getAuthToken() <> "" and getUserId() <> ""
     end function

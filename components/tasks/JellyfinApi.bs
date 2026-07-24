@@ -39,6 +39,8 @@ sub processRequest()
 
     if action = "authenticate"
         doAuthenticate(request)
+    else if action = "logout"
+        doLogout(request)
     else if action = "validateSession"
         doValidateSession()
     else if action = "getPublicInfo"
@@ -244,6 +246,45 @@ sub doAuthenticate(request as object)
             error: "Authentication failed. Check your username and password."
         }
     end if
+end sub
+
+' Revoke the access token server-side. Credentials come in the request payload
+' rather than from m.global, so sign-out can clear local state immediately
+' without racing this request.
+sub doLogout(request as object)
+    serverUrl = ""
+    token = ""
+    if request.serverUrl <> invalid then serverUrl = request.serverUrl
+    if request.token <> invalid then token = request.token
+    if serverUrl = "" or token = ""
+        m.top.response = { success: false, action: "logout" }
+        return
+    end if
+    if Right(serverUrl, 1) = "/" then serverUrl = Left(serverUrl, Len(serverUrl) - 1)
+
+    transfer = CreateObject("roUrlTransfer")
+    port = CreateObject("roMessagePort")
+    transfer.SetMessagePort(port)
+    transfer.SetCertificatesFile("common:/certs/ca-bundle.crt")
+    transfer.InitClientCertificates()
+    transfer.SetUrl(serverUrl + "/Sessions/Logout")
+    transfer.AddHeader("Authorization", "MediaBrowser Token=""" + token + """")
+    transfer.AddHeader("Content-Type", "application/json")
+
+    ok = false
+    if transfer.AsyncPostFromString("")
+        msg = wait(10000, port)
+        if msg <> invalid and type(msg) = "roUrlEvent"
+            code = msg.GetResponseCode()
+            ok = (code >= 200 and code < 300)
+        else
+            transfer.AsyncCancel()
+        end if
+    end if
+    #if DEBUG
+        print "[API] Logout ok: "; ok
+    #end if
+    m.top.response = { success: ok, action: "logout" }
 end sub
 
 sub doValidateSession()
