@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest something Sashimi should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: >
+        Describe the goal rather than the solution — there may be a better way
+        to get you there.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What did you have in mind?
+  - type: input
+    id: parity
+    attributes:
+      label: Does another client already do this?
+      description: >
+        Jellyfin's own clients, or the Sashimi tvOS/Android apps. Helps to see
+        a working example.

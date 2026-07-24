@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/bitstorm-labs/sashimi-roku/security/advisories/new
+    about: Please report security issues privately, not as a public issue.
+  - name: Jellyfin server problems
+    url: https://github.com/jellyfin/jellyfin/issues
+    about: For bugs in Jellyfin itself rather than this client.

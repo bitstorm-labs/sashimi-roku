@@ -913,14 +913,6 @@ sub onEpisodesLoaded(response as object)
     buildCastRow(m.item)
     commitRows()
 end sub
-
-function firstEpTitle(row as object) as string
-    if row.getChildCount() = 0 then return "(none)"
-    c = row.getChild(0)
-    if c.title <> invalid then return c.title
-    return "(blank)"
-end function
-
 sub buildCastRow(item as object)
     if item.People = invalid or item.People.count() = 0 then return
     crow = m.rowContent.createChild("ContentNode")

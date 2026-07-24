@@ -16,5 +16,6 @@
     {
       "src": "tests/**/*"
     }
-  ]
+  ],
+  "outFile": "out/sashimi-roku.zip"
 }

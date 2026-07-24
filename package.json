@@ -10,7 +10,7 @@
     "lint": "bsc --create-package=false"
   },
   "devDependencies": {
-    "brighterscript": "^0.67.0",
+    "brighterscript": "^0.73.0",
     "roku-deploy": "^3.12.0"
   }
 }
