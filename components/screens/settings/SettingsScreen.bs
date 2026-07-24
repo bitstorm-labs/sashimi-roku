@@ -7,6 +7,11 @@ import "pkg:/source/utils/Servers.bs"
 ' Values persist to Registry section "settings" — playback (Pass 4) reads them.
 
 sub init()
+    ' Fire-and-forget: sign-out only needs the revoke dispatched, and the
+    ' response would arrive after this screen is torn down. The task still has
+    ' to be RUNning or the request field is never read.
+    m.apiTask = m.top.findNode("apiTask")
+    m.apiTask.control = "RUN"
     m.rowsGroup = m.top.findNode("rowsGroup")
 
     m.rowW = 800
