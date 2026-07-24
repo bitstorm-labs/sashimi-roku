@@ -53,6 +53,7 @@ sub init()
         { key: "autoSkipIntro", title: "Auto-Skip Intro", kind: "toggle", default: "false" },
         { key: "autoSkipCredits", title: "Auto-Skip Credits", kind: "toggle", default: "false" },
         { key: "resumeThresholdSeconds", title: "Resume Threshold", kind: "picker", options: m.resumeOptions },
+        { key: "subtitlesDefaultOn", title: "Subtitles On By Default", kind: "toggle", default: "false" },
         { key: "use24HourTime", title: "24-Hour Time", kind: "toggle", default: "false" },
         { key: "showQualityBadges", title: "Show Quality Badges", kind: "toggle", default: "true" },
         { key: "showReviewRatings", title: "Show Review Ratings", kind: "toggle", default: "true" },

@@ -87,6 +87,7 @@ sub init()
     m.subTracks = []          ' [{index, title}] from PlaybackInfo
     m.audTracks = []
     m.curSubIdx = -1          ' -1 = off
+    m.subPrefApplied = false  ' once-per-file guard for subtitle re-match
     m.curAudIdx = -1          ' -1 = server default
     m.qualityBps = 0          ' 0 = auto (settings)
     ' Adaptive step-down: when a stream stalls/errors mid-playback (weak remote
@@ -223,6 +224,28 @@ sub onStreamReady(r as object)
     if r.runTimeTicks <> invalid and r.runTimeTicks > 0 then m.durationSecs = Int(r.runTimeTicks / 10000000&)
     if r.subtitleTracks <> invalid then m.subTracks = sortSubTracks(r.subtitleTracks)
     if r.audioTracks <> invalid then m.audTracks = r.audioTracks
+
+    ' Subtitle continuity: tracks are only known after negotiation, so on the
+    ' FIRST response per file (guarded), re-match the session's remembered
+    ' track title — or the Subtitles-On-By-Default setting when nothing was
+    ' chosen this session — and renegotiate once with that stream index.
+    if m.curSubIdx = -1 and not m.subPrefApplied
+        m.subPrefApplied = true
+        want = m.global.sessionSubtitleTitle
+        pick = -1
+        if want <> invalid and want <> "" and want <> "OFF"
+            for each t in m.subTracks
+                if t.title = want and pick = -1 then pick = t.index
+            end for
+        else if (want = invalid or want = "") and AppSettings.subtitlesDefaultOn() and m.subTracks.count() > 0
+            pick = m.subTracks[0].index
+        end if
+        if pick >= 0
+            m.curSubIdx = pick
+            requestStream(m.item)
+            return
+        end if
+    end if
 
     ' Stream-info chips: resolution + codec + delivery method, rendered as
     ' capsule badges so they read separately from the text line
@@ -803,6 +826,16 @@ sub applyMenuSelection()
     else if m.menuKind = "subs"
         if value <> m.curSubIdx
             m.curSubIdx = value
+            ' Session memory (tvOS parity): remember the chosen track by TITLE
+            ' so the next episode re-selects it (indexes are per-file). "OFF"
+            ' records an explicit disable so default-on can't re-enable.
+            if value = -1
+                m.global.sessionSubtitleTitle = "OFF"
+            else
+                for each t in m.subTracks
+                    if t.index = value then m.global.sessionSubtitleTitle = t.title
+                end for
+            end if
             restartStream()
         end if
     else if m.menuKind = "audio"
@@ -1124,9 +1157,11 @@ sub onSiblingsLoaded(r as object)
         m.startedReported = false
         m.top.playAction = "play"
         m.item = nextEp
-        ' Subtitle indexes are per-file — reset; quality choice persists.
+        ' Subtitle indexes are per-file — reset; onStreamReady re-matches the
+        ' session's remembered track by title. Quality choice persists.
         m.curSubIdx = -1
         m.curAudIdx = -1
+        m.subPrefApplied = false
         populateInfoBar()
         requestStream(nextEp)
     else
