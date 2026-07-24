@@ -45,6 +45,10 @@ sub init()
     ' refresh immediately on return (bypassing the 20s debounce) so Continue
     ' Watching never shows a stale just-dismissed show.
     m.global.addFields({ watchStateDirty: false })
+    ' Session-scoped subtitle memory (tvOS parity): the chosen track TITLE
+    ' ("" = nothing chosen yet, "OFF" = explicitly disabled). Raw stream
+    ' indexes are per-file, so the player re-matches by title each episode.
+    m.global.addFields({ sessionSubtitleTitle: "" })
     m.global.observeFieldScoped("switchServerId", "onSwitchServer")
 
     m.pendingDeepLink = invalid

@@ -23,6 +23,10 @@ namespace AppSettings
         return read("forceDirectPlay", "false") = "true"
     end function
 
+    function subtitlesDefaultOn() as boolean
+        return read("subtitlesDefaultOn", "false") = "true"
+    end function
+
     function autoPlayNextEpisode() as boolean
         return read("autoPlayNextEpisode", "true") = "true"
     end function
