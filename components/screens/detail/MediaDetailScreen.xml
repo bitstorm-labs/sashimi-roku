@@ -5,6 +5,10 @@
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
         <field id="playItem" type="assocarray" alwaysNotify="true" />
         <field id="autoPlay" type="boolean" value="false" />
+        <!-- Deep link (cert 5.2) could not be resolved: MainScene pops to home
+             and shows an error rather than stranding the user on a blank
+             springboard. -->
+        <field id="deepLinkFailed" type="boolean" value="false" alwaysNotify="true" />
     </interface>
     <children>
         <!-- Background (matches app gradient) -->

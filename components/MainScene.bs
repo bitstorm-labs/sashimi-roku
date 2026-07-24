@@ -77,10 +77,33 @@ sub onLaunchArgs()
     if m.rootScreens.DoesExist("home") then processDeepLink()
 end sub
 
+' Roku's deep-linking spec defines eight mediaTypes. All of them must begin
+' playback immediately (cert 5.2, Direct to Play) EXCEPT "season", which is
+' explicitly allowed to open a springboard highlighting the season's episodes.
+' Only movie/episode played before; series, shortFormVideo, tvSpecial, liveFeed
+' and sportsEvent all wrongly stopped at the springboard.
+function isDirectPlayType(mediaType as string) as boolean
+    if mediaType = "" then return false
+    playTypes = {
+        movie: true,
+        episode: true,
+        series: true,
+        shortformvideo: true,
+        tvspecial: true,
+        livefeed: true,
+        sportsevent: true
+    }
+    return (playTypes[mediaType] = true)
+end function
+
 sub processDeepLink()
     dl = m.pendingDeepLink
     if dl = invalid then return
     m.pendingDeepLink = invalid
+    if dl.contentId = invalid or dl.contentId = ""
+        failDeepLink()
+        return
+    end if
     ' Pop anything stacked so the link lands in a predictable place
     while m.navStack.count() > 0
         popScreen()
@@ -92,11 +115,31 @@ sub processDeepLink()
     if screen = invalid then return
     screen.observeFieldScoped("selectedItem", "onItemSelected")
     screen.observeFieldScoped("playItem", "onPlayItem")
-    if dl.mediaType = "movie" or dl.mediaType = "episode"
+    screen.observeFieldScoped("deepLinkFailed", "onDeepLinkFailed")
+    if isDirectPlayType(dl.mediaType)
         screen.autoPlay = true
+        ' Direct to Play means the viewer goes from the voice command straight
+        ' into video. Keep the springboard hidden until it hands off to the
+        ' player; the detail screen reveals itself at that moment so backing
+        ' out of playback still lands somewhere sensible.
+        screen.visible = false
     end if
     pushScreen(screen)
     screen.itemData = item
+end sub
+
+' Invalid contentId / unavailable content: the spec requires an error message
+' and a return to the home screen.
+sub onDeepLinkFailed(event as object)
+    if event.getData() <> true then return
+    failDeepLink()
+end sub
+
+sub failDeepLink()
+    while m.navStack.count() > 0
+        popScreen()
+    end while
+    m.global.toastMessage = { message: "That content isn't available" }
 end sub
 
 ' Settings/home ask for a server switch via m.global.switchServerId.

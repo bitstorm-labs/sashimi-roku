@@ -61,6 +61,7 @@ sub init()
     m.itemType = ""
     m.isYouTube = false
     m.forceYouTube = false
+    m.isDeepLink = false
     m.seasons = []
     m.selectedSeasonIndex = 0
     m.zone = "buttons"          ' buttons | rows
@@ -106,8 +107,14 @@ sub onApiResponse()
         onPlaybackInfoLoaded(response)
     else if action = "getSeasons"
         onSeasonsLoaded(response)
+    else if action = "getNextUp"
+        if response.context <> invalid and response.context = "deepLinkPlay" then onDeepLinkNextUp(response)
     else if action = "getEpisodes"
-        onEpisodesLoaded(response)
+        if response.context <> invalid and response.context = "deepLinkPlay"
+            onDeepLinkFirstEpisode(response)
+        else
+            onEpisodesLoaded(response)
+        end if
     else if action = "markPlayed" or action = "markUnplayed"
         if response.success and m.item <> invalid
             m.global.toastMessage = { message: "Updated" }
@@ -152,6 +159,7 @@ sub onItemDataChanged()
     ' ancestor FIRST so the header renders right the first time. In-app items
     ' already carry the flag and skip this entirely (no extra request).
     isDeepLink = (data._deepLink <> invalid and data._deepLink = true)
+    m.isDeepLink = isDeepLink
     if isDeepLink and not m.forceYouTube and not m.top.autoPlay
         m.pendingItemId = itemId
         enqueue({ action: "getAncestors", itemId: itemId })
@@ -183,7 +191,12 @@ end sub
 
 sub onItemLoaded(response as object)
     m.loadingLabel.visible = false
-    if not response.success then return
+    if not response.success
+        ' Cert 5.2: an invalid/unavailable contentId must pop an error and land
+        ' on the home screen. Silently returning left a blank detail screen.
+        if m.top.autoPlay or m.isDeepLink then m.top.deepLinkFailed = true
+        return
+    end if
 
     m.item = response.item
     item = m.item
@@ -221,10 +234,47 @@ sub onItemLoaded(response as object)
 
     focusZone("buttons")
 
-    ' Deep link with a playable mediaType: start playback immediately
+    ' Deep link with a playable mediaType: start playback immediately (cert
+    ' 5.2 Direct to Play). The screen was created hidden so the springboard and
+    ' its Resume/Play buttons never flash; reveal it now that the player is
+    ' about to be pushed on top, so backing out of the player lands on a fully
+    ' rendered detail screen instead of a blank one.
     if m.top.autoPlay
         m.top.autoPlay = false
-        m.top.playItem = { item: item, action: "resume" }
+        if m.itemType = "Series"
+            ' mediaType="series" must launch the episode the viewer is up to,
+            ' not the series itself. NextUp scoped to this series is Jellyfin's
+            ' equivalent of Roku's "smart bookmark"; DisableFirstEpisode=false
+            ' means a never-started show resolves to S1E1.
+            enqueue({ action: "getNextUp", seriesId: item.Id, limit: 1, context: "deepLinkPlay" })
+        else
+            m.top.visible = true
+            m.top.playItem = { item: item, action: "resume" }
+        end if
+    end if
+end sub
+
+' Deep-link series resolution (cert 5.2). NextUp comes back empty for a fully
+' watched series, so fall back to the first episode rather than dead-ending.
+sub onDeepLinkNextUp(response as object)
+    if response.success and response.items <> invalid and response.items.count() > 0
+        m.top.visible = true
+        m.top.playItem = { item: response.items[0], action: "resume" }
+        return
+    end if
+    if m.item = invalid
+        m.top.deepLinkFailed = true
+        return
+    end if
+    enqueue({ action: "getEpisodes", seriesId: m.item.Id, context: "deepLinkPlay" })
+end sub
+
+sub onDeepLinkFirstEpisode(response as object)
+    if response.success and response.items <> invalid and response.items.count() > 0
+        m.top.visible = true
+        m.top.playItem = { item: response.items[0], action: "resume" }
+    else
+        m.top.deepLinkFailed = true
     end if
 end sub
 
