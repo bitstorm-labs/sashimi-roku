@@ -361,8 +361,13 @@ sub onVideoState()
         ' Roku Video node error detail — the only reliable signal for WHY a
         ' stream was rejected (codec/level/segment/network). Logged for support.
         ei = m.video.errorInfo
-        print "[Player] VIDEO ERROR code="; m.video.errorCode; " msg="; m.video.errorMsg; " method="; m.playMethod; " started="; m.startedReported
-        if ei <> invalid then print "[Player] errorInfo: "; formatJson(ei)
+        #if DEBUG
+            print "[Player] VIDEO ERROR code="; m.video.errorCode; " msg="; m.video.errorMsg; " method="; m.playMethod; " started="; m.startedReported
+        #end if
+        ' errorInfo can embed the stream URL, which carries api_key=<token>
+        #if DEBUG
+            if ei <> invalid then print "[Player] errCode: "; ei.errorCode
+        #end if
         ' Force Direct Play opts out of the adaptive transcode fallbacks below:
         ' log and let the normal playback-error surface instead of silently
         ' transcoding or stepping the bitrate down. Exception: if the stream
@@ -427,7 +432,9 @@ sub onVideoState()
             return
         end if
 
-        if directPlayOnly then print "[Player] Force Direct Play on - skipping HLS/step-down fallback; surfacing playback error"
+        #if DEBUG
+            if directPlayOnly then print "[Player] Force Direct Play on - skipping HLS/step-down fallback; surfacing playback error"
+        #end if
         m.statusLabel.visible = true
         m.statusLabel.text = "Playback error."
         m.progressTimer.control = "stop"
