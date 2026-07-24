@@ -529,11 +529,11 @@ sub doGetItems(request as object)
         end if
     end if
     if request.nameStartsWith <> invalid and request.nameStartsWith <> ""
-        url += "&NameStartsWith=" + request.nameStartsWith
+        url += "&NameStartsWith=" + Http.escape(request.nameStartsWith)
     end if
     ' "#" jump-bar bucket: titles that sort before "A" (digits/symbols).
     if request.nameLessThan <> invalid and request.nameLessThan <> ""
-        url += "&NameLessThan=" + request.nameLessThan
+        url += "&NameLessThan=" + Http.escape(request.nameLessThan)
     end if
 
     result = Http.getJson(url)
@@ -670,7 +670,7 @@ sub doSearch(request as object)
         print "[API] Searching: " + query
     #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
-    url += "?SearchTerm=" + query
+    url += "?SearchTerm=" + Http.escape(query)
     url += "&Limit=" + str(limit).Trim()
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
