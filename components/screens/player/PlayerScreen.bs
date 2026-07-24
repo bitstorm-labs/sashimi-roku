@@ -231,12 +231,13 @@ sub onStreamReady(r as object)
         chips.push(r.videoResolution)
         if r.videoCodec <> invalid and r.videoCodec <> "" then chips.push(r.videoCodec)
     end if
+    ' Viewer-facing wording: DirectPlay vs DirectStream is server plumbing —
+    ' both deliver identical video bits, so both read "Original". Only a
+    ' transcode changes the picture: "Converted".
     if m.playMethod = "Transcode"
-        chips.push("Transcoding")
-    else if m.playMethod = "DirectStream"
-        chips.push("Direct Stream")
+        chips.push("Converted")
     else
-        chips.push("Direct Play")
+        chips.push("Original")
     end if
     ' Bitrate chip (e.g. "4 Mbps") from the source media bitrate
     if r.bitrate <> invalid and r.bitrate > 0

@@ -48,7 +48,7 @@ sub init()
         { key: "", title: "Servers", kind: "servers" },
         { key: "", title: "Home Screen Rows", kind: "homerows" },
         { key: "maxBitrateMbps", title: "Maximum Bitrate", kind: "picker", options: m.bitrateOptions },
-        { key: "forceDirectPlay", title: "Force Direct Play", kind: "toggle", default: "false" },
+        { key: "forceDirectPlay", title: "Always Play Original", kind: "toggle", default: "false" },
         { key: "autoPlayNextEpisode", title: "Auto-Play Next Episode", kind: "toggle", default: "true" },
         { key: "autoSkipIntro", title: "Auto-Skip Intro", kind: "toggle", default: "false" },
         { key: "autoSkipCredits", title: "Auto-Skip Credits", kind: "toggle", default: "false" },
