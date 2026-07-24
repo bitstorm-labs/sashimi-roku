@@ -7,9 +7,12 @@ sub init()
     m.filterLabel = m.top.findNode("filterLabel")
     m.posterGrid = m.top.findNode("posterGrid")
     m.loadingLabel = m.top.findNode("loadingLabel")
+    m.alphaGroup = m.top.findNode("alphaGroup")
     m.alphaBar = m.top.findNode("alphaBar")
     m.shuffleBtn = m.top.findNode("shuffleBtn")
     m.shuffleBg = m.top.findNode("shuffleBg")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.retryBtn = m.top.findNode("retryBtn")
     m.apiTask = m.top.findNode("apiTask")
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
@@ -32,6 +35,9 @@ sub init()
     m.loadedItems = 0
     m.isLoading = false
     m.gridContent = invalid
+    m.reqQueue = []             ' serialized API requests (avoid coalescing)
+    m.reqActive = false
+    m.refreshFocusIndex = -1    ' grid index to restore after a watch-state refresh
 
     m.posterGrid.observeFieldScoped("itemSelected", "onItemSelected")
     m.posterGrid.observeFieldScoped("itemFocused", "onItemFocused")
@@ -55,22 +61,76 @@ sub init()
 end sub
 
 sub onFocusDelegate()
-    if m.top.hasFocus()
-        ' Refresh watch-state when returning after >30s away
-        now = CreateObject("roDateTime").AsSeconds()
-        if m.lastLoadTime <> invalid and (now - m.lastLoadTime) > 30 and not m.isLoading
-            loadItems(0)
-            return
-        end if
-        if m.posterGrid.visible
-            m.posterGrid.setFocus(true)
-        end if
+    if not m.top.hasFocus() then return
+    focusContent()
+
+    ' Refresh watch-state when returning after >30s away. This runs behind the
+    ' restored grid — the old blind loadItems(0) dropped a user 300 items deep
+    ' back at item 0 with a single page loaded.
+    now = CreateObject("roDateTime").AsSeconds()
+    if m.lastLoadTime <> invalid and (now - m.lastLoadTime) > 30 and not m.isLoading
+        refreshItems()
     end if
+end sub
+
+function hasItems() as boolean
+    return m.gridContent <> invalid and m.gridContent.getChildCount() > 0
+end function
+
+' Something inside this screen must always end up focused. A failed or empty
+' load used to leave focus on the bare Group, where every key except Back was
+' dead. An empty MarkupGrid can't hold focus either, so the jump bar doubles as
+' the fallback — it is also the obvious next action when a letter came back
+' empty.
+sub focusContent()
+    if not m.top.isInFocusChain() then return
+    if m.retryBtn.visible
+        m.alphaGroup.visible = false
+        m.retryBtn.setFocus(true)
+    else if hasItems()
+        ' Retiring the bar with its focus matters: left it up, the overlay kept
+        ' drawing over the grid and Left no longer matched its dismiss handler.
+        m.alphaGroup.visible = false
+        m.posterGrid.setFocus(true)
+    else
+        m.alphaGroup.visible = true
+        m.alphaBar.setFocus(true)
+    end if
+end sub
+
+' MainScene shifts root screens right by the rail width but pushes library
+' screens at full width, so right-anchored and centred widgets have to be
+' placed against the *visible* width — authored at 1920 the jump bar landed
+' entirely off the right edge of every root library.
+sub applyContentWidth()
+    contentWidth = 1920 - m.top.translation[0]
+    m.alphaGroup.translation = [contentWidth - 200, 120]
+    m.loadingLabel.width = contentWidth
+    m.statusLabel.width = contentWidth
+    m.retryBtn.translation = [(contentWidth - 200) / 2, 560]
+end sub
+
+' ---------- Serialized request queue ----------
+' apiTask reads only the LATEST request per tick; setting two in one tick drops
+' the first. Queue guarantees one in flight at a time.
+
+sub enqueue(req as object)
+    m.reqQueue.push(req)
+    pumpQueue()
+end sub
+
+sub pumpQueue()
+    if m.reqActive then return
+    if m.reqQueue.count() = 0 then return
+    m.reqActive = true
+    m.apiTask.request = m.reqQueue.shift()
 end sub
 
 sub onLibraryDataChanged()
     data = m.top.libraryData
     if data = invalid then return
+    ' First point at which MainScene has set our translation (root vs pushed).
+    applyContentWidth()
     m.libraryId = data.id
     m.libraryName = data.name
     m.isYouTube = YT.isLibraryName(m.libraryName)
@@ -105,15 +165,35 @@ sub loadItems(startIndex as integer)
     if startIndex = 0
         m.loadingLabel.visible = true
         m.posterGrid.visible = false
+        hideStatus()
     end if
     updateFilterLabel()
+    enqueue(itemsRequest(startIndex, 50, ""))
+end sub
 
+' Watch-state refresh on re-entry. Re-fetching just the first page would throw
+' away every page the user had scrolled through, so ask for exactly the window
+' they already have and restore the focused index once it lands.
+sub refreshItems()
+    if m.loadedItems = 0
+        loadItems(0)
+        return
+    end if
+    m.isLoading = true
+    m.lastLoadTime = CreateObject("roDateTime").AsSeconds()
+    m.refreshFocusIndex = m.posterGrid.itemFocused
+    ' No spinner and no hidden grid: the current view stays usable, and a failed
+    ' refresh then changes nothing on screen.
+    enqueue(itemsRequest(0, m.loadedItems, "refresh"))
+end sub
+
+function itemsRequest(startIndex as integer, limit as integer, context as string) as object
     req = {
         action: "getItems"
         parentId: m.libraryId
         sortBy: m.sortBy
         sortOrder: m.sortOrder
-        limit: 50
+        limit: limit
         startIndex: startIndex
         isPlayed: m.filterPlayed
         isFavorite: m.filterFavorite
@@ -123,28 +203,45 @@ sub loadItems(startIndex as integer)
     ' inside the letter view and keep the active filters.
     if m.nameStartsWith <> "" then req.nameStartsWith = m.nameStartsWith
     if m.nameLessThan <> "" then req.nameLessThan = m.nameLessThan
-    m.apiTask.request = req
-end sub
+    if context <> "" then req.context = context
+    return req
+end function
 
 sub onApiResponse()
     response = m.apiTask.response
     if response = invalid then return
+    m.reqActive = false
     if response.action = "getItems"
         if response.context <> invalid and response.context = "shuffle"
-            ' Shuffle result — play the random item directly
-            if response.success and response.items <> invalid and response.items.count() > 0
-                m.top.playItem = { item: response.items[0], action: "play" }
-            end if
+            onShuffleResult(response)
         else
             onItemsLoaded(response)
         end if
     end if
+    pumpQueue()
+end sub
+
+sub onShuffleResult(response as object)
+    if response.success and response.items <> invalid and response.items.count() > 0
+        m.top.playItem = { item: response.items[0], action: "play" }
+        return
+    end if
+    ' Without this the button is simply dead on a bad connection.
+    if response.success
+        m.global.toastMessage = { message: "Nothing to shuffle in this library" }
+    else
+        m.global.toastMessage = { message: "Shuffle failed - check your connection" }
+    end if
 end sub
 
 sub onItemsLoaded(response as object)
+    isRefresh = (response.context <> invalid and response.context = "refresh")
     m.isLoading = false
     m.loadingLabel.visible = false
-    if not response.success then return
+    if not response.success
+        onLoadFailed(isRefresh)
+        return
+    end if
 
     m.totalItems = response.totalRecordCount
 
@@ -188,12 +285,50 @@ sub onItemsLoaded(response as object)
     ' appended children show up automatically. Re-assigning on later pages
     ' rebuilt the grid and snapped focus back to the top.
     if response.startIndex = 0
+        hideStatus()
         m.posterGrid.content = m.gridContent
-        m.posterGrid.visible = true
-        ' Only grab focus if this screen is actually focused — when it loads as
-        ' a sidebar preview (rail focused), it must NOT steal focus (auto-descend).
-        if m.top.isInFocusChain() then m.posterGrid.setFocus(true)
+        m.posterGrid.visible = hasItems()
+        if isRefresh and m.refreshFocusIndex > 0 and m.refreshFocusIndex < m.loadedItems
+            ' A rebuilt ContentNode always parks the grid back at item 0.
+            m.posterGrid.jumpToItem = m.refreshFocusIndex
+        end if
+        m.refreshFocusIndex = -1
+        ' An empty grid made visible with no explanation just reads as broken.
+        if not hasItems() then showStatus("No items here.", false)
+        ' focusContent only takes focus if this screen is actually focused — when
+        ' it loads as a sidebar preview (rail focused), it must NOT steal focus.
+        focusContent()
     end if
+end sub
+
+' A failed load used to hide the spinner and return, leaving a bare dark screen
+' with focus on nothing. Whatever is already on screen stays; only an empty grid
+' gets the error + Retry panel.
+sub onLoadFailed(isRefresh as boolean)
+    m.refreshFocusIndex = -1
+    if hasItems()
+        m.posterGrid.visible = true
+        ' A background refresh failing changed nothing the user asked for; a
+        ' letter jump, filter change or page-in failing did.
+        if not isRefresh
+            m.global.toastMessage = { message: "Couldn't reach the server - try again" }
+        end if
+    else
+        showStatus("Couldn't load this library.", true)
+    end if
+    focusContent()
+end sub
+
+sub showStatus(text as string, retry as boolean)
+    m.statusLabel.text = text
+    m.statusLabel.visible = true
+    m.retryBtn.visible = retry
+    m.posterGrid.visible = false
+end sub
+
+sub hideStatus()
+    m.statusLabel.visible = false
+    m.retryBtn.visible = false
 end sub
 
 sub onItemFocused()
@@ -234,6 +369,8 @@ sub onAlphaSelected()
         m.nameStartsWith = Chr(64 + index)
         m.nameLessThan = ""
     end if
+    ' The bar keeps focus (and stays drawn) until the results land — focusContent
+    ' retires it then, or leaves it up if the letter came back empty.
     loadItems(0)
 end sub
 
@@ -269,12 +406,19 @@ function onKeyEvent(key as string, press as boolean) as boolean
             showSortFilterDialog()
             return true
         else if key = "right" and m.posterGrid.hasFocus()
-            m.alphaBar.visible = true
+            m.alphaGroup.visible = true
             m.alphaBar.setFocus(true)
             return true
         else if key = "left" and m.alphaBar.hasFocus()
-            m.alphaBar.visible = false
-            m.posterGrid.setFocus(true)
+            ' Only surrender the bar's focus to a node that can hold it — with an
+            ' empty grid the bar is the last focusable thing on screen.
+            if hasItems()
+                m.alphaGroup.visible = false
+                m.posterGrid.setFocus(true)
+            end if
+            return true
+        else if key = "OK" and m.retryBtn.hasFocus()
+            loadItems(0)
             return true
         else if key = "up" and m.posterGrid.hasFocus() and m.canShuffle
             ' fixedFocus lets the grid bubble Up only at the top row; guard on the
@@ -309,14 +453,14 @@ end sub
 sub doShuffle()
     itemType = "Movie"
     if Instr(1, m.includeTypes, "Series") > 0 then itemType = "Episode"
-    m.apiTask.request = {
+    enqueue({
         action: "getItems"
         parentId: m.libraryId
         includeItemTypes: itemType
         sortBy: "Random"
         limit: 1
         context: "shuffle"
-    }
+    })
 end sub
 
 ' The sort/filter options grew past what one dialog holds cleanly, so this is
@@ -341,7 +485,7 @@ sub onSortFilterButton()
     else if index = 1
         showFilterDialog()
     else
-        m.posterGrid.setFocus(true)
+        focusContent()
     end if
 end sub
 
@@ -402,7 +546,7 @@ sub onSortButton()
         m.nameLessThan = ""
         loadItems(0)
     end if
-    m.posterGrid.setFocus(true)
+    focusContent()
 end sub
 
 sub showFilterDialog()
@@ -442,5 +586,5 @@ sub onFilterButton()
         m.nameLessThan = ""
         loadItems(0)
     end if
-    m.posterGrid.setFocus(true)
+    focusContent()
 end sub
