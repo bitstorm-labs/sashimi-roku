@@ -5,7 +5,12 @@ namespace Http
         parts.push("MediaBrowser Client=""Sashimi""")
         parts.push("Device=""Sashimi Roku""")
         parts.push("DeviceId=""" + m.global.deviceId + """")
-        parts.push("Version=""0.1.0""")
+        ' Real channel version (manifest), not a hardcoded literal -- every
+        ' session previously showed as 0.1.0 in the Jellyfin dashboard.
+        ver = "0.0.0"
+        appInfo = CreateObject("roAppInfo")
+        if appInfo <> invalid then ver = appInfo.GetVersion()
+        parts.push("Version=""" + ver + """")
         token = m.global.authToken
         if token <> "" and token <> invalid
             parts.push("Token=""" + token + """")

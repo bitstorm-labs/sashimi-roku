@@ -17,4 +17,5 @@ Sashimi is a free, open-source client application for Jellyfin media servers.
    an independent project, not affiliated with or endorsed by the Jellyfin
    project or Roku, Inc.
 5. **Changes.** These terms may be updated as the project evolves; the latest
-   version always lives at this URL.
+   version always lives at
+   https://github.com/bitstorm-labs/sashimi-roku/blob/main/TERMS.md

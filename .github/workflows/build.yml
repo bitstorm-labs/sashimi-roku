@@ -3,6 +3,7 @@ name: Build Roku App
 on:
   push:
     branches: [main]
+    tags: ['v*.*.*']
   pull_request:
     branches: [main]
 
@@ -20,10 +21,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Build
+      # `bsc` validates while it transpiles; there is no separate lint-only
+      # flag (the old `--lint-only` was silently ignored, so "Lint" was just a
+      # third full build). Treat any diagnostic as a failure instead.
+      - name: Build and validate
         run: npm run build
 
       - name: Package
@@ -34,3 +35,44 @@ jobs:
         with:
           name: sashimi-roku
           path: sashimi.zip
+
+  release:
+    # Tag builds publish a downloadable sideload zip. The SIGNED .pkg for the
+    # channel store still has to be produced manually on a physical Roku --
+    # Roku provides no offline signer -- but nobody needs that to try the app.
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package
+        run: npm run package
+
+      - name: Name the artifact after the tag
+        run: cp sashimi.zip "sashimi-roku-${GITHUB_REF_NAME}.zip"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sashimi-roku-${{ github.ref_name }}.zip
+          generate_release_notes: true
+          body: |
+            ## Install (sideload)
+
+            1. On your Roku: **Settings → System → Advanced system settings → Developer options** and enable Developer Mode (the device reboots and shows its IP).
+            2. Browse to `http://<your-roku-ip>` on a computer on the same network and sign in with the developer password you set.
+            3. Upload the `sashimi-roku-${{ github.ref_name }}.zip` attached below and press **Install**.
+            4. Launch Sashimi from the Roku home screen and point it at your Jellyfin server.
+
+            Sideloaded channels are removed when the Roku reboots into non-developer mode.

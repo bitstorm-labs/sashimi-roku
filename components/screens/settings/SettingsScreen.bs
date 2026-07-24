@@ -223,7 +223,16 @@ sub onSignOutButton()
     dialog.close = true
 
     if index = 0
-        Registry.clearAuth()
+        ' Revoke server-side FIRST (creds travel in the payload, so clearing
+        ' local state below cannot race it), then clear BOTH registry sections
+        ' -- "auth" alone left a token per entry in "servers" that
+        ' Servers.activate would restore without re-authenticating.
+        m.apiTask.request = {
+            action: "logout"
+            serverUrl: m.global.serverUrl
+            token: m.global.authToken
+        }
+        Registry.clearAllAuth()
         m.global.serverUrl = ""
         m.global.authToken = ""
         m.global.userId = ""
