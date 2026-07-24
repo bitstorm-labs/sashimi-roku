@@ -18,5 +18,10 @@
 
         <!-- Rows built in code (tvOS SettingsView: maxWidth 800 cards) -->
         <Group id="rowsGroup" translation="[560, 196]" />
+
+        <!-- Sign-out revokes the server session before clearing local state.
+             This screen had no task node, so the revoke dispatch dereferenced
+             invalid and aborted the handler before it cleared credentials. -->
+        <JellyfinApi id="apiTask" />
     </children>
 </component>
