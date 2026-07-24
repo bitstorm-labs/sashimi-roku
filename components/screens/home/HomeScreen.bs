@@ -60,7 +60,11 @@ sub init()
     m.autoRefreshTimer.duration = 30
     m.autoRefreshTimer.observeFieldScoped("fire", "onAutoRefresh")
     m.top.appendChild(m.autoRefreshTimer)
-    m.autoRefreshTimer.control = "start"
+    ' MainScene caches root screens forever and only toggles `visible`, so a
+    ' timer left running keeps re-fetching the whole library while a pushed
+    ' screen (the player, most expensively) is on top of us.
+    m.top.observeField("visible", "applyAutoRefresh")
+    applyAutoRefresh()
 
     ' Start loading
     loadHomeData()
@@ -76,12 +80,26 @@ sub onRowFocusMoved()
     end if
 end sub
 
+' Stop polling whenever home is off screen. Staleness is still covered on the
+' way back: onFocusDelegate reloads if the data is over 20s old.
+sub applyAutoRefresh()
+    if m.top.visible
+        m.autoRefreshTimer.control = "start"
+    else
+        m.autoRefreshTimer.control = "stop"
+    end if
+    m.heroBanner.autoAdvance = m.top.visible
+end sub
+
 sub onAutoRefresh()
     if m.chainBusy then return
-    ' Safe to reload when: user is elsewhere (another tab / pushed screen),
-    ' or parked on the hero. Never mid-row-browsing.
-    inRows = m.rowList.isInFocusChain()
-    if not inRows then loadHomeData()
+    ' Only refresh what the user is actually looking at, and only when parked
+    ' on the hero — a reload tears the rows down (loadHomeData), so mid-browse
+    ' it would yank the grid out from under them. The old gate was the inverse:
+    ' it fired precisely when home was NOT on screen.
+    if not m.top.isInFocusChain() then return
+    if m.rowList.isInFocusChain() then return
+    loadHomeData()
 end sub
 
 sub onFocusDelegate()
@@ -185,7 +203,9 @@ end sub
 ' gate the hero / Continue Watching rows. (tvOS homeScreenRowOrder parity;
 ' CW stays pinned above library rows on Roku.)
 sub applyHomeRowConfig()
-    saved = Registry.readJson("settings", "homeRowOrder")
+    rawSaved = Registry.read("settings", "homeRowOrder")
+    saved = invalid
+    if rawSaved <> "" then saved = ParseJSON(rawSaved)
     if saved = invalid or type(saved) <> "roArray" then saved = []
 
     merged = []
@@ -225,7 +245,11 @@ sub applyHomeRowConfig()
         end if
     end for
 
-    Registry.writeJson("settings", "homeRowOrder", merged)
+    ' Every load runs this merge, but the result only changes when a library is
+    ' added/renamed/removed — writing unconditionally meant a flash commit
+    ' (Registry.write Flush()es) on every refresh.
+    mergedRaw = FormatJSON(merged)
+    if mergedRaw <> rawSaved then Registry.write("settings", "homeRowOrder", mergedRaw)
 
     ' apply: visibility gates + library order
     m.heroEnabled = true
@@ -406,7 +430,9 @@ function formatRemaining(item as object) as string
     end if
     remainTicks = item.RunTimeTicks - positionTicks
     if remainTicks <= 0 then return ""
-    minutes = Int(remainTicks / 600000000)
+    ' Double divisor: ticks are LongInteger and 32-bit Float can't hold 7.2e10
+    ' exactly, so a plain divisor can round "2h 0m left" down to "1h 59m left".
+    minutes = Int(remainTicks / 600000000.0#)
     if minutes < 1 then return ""
     hours = Int(minutes / 60)
     mins = minutes mod 60

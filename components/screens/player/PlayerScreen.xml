@@ -89,6 +89,10 @@
              system "*" overlay without ever leaving playback, so the app has to
              notice out-of-band. GetCaptionsMode() is a cheap local read. -->
         <Timer id="captionTimer" repeat="true" duration="2" />
+        <!-- Cert 3.4: a stream that never starts used to sit on "Buffering..."
+             forever. One-shot watchdog, (re)armed whenever we start waiting on
+             a stream and stopped as soon as it plays. -->
+        <Timer id="bufferTimer" repeat="false" duration="30" />
         <Animation id="osdAnim" duration="0.25" easeFunction="outQuad">
             <FloatFieldInterpolator id="osdInterp" key="[0.0,1.0]" keyValue="[0.0,1.0]" fieldToInterp="osd.opacity" />
         </Animation>

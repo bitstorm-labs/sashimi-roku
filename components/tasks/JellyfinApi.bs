@@ -971,7 +971,10 @@ sub doGetSiblingEpisodes(request as object)
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
     url += "?ParentId=" + parentId
     url += "&IncludeItemTypes=Episode&SortBy=IndexNumber&SortOrder=Ascending&Recursive=true&Limit=200"
-    url += "&Fields=Overview,UserData,ImageTags,ParentBackdropImageTags,Path"
+    ' Chapters: auto-play-next hands these straight to the player, which has no
+    ' second fetch to fall back on — without them the next episode inherits the
+    ' previous one's chapter marks.
+    url += "&Fields=Overview,UserData,ImageTags,ParentBackdropImageTags,Path,Chapters"
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
         m.top.response = { success: true, action: "getSiblingEpisodes", items: result.Items }

@@ -60,6 +60,8 @@ sub init()
     m.seekTimer.observeFieldScoped("fire", "onSeekTimer")
     m.captionTimer = m.top.findNode("captionTimer")
     m.captionTimer.observeFieldScoped("fire", "onCaptionTimer")
+    m.bufferTimer = m.top.findNode("bufferTimer")
+    m.bufferTimer.observeFieldScoped("fire", "onBufferTimer")
     ' Cert 4.8: honour the Roku-level caption setting. Subtitles here are burned
     ' in server-side, so there is no native caption track for Roku to toggle --
     ' the app has to translate the global setting into a track choice itself.
@@ -129,6 +131,10 @@ sub init()
     ' Serialized API requests (task field coalesces back-to-back sets)
     m.reqQueue = []
     m.reqBusy = false
+
+    ' One terminal-error modal at a time: the stall watchdog and the video's
+    ' own error state can both fire for the same failure.
+    m.errorDialogUp = false
 end sub
 
 ' ---------- Request queue ----------
@@ -157,21 +163,31 @@ sub onItemDataChanged()
     m.stoppedReported = false
     m.stepDownIdx = -1        ' fresh item starts at full quality
     m.stepDownBps = 0
-    m.chapters = []
-    m.chapterTicksBuilt = false
-    if data.Chapters <> invalid and data.Chapters.count() > 1
-        for i = 0 to data.Chapters.count() - 1
-            ch = data.Chapters[i]
-            if ch.StartPositionTicks <> invalid
-                nm = ""
-                if ch.Name <> invalid then nm = ch.Name
-                if nm = "" then nm = "Chapter " + str(i + 1).Trim()
-                m.chapters.push({ name: nm, startSec: Int(ch.StartPositionTicks / 10000000&) })
-            end if
-        end for
-    end if
+    setChapters(data)
     populateInfoBar()
     requestStream(data)
+end sub
+
+' Chapters are per-item, so this rebuilds from scratch every time the playing
+' item changes (initial load AND auto-advance). The already-rendered tick nodes
+' have to be dropped too — buildChapterTicks only appends, so leaving them
+' would stack the next episode's marks on top of the previous episode's.
+sub setChapters(item as object)
+    m.chapters = []
+    m.chapterTicksBuilt = false
+    while m.osdChapterTicks.getChildCount() > 0
+        m.osdChapterTicks.removeChildIndex(0)
+    end while
+    if item = invalid or item.Chapters = invalid or item.Chapters.count() <= 1 then return
+    for i = 0 to item.Chapters.count() - 1
+        ch = item.Chapters[i]
+        if ch.StartPositionTicks <> invalid
+            nm = ""
+            if ch.Name <> invalid then nm = ch.Name
+            if nm = "" then nm = "Chapter " + str(i + 1).Trim()
+            m.chapters.push({ name: nm, startSec: Int(ch.StartPositionTicks / 10000000&) })
+        end if
+    end for
 end sub
 
 sub requestStream(item as object)
@@ -196,6 +212,85 @@ sub requestStream(item as object)
     ' Step-down needs a real transcode to actually lower the delivered bitrate
     if m.stepDownBps > 0 then req.forceTranscode = true
     enqueue(req)
+    armStallWatchdog()
+end sub
+
+' Cert 3.4: every path that parks the viewer on a status label — negotiating a
+' stream, buffering, a step-down retry — has to end in something actionable.
+' One-shot timer, so re-arm on each new wait; onBufferTimer re-checks the video
+' state before it concludes anything is actually wrong.
+sub armStallWatchdog()
+    m.bufferTimer.control = "stop"
+    m.bufferTimer.control = "start"
+end sub
+
+sub onBufferTimer()
+    ' Playing or paused means the stream did arrive — a stale arm, not a stall.
+    ' m.isPaused covers a pause taken while the first buffer was still filling,
+    ' where the node can sit in "buffering" by the viewer's own choice.
+    state = m.video.state
+    if state = "playing" or state = "paused" or m.isPaused then return
+    showPlaybackError("Playback stalled", "The video stopped loading. This is usually a slow or interrupted connection to the server.")
+end sub
+
+' Terminal failures used to be a bare full-screen string with no explanation and
+' no way forward — the viewer had to guess that Back was the escape.
+sub showPlaybackError(title as string, message as string)
+    if m.errorDialogUp then return
+    m.errorDialogUp = true
+    m.bufferTimer.control = "stop"
+    m.progressTimer.control = "stop"
+    hideOsd()
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = title
+    dialog.message = [message]
+    dialog.buttons = ["Try Again", "Back"]
+    dialog.observeFieldScoped("buttonSelected", "onPlaybackErrorButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onPlaybackErrorButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    dialog.close = true
+    m.errorDialogUp = false
+    ' The dialog took real remote focus away from the screen. This screen owns
+    ' ALL key handling (virtual highlight), so without taking it back every key
+    ' after the dialog closes is dead.
+    m.top.setFocus(true)
+    if idx = 0
+        retryPlayback()
+    else
+        exitPlayer()
+    end if
+end sub
+
+' Retry from the furthest known position so a failure two thirds into an
+' episode doesn't restart it from the beginning.
+sub retryPlayback()
+    if m.item = invalid
+        exitPlayer()
+        return
+    end if
+    m.video.control = "stop"
+    if m.startedReported
+        m.pendingStartSecs = Int(m.lastPosition)
+    else if m.top.playAction <> "play"
+        m.pendingStartSecs = resumeSeconds()
+    else
+        m.pendingStartSecs = 0
+    end if
+    m.statusLabel.visible = true
+    m.statusLabel.text = "Loading..."
+    requestStream(m.item)
+end sub
+
+sub exitPlayer()
+    m.bufferTimer.control = "stop"
+    m.video.control = "stop"
+    reportStopped(currentTicks())
+    m.top.done = true
 end sub
 
 ' Stop and re-negotiate (track/quality change), resuming at current position.
@@ -223,7 +318,9 @@ end sub
 
 sub onStreamReady(r as object)
     if not r.success or r.url = invalid or r.url = ""
+        m.statusLabel.visible = true
         m.statusLabel.text = "Unable to play this item."
+        showPlaybackError("Can't play this item", "The server didn't return a playable stream. The file may be missing, or the server may be busy. Trying again often works.")
         return
     end if
     m.playSessionId = r.playSessionId
@@ -344,6 +441,7 @@ sub onVideoState()
     state = m.video.state
     if state = "playing"
         m.statusLabel.visible = false
+        m.bufferTimer.control = "stop"
         m.isPaused = false
         updatePlayPauseUi()
         ' Give a fresh auto-hide countdown once playback (re)starts while the
@@ -358,6 +456,7 @@ sub onVideoState()
             report("reportProgress", currentTicks(), false)
         end if
     else if state = "paused"
+        m.bufferTimer.control = "stop"
         m.isPaused = true
         updatePlayPauseUi()
         report("reportProgress", currentTicks(), true)
@@ -451,9 +550,17 @@ sub onVideoState()
         m.statusLabel.visible = true
         m.statusLabel.text = "Playback error."
         m.progressTimer.control = "stop"
+        detail = "This video stopped unexpectedly. It may be in a format this Roku can't play, or the connection to the server dropped."
+        ' Only the numeric code is safe to show: errorMsg/errorInfo can embed the
+        ' stream URL, which carries api_key=<token>.
+        if m.video.errorCode <> invalid and m.video.errorCode <> 0
+            detail = detail + " (error code " + str(m.video.errorCode).Trim() + ")"
+        end if
+        showPlaybackError("Playback error", detail)
     else if state = "buffering"
         m.statusLabel.visible = true
         m.statusLabel.text = "Buffering..."
+        armStallWatchdog()
     end if
 end sub
 
@@ -1175,6 +1282,7 @@ end sub
 sub onPlaybackEnded()
     endTicks = m.runTimeTicks
     if endTicks <= 0 then endTicks = currentTicks()
+    m.bufferTimer.control = "stop"
     reportStopped(endTicks)
     hideOsd()
     enqueue({ action: "markPlayed", itemId: m.item.Id })
@@ -1213,6 +1321,20 @@ sub onSiblingsLoaded(r as object)
         m.startedReported = false
         m.top.playAction = "play"
         m.item = nextEp
+        ' Everything per-ITEM has to reset here, not just the track indexes —
+        ' this path bypasses onItemDataChanged. Leaving forceTranscode or a
+        ' step-down cap set means one bad episode silently pins the whole binge
+        ' to a re-encoded, bitrate-capped stream; leaving the chapters set makes
+        ' the Chapters menu seek to the previous episode's timestamps.
+        m.forceTranscode = false
+        m.stepDownIdx = -1
+        m.stepDownBps = 0
+        m.pendingStartSecs = -1
+        ' Runtime comes from the next episode's own PlaybackInfo; a stale value
+        ' would place the chapter ticks and scrubber against the wrong length.
+        m.runTimeTicks = 0
+        m.durationSecs = 0
+        setChapters(nextEp)
         ' Subtitle indexes are per-file — reset; onStreamReady re-matches the
         ' session's remembered track by title. Quality choice persists.
         m.curSubIdx = -1
@@ -1228,6 +1350,10 @@ end sub
 ' ---------- Keys (single handler; no child ever holds focus) ----------
 
 function onKeyEvent(key as string, press as boolean) as boolean
+    ' A dialog dismissed with Back never fires buttonSelected, so the flag would
+    ' latch and block every later error. Any key reaching this screen proves the
+    ' modal is gone — dialogs consume everything while they are up.
+    if m.errorDialogUp then m.errorDialogUp = false
     if not press then return false
 
     ' Menu zone: up/down navigate, OK applies, back/left dismiss
@@ -1306,9 +1432,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
             hideOsd()
             return true
         end if
-        m.video.control = "stop"
-        reportStopped(currentTicks())
-        m.top.done = true
+        exitPlayer()
         return true
     end if
 
