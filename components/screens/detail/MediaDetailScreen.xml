@@ -85,7 +85,7 @@
         <!-- ===== One multi-row RowList: seasons / episodes / cast ===== -->
         <RowList
             id="rowList"
-            translation="[60, 700]"
+            translation="[60, 734]"
             itemSize="[1800, 300]"
             numRows="2"
             itemSpacing="[0, 20]"
