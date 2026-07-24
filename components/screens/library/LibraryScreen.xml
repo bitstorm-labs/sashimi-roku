@@ -61,14 +61,37 @@
             visible="false"
         />
 
-        <!-- Alphabet jump bar -->
-        <LabelList
-            id="alphaBar"
-            translation="[1740, 120]"
-            itemSize="[80, 32]"
-            numRows="26"
+        <!-- Empty / error state. Retry is a real focusable node so a failed
+             load always has somewhere to put focus. -->
+        <Label
+            id="statusLabel"
+            text=""
+            font="font:MediumSystemFont"
+            color="#888888"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 470]"
             visible="false"
         />
+        <Group id="retryBtn" translation="[860, 560]" visible="false">
+            <Rectangle width="200" height="56" color="#8C5CC7FF" />
+            <Label text="Retry" color="#FFFFFF" width="200" height="56" horizAlign="center" vertAlign="center">
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+            </Label>
+        </Group>
+
+        <!-- Alphabet jump bar. X is re-anchored at runtime (applyContentWidth)
+             because this screen renders both rail-shifted and full width; the
+             panel keeps the letters legible where the bar overlaps the grid. -->
+        <Group id="alphaGroup" translation="[1584, 120]" visible="false">
+            <Rectangle width="96" height="864" color="#101420E6" />
+            <LabelList
+                id="alphaBar"
+                translation="[8, 0]"
+                itemSize="[80, 32]"
+                numRows="27"
+            />
+        </Group>
 
         <JellyfinApi id="apiTask" />
     </children>
