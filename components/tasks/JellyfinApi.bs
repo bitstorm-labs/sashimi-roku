@@ -33,7 +33,9 @@ sub processRequest()
         return
     end if
 
-    print "[API] Action: " + action
+    #if DEBUG
+        print "[API] Action: " + action
+    #end if
 
     if action = "authenticate"
         doAuthenticate(request)
@@ -99,21 +101,24 @@ sub doGetPublicInfo(request as object)
     if Right(serverUrl, 1) = "/" then serverUrl = Left(serverUrl, Len(serverUrl) - 1)
     url = serverUrl + "/System/Info/Public"
 
-    print "[API] GET " + url
+    ' URL only in debug builds: PlaybackInfo paths carry ?UserId=
+    #if DEBUG
+        print "[API] GET " + url
+    #end if
 
     transfer = CreateObject("roUrlTransfer")
     port = CreateObject("roMessagePort")
     transfer.SetMessagePort(port)
     transfer.SetCertificatesFile("common:/certs/ca-bundle.crt")
     transfer.InitClientCertificates()
-    transfer.EnableHostVerification(false)
-    transfer.EnablePeerVerification(false)
     transfer.SetUrl(url)
     transfer.AddHeader("Accept", "application/json")
     transfer.RetainBodyOnError(true)
 
     if not transfer.AsyncGetToString()
-        print "[API] AsyncGetToString failed to start"
+        #if DEBUG
+            print "[API] AsyncGetToString failed to start"
+        #end if
         m.top.response = {
             success: false
             action: "getPublicInfo"
@@ -124,7 +129,9 @@ sub doGetPublicInfo(request as object)
 
     msg = wait(10000, port)
     if msg = invalid
-        print "[API] Request timed out"
+        #if DEBUG
+            print "[API] Request timed out"
+        #end if
         m.top.response = {
             success: false
             action: "getPublicInfo"
@@ -134,7 +141,9 @@ sub doGetPublicInfo(request as object)
     end if
 
     if type(msg) <> "roUrlEvent"
-        print "[API] Unexpected message type: " + type(msg)
+        #if DEBUG
+            print "[API] Unexpected message type: " + type(msg)
+        #end if
         m.top.response = {
             success: false
             action: "getPublicInfo"
@@ -144,10 +153,14 @@ sub doGetPublicInfo(request as object)
     end if
 
     code = msg.GetResponseCode()
-    print "[API] Response code: " + str(code)
+    #if DEBUG
+        print "[API] Response code: " + str(code)
+    #end if
 
     if code < 0
-        print "[API] Connection error: " + msg.GetFailureReason()
+        #if DEBUG
+            print "[API] Connection error: " + msg.GetFailureReason()
+        #end if
         m.top.response = {
             success: false
             action: "getPublicInfo"
@@ -158,7 +171,6 @@ sub doGetPublicInfo(request as object)
 
     if code >= 200 and code < 300
         body = msg.GetString()
-        print "[API] Response: " + Left(body, 200)
         info = ParseJSON(body)
         if info <> invalid
             serverName = "Jellyfin Server"
@@ -185,7 +197,10 @@ sub doAuthenticate(request as object)
     username = request.username
     password = request.password
 
-    print "[API] Authenticating as " + username + " to " + serverUrl
+    ' No username/server in logs (device log is readable over the LAN)
+    #if DEBUG
+        print "[API] Authenticating"
+    #end if
 
     m.global.serverUrl = serverUrl
 
@@ -194,7 +209,9 @@ sub doAuthenticate(request as object)
     result = Http.postJson(url, body)
 
     if result = invalid
-        print "[API] Auth request failed"
+        #if DEBUG
+            print "[API] Auth request failed"
+        #end if
         m.top.response = {
             success: false
             action: "authenticate"
@@ -205,7 +222,9 @@ sub doAuthenticate(request as object)
 
     token = result.AccessToken
     if token <> invalid and result.User <> invalid
-        print "[API] Auth success"
+        #if DEBUG
+            print "[API] Auth success"
+        #end if
         m.top.response = {
             success: true
             action: "authenticate"
@@ -215,7 +234,10 @@ sub doAuthenticate(request as object)
             serverUrl: serverUrl
         }
     else
-        print "[API] Auth failed - response: " + FormatJSON(result).Left(200)
+        ' Never dump the auth response body — it can carry an AccessToken
+        #if DEBUG
+            print "[API] Auth failed"
+        #end if
         m.top.response = {
             success: false
             action: "authenticate"
@@ -225,18 +247,24 @@ sub doAuthenticate(request as object)
 end sub
 
 sub doValidateSession()
-    print "[API] Validating session"
+    #if DEBUG
+        print "[API] Validating session"
+    #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/Views")
     result = Http.getJson(url)
 
     if result <> invalid and result.Items <> invalid
-        print "[API] Session valid"
+        #if DEBUG
+            print "[API] Session valid"
+        #end if
         m.top.response = {
             success: true
             action: "validateSession"
         }
     else
-        print "[API] Session invalid"
+        #if DEBUG
+            print "[API] Session invalid"
+        #end if
         m.top.response = {
             success: false
             action: "validateSession"
@@ -246,11 +274,15 @@ sub doValidateSession()
 end sub
 
 sub doGetLibraryViews()
-    print "[API] Getting library views"
+    #if DEBUG
+        print "[API] Getting library views"
+    #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/Views")
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
-        print "[API] Found " + str(result.Items.count()) + " libraries"
+        #if DEBUG
+            print "[API] Found " + str(result.Items.count()) + " libraries"
+        #end if
         m.top.response = { success: true, action: "getLibraryViews", items: result.Items }
     else
         m.top.response = { success: false, action: "getLibraryViews", error: "Could not load libraries." }
@@ -260,7 +292,9 @@ end sub
 sub doGetResumeItems(request as object)
     limit = 20
     if request.limit <> invalid then limit = request.limit
-    print "[API] Getting resume items (limit=" + str(limit) + ")"
+    #if DEBUG
+        print "[API] Getting resume items (limit=" + str(limit) + ")"
+    #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items/Resume")
     url += "?Limit=" + str(limit).Trim()
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
@@ -268,7 +302,9 @@ sub doGetResumeItems(request as object)
     url += "&Recursive=true"
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
-        print "[API] Found " + str(result.Items.count()) + " resume items"
+        #if DEBUG
+            print "[API] Found " + str(result.Items.count()) + " resume items"
+        #end if
         m.top.response = { success: true, action: "getResumeItems", items: result.Items }
     else
         m.top.response = { success: true, action: "getResumeItems", items: [] }
@@ -278,7 +314,9 @@ end sub
 sub doGetNextUp(request as object)
     limit = 50
     if request.limit <> invalid then limit = request.limit
-    print "[API] Getting next up (limit=" + str(limit) + ")"
+    #if DEBUG
+        print "[API] Getting next up (limit=" + str(limit) + ")"
+    #end if
     url = Http.apiUrl("/Shows/NextUp")
     url += "?UserId=" + m.global.userId
     url += "&Limit=" + str(limit).Trim()
@@ -287,7 +325,9 @@ sub doGetNextUp(request as object)
     url += "&EnableRewatching=false&DisableFirstEpisode=false"
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
-        print "[API] Found " + str(result.Items.count()) + " next up items"
+        #if DEBUG
+            print "[API] Found " + str(result.Items.count()) + " next up items"
+        #end if
         m.top.response = { success: true, action: "getNextUp", items: result.Items }
     else
         m.top.response = { success: true, action: "getNextUp", items: [] }
@@ -334,7 +374,9 @@ sub doGetLatestMedia(request as object)
     parentId = ""
     if request.parentId <> invalid then parentId = request.parentId
     isYouTube = (request.isYouTube <> invalid and request.isYouTube = true)
-    print "[API] Getting latest media (parentId=" + parentId + ", limit=" + str(limit) + ", yt=" + isYouTube.toStr() + ")"
+    #if DEBUG
+        print "[API] Getting latest media (parentId=" + parentId + ", limit=" + str(limit) + ", yt=" + isYouTube.toStr() + ")"
+    #end if
 
     if isYouTube
         ' tvOS: YouTube rows fetch EPISODES (videos) newest-first by
@@ -348,7 +390,9 @@ sub doGetLatestMedia(request as object)
         url += "&EnableImageTypes=Primary,Backdrop,Thumb"
         result = Http.getJson(url)
         if result <> invalid and result.Items <> invalid
-            print "[API] Found " + str(result.Items.count()) + " latest yt items"
+            #if DEBUG
+                print "[API] Found " + str(result.Items.count()) + " latest yt items"
+            #end if
             m.top.response = { success: true, action: "getLatestMedia", items: result.Items, parentId: parentId }
         else
             m.top.response = { success: true, action: "getLatestMedia", items: [], parentId: parentId }
@@ -368,7 +412,9 @@ sub doGetLatestMedia(request as object)
         if type(result) = "roAssociativeArray" and result.Items <> invalid
             items = result.Items
         end if
-        print "[API] Found " + str(items.count()) + " latest items"
+        #if DEBUG
+            print "[API] Found " + str(items.count()) + " latest items"
+        #end if
         m.top.response = { success: true, action: "getLatestMedia", items: items, parentId: parentId }
     else
         m.top.response = { success: true, action: "getLatestMedia", items: [], parentId: parentId }
@@ -387,7 +433,9 @@ sub doGetItems(request as object)
     startIndex = 0
     if request.startIndex <> invalid then startIndex = request.startIndex
 
-    print "[API] Getting items (parentId=" + parentId + ", sort=" + sortBy + ", start=" + str(startIndex) + ")"
+    #if DEBUG
+        print "[API] Getting items (parentId=" + parentId + ", sort=" + sortBy + ", start=" + str(startIndex) + ")"
+    #end if
 
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
     url += "?SortBy=" + sortBy
@@ -440,7 +488,9 @@ sub doGetItems(request as object)
     result = Http.getJson(url)
 
     if result <> invalid and result.Items <> invalid
-        print "[API] Found " + str(result.Items.count()) + " of " + str(result.TotalRecordCount) + " total items"
+        #if DEBUG
+            print "[API] Found " + str(result.Items.count()) + " of " + str(result.TotalRecordCount) + " total items"
+        #end if
         ctx = ""
         if request.context <> invalid then ctx = request.context
         m.top.response = {
@@ -470,7 +520,9 @@ sub doGetItem(request as object)
     itemId = request.itemId
     ctx = ""
     if request.context <> invalid then ctx = request.context
-    print "[API] Getting item: " + itemId
+    #if DEBUG
+        print "[API] Getting item: " + itemId
+    #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items/" + itemId)
     url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags,Path,LocalTrailerCount"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
@@ -510,7 +562,9 @@ end sub
 ' Media source details for the detail screen's codec/resolution badges
 sub doGetPlaybackInfo(request as object)
     itemId = request.itemId
-    print "[API] Getting playback info: " + itemId
+    #if DEBUG
+        print "[API] Getting playback info: " + itemId
+    #end if
     url = Http.apiUrl("/Items/" + itemId + "/PlaybackInfo")
     url += "?UserId=" + m.global.userId
     result = Http.getJson(url)
@@ -523,7 +577,9 @@ end sub
 
 sub doGetSeasons(request as object)
     seriesId = request.seriesId
-    print "[API] Getting seasons for: " + seriesId
+    #if DEBUG
+        print "[API] Getting seasons for: " + seriesId
+    #end if
     url = Http.apiUrl("/Shows/" + seriesId + "/Seasons")
     url += "?UserId=" + m.global.userId
     url += "&Fields=Overview,PrimaryImageAspectRatio"
@@ -539,7 +595,9 @@ sub doGetEpisodes(request as object)
     seriesId = request.seriesId
     seasonId = ""
     if request.seasonId <> invalid then seasonId = request.seasonId
-    print "[API] Getting episodes for series: " + seriesId
+    #if DEBUG
+        print "[API] Getting episodes for series: " + seriesId
+    #end if
     url = Http.apiUrl("/Shows/" + seriesId + "/Episodes")
     url += "?UserId=" + m.global.userId
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,ImageTags,UserData,MediaStreams"
@@ -557,7 +615,9 @@ sub doSearch(request as object)
     query = request.query
     limit = 50
     if request.limit <> invalid then limit = request.limit
-    print "[API] Searching: " + query
+    #if DEBUG
+        print "[API] Searching: " + query
+    #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
     url += "?SearchTerm=" + query
     url += "&Limit=" + str(limit).Trim()
@@ -871,7 +931,9 @@ end sub
 
 sub doMarkPlayed(request as object)
     itemId = request.itemId
-    print "[API] Marking played: " + itemId
+    #if DEBUG
+        print "[API] Marking played: " + itemId
+    #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
     Http.postJson(url, invalid)
     m.top.response = { success: true, action: "markPlayed", itemId: itemId }
@@ -879,7 +941,9 @@ end sub
 
 sub doMarkUnplayed(request as object)
     itemId = request.itemId
-    print "[API] Marking unplayed: " + itemId
+    #if DEBUG
+        print "[API] Marking unplayed: " + itemId
+    #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
     Http.deleteRequest(url)
     m.top.response = { success: true, action: "markUnplayed", itemId: itemId }
@@ -887,7 +951,9 @@ end sub
 
 sub doMarkFavorite(request as object)
     itemId = request.itemId
-    print "[API] Marking favorite: " + itemId
+    #if DEBUG
+        print "[API] Marking favorite: " + itemId
+    #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/FavoriteItems/" + itemId)
     Http.postJson(url, invalid)
     m.top.response = { success: true, action: "markFavorite", itemId: itemId }
@@ -895,7 +961,9 @@ end sub
 
 sub doRemoveFavorite(request as object)
     itemId = request.itemId
-    print "[API] Removing favorite: " + itemId
+    #if DEBUG
+        print "[API] Removing favorite: " + itemId
+    #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/FavoriteItems/" + itemId)
     Http.deleteRequest(url)
     m.top.response = { success: true, action: "removeFavorite", itemId: itemId }
