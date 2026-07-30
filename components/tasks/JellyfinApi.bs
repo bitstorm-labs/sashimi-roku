@@ -98,9 +98,72 @@ sub processRequest()
     end if
 end sub
 
+' Resolve the address the app will actually talk to, BEFORE anything POSTs to
+' it, and hand the resolved one back so it is what gets persisted.
+'
+' roUrlTransfer follows redirects itself (roUrlEvent can report
+' CURLE_TOO_MANY_REDIRECTS, which only a following client can produce), and a
+' redirected POST is demoted to a bodyless GET the way libcurl always has. So a
+' host that 301s http -> https answers this GET probe cheerfully and then
+' silently drops the AuthenticateByName credentials -- the probe passes, the
+' sign-in fails, and the old code called that "Could not reach server". The
+' redirect is invisible to us after the fact, so the only reliable fix is to
+' find the address that needs no redirect and use that from the start. It fixes
+' every other POST too, and DELETE, which is demoted the same way.
 sub doGetPublicInfo(request as object)
-    serverUrl = request.serverUrl
-    if Right(serverUrl, 1) = "/" then serverUrl = Left(serverUrl, Len(serverUrl) - 1)
+    serverUrl = Http.normalizeServerUrl(request.serverUrl)
+    probe = probePublicInfo(serverUrl)
+
+    secureUrl = Http.httpsVariant(serverUrl)
+    if secureUrl <> ""
+        if probe.ok
+            ' A 2xx does not prove http reached the server directly -- the
+            ' transfer may have followed a redirect we cannot see. Ask the same
+            ' host over https and switch only when it answers as provably the
+            ' SAME server (matching Id), never on the assumption that it will.
+            secure = probePublicInfo(secureUrl)
+            if secure.ok and secure.info.Id = probe.info.Id
+                serverUrl = secureUrl
+                probe = secure
+            end if
+        else if probe.statusCode <> 0
+            ' A scheme-less address is normalized to http, so an https-only
+            ' server would otherwise be permanently unreachable. Skipped after
+            ' a timeout (statusCode 0): nothing answered on that port, and a
+            ' second 10s wait is a long time to hold someone on a spinner.
+            secure = probePublicInfo(secureUrl)
+            if secure.ok
+                serverUrl = secureUrl
+                probe = secure
+            end if
+        end if
+    end if
+
+    if not probe.ok
+        m.top.response = {
+            success: false
+            action: "getPublicInfo"
+            error: probe.error
+        }
+        return
+    end if
+
+    serverName = "Jellyfin Server"
+    if probe.info.ServerName <> invalid then serverName = probe.info.ServerName
+
+    m.top.response = {
+        success: true
+        action: "getPublicInfo"
+        serverName: serverName
+        serverUrl: serverUrl
+    }
+end sub
+
+' One /System/Info/Public round trip against a candidate base URL. Returns
+' { ok, info, statusCode, error }, where statusCode is 0 for a timeout and -1
+' when the transfer never got off the ground -- callers need to tell "nothing
+' is listening there" from "something answered, but wrongly".
+function probePublicInfo(serverUrl as string) as object
     url = serverUrl + "/System/Info/Public"
 
     ' URL only in debug builds: PlaybackInfo paths carry ?UserId=
@@ -121,37 +184,23 @@ sub doGetPublicInfo(request as object)
         #if DEBUG
             print "[API] AsyncGetToString failed to start"
         #end if
-        m.top.response = {
-            success: false
-            action: "getPublicInfo"
-            error: "Failed to start request."
-        }
-        return
+        return { ok: false, info: invalid, statusCode: -1, error: "Failed to start request." }
     end if
 
     msg = wait(10000, port)
     if msg = invalid
+        transfer.AsyncCancel()
         #if DEBUG
             print "[API] Request timed out"
         #end if
-        m.top.response = {
-            success: false
-            action: "getPublicInfo"
-            error: "Connection timed out."
-        }
-        return
+        return { ok: false, info: invalid, statusCode: 0, error: "Could not reach the server. Check the address and that the server is running." }
     end if
 
     if type(msg) <> "roUrlEvent"
         #if DEBUG
             print "[API] Unexpected message type: " + type(msg)
         #end if
-        m.top.response = {
-            success: false
-            action: "getPublicInfo"
-            error: "Unexpected response."
-        }
-        return
+        return { ok: false, info: invalid, statusCode: -1, error: "Unexpected response." }
     end if
 
     code = msg.GetResponseCode()
@@ -163,36 +212,28 @@ sub doGetPublicInfo(request as object)
         #if DEBUG
             print "[API] Connection error: " + msg.GetFailureReason()
         #end if
-        m.top.response = {
-            success: false
-            action: "getPublicInfo"
-            error: "Connection failed: " + msg.GetFailureReason()
-        }
-        return
+        return { ok: false, info: invalid, statusCode: code, error: "Could not reach the server: " + msg.GetFailureReason() }
+    end if
+
+    if code >= 300 and code < 400
+        ' Not expected -- the transfer follows redirects for us -- but if one
+        ' ever does surface, say so rather than blaming the network.
+        return { ok: false, info: invalid, statusCode: code, error: "That address redirects somewhere else. Enter the address the server answers on directly." }
     end if
 
     if code >= 200 and code < 300
-        body = msg.GetString()
-        info = ParseJSON(body)
-        if info <> invalid
-            serverName = "Jellyfin Server"
-            if info.ServerName <> invalid then serverName = info.ServerName
-            m.top.response = {
-                success: true
-                action: "getPublicInfo"
-                serverName: serverName
-                serverUrl: serverUrl
-            }
-            return
+        info = ParseJSON(msg.GetString())
+        ' Id, not merely parseable JSON: it is what proves this is a Jellyfin
+        ' server rather than a captive portal or proxy error page, and it is
+        ' the field the caller compares the two schemes on.
+        if info <> invalid and type(info) = "roAssociativeArray" and info.Id <> invalid
+            return { ok: true, info: info, statusCode: code, error: "" }
         end if
+        return { ok: false, info: invalid, statusCode: code, error: "That address answered, but not as a Jellyfin server." }
     end if
 
-    m.top.response = {
-        success: false
-        action: "getPublicInfo"
-        error: "Server returned error code " + str(code)
-    }
-end sub
+    return { ok: false, info: invalid, statusCode: code, error: "Server returned error code " + str(code).Trim() + "." }
+end function
 
 sub doAuthenticate(request as object)
     serverUrl = request.serverUrl
@@ -208,16 +249,17 @@ sub doAuthenticate(request as object)
 
     url = Http.apiUrl("/Users/AuthenticateByName")
     body = { Username: username, Pw: password }
-    result = Http.postJson(url, body)
+    meta = {}
+    result = Http.postJson(url, body, meta)
 
     if result = invalid
         #if DEBUG
-            print "[API] Auth request failed"
+            print "[API] Auth request failed: " + str(meta.statusCode).Trim()
         #end if
         m.top.response = {
             success: false
             action: "authenticate"
-            error: "Could not reach server."
+            error: authFailureMessage(meta.statusCode)
         }
         return
     end if
@@ -247,6 +289,25 @@ sub doAuthenticate(request as object)
         }
     end if
 end sub
+
+' Every failed sign-in used to read "Could not reach server." whatever had
+' happened, which is what sent the http -> https redirect bug (#89) off hunting
+' for a network fault. Keep the cases apart: rejected, redirected, timed out,
+' unreachable.
+function authFailureMessage(code as integer) as string
+    if code = 401 or code = 403
+        return "Authentication failed. Check your username and password."
+    else if code >= 300 and code < 400
+        ' The base URL is resolved before sign-in, so a redirect here means the
+        ' server sends the API somewhere the probe never saw.
+        return "The server redirected sign-in to another address. Check the server address."
+    else if code = 0
+        return "The server did not respond in time."
+    else if code > 0
+        return "Sign-in failed: server returned error code " + str(code).Trim() + "."
+    end if
+    return "Could not reach server."
+end function
 
 ' Revoke the access token server-side. Credentials come in the request payload
 ' rather than from m.global, so sign-out can clear local state immediately
