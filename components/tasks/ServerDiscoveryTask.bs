@@ -1,3 +1,5 @@
+import "pkg:/source/utils/Http.bs"
+
 sub init()
     m.top.functionName = "discover"
 end sub
@@ -57,7 +59,11 @@ sub discover()
             if response <> invalid and response <> ""
                 parsed = ParseJSON(response)
                 if parsed <> invalid and parsed.Address <> invalid and type(parsed.Address) = "String"
-                    serverUrl = parsed.Address
+                    ' Address is the server's PublishedServerUrl, which is
+                    ' frequently scheme-less ("192.168.1.10:9096"). Normalize
+                    ' here so what the picker hands the login path is a URL,
+                    ' and so two replies for the same server dedupe as one.
+                    serverUrl = Http.normalizeServerUrl(parsed.Address)
                     serverName = "Jellyfin Server"
                     if parsed.Name <> invalid and type(parsed.Name) = "String" then serverName = parsed.Name
 

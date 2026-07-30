@@ -138,6 +138,25 @@ namespace Http
         return -1
     end function
 
+    ' Turn whatever the user (or LAN discovery) gave us into a usable API base.
+    ' Jellyfin's discovery reply carries its PublishedServerUrl, which is often
+    ' a bare "host" or "host:port" with no scheme, and users type the same on a
+    ' D-pad -- neither is a URL roUrlTransfer can POST to. Default to http and
+    ' leave the rest alone: the port belongs to the host, so an explicit
+    ' non-default one (9096) survives and no default is ever assumed.
+    function normalizeServerUrl(url as string) as string
+        url = url.Trim()
+        if url = "" then return ""
+        lower = LCase(url)
+        if Left(lower, 7) <> "http://" and Left(lower, 8) <> "https://"
+            url = "http://" + url
+        end if
+        if Right(url, 1) = "/"
+            url = Left(url, Len(url) - 1)
+        end if
+        return url
+    end function
+
     function apiUrl(path as string) as string
         serverUrl = m.global.serverUrl
         if Right(serverUrl, 1) = "/"

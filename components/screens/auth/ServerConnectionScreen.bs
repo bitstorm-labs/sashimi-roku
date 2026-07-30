@@ -1,3 +1,4 @@
+import "pkg:/source/utils/Http.bs"
 import "pkg:/source/utils/Registry.bs"
 
 sub init()
@@ -141,7 +142,7 @@ sub onConnectPressed()
         return
     end if
 
-    serverUrl = normalizeUrl(serverUrl)
+    serverUrl = Http.normalizeServerUrl(serverUrl)
 
     showLoading(true)
     showStatus("")
@@ -254,17 +255,6 @@ end sub
 sub showStatus(message as string)
     m.statusLabel.text = message
 end sub
-
-function normalizeUrl(url as string) as string
-    urlLower = LCase(url)
-    if Left(urlLower, 7) <> "http://" and Left(urlLower, 8) <> "https://"
-        url = "http://" + url
-    end if
-    if Right(url, 1) = "/"
-        url = Left(url, Len(url) - 1)
-    end if
-    return url
-end function
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if press
