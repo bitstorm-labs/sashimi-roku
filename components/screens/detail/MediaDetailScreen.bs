@@ -163,14 +163,23 @@ sub onItemDataChanged()
     if data.Id <> invalid then itemId = data.Id
     if itemId = "" then return
     m.requestedItemId = itemId
-    ' Deep-link / Top Shelf items carry no originating YouTube flag and may not
-    ' self-identify (Pinchflat channel not named "… - Videos", path without
-    ' "youtube"). For a non-autoplay detail, resolve it from the library
-    ' ancestor FIRST so the header renders right the first time. In-app items
-    ' already carry the flag and skip this entirely (no extra request).
+    ' An item that arrives without the originating screen's YouTube flag may
+    ' not self-identify (Pinchflat channel not named "… - Videos", path without
+    ' "youtube"). Deep links / Top Shelf never carry the flag — and neither
+    ' does Continue Watching, because the resume payload has no library
+    ' context, which is why the SAME episode rendered as a channel from the
+    ' library and as a plain episode with an empty (logo-less) header from the
+    ' CW row. Resolve it from the library ancestor FIRST, whichever row opened
+    ' it, so the header renders right the first time: isYouTube also drives the
+    ' backdrop, title format and episode rows, so it has to be settled before
+    ' the item renders rather than patched afterwards. Screens that know the
+    ' library thread the flag and skip this; movies never use the channel
+    ' header, so they skip it too (no extra request in either case).
     isDeepLink = (data._deepLink <> invalid and data._deepLink = true)
     m.isDeepLink = isDeepLink
-    if isDeepLink and not m.forceYouTube and not m.top.autoPlay
+    itemType = ""
+    if data.Type <> invalid then itemType = data.Type
+    if itemType <> "Movie" and not m.forceYouTube and not m.top.autoPlay
         m.pendingItemId = itemId
         enqueue({ action: "getAncestors", itemId: itemId })
     else
@@ -180,9 +189,10 @@ end sub
 
 ' ---------- Item load ----------
 
-' Deep-link YouTube resolution: if the item's library ancestor is a YouTube
-' library, force YouTube styling before the item loads/renders, so a Top Shelf
-' item whose channel isn't named "… - Videos" still gets the channel header.
+' Library-context YouTube resolution: if the item's library ancestor is a
+' YouTube library, force YouTube styling before the item loads/renders, so a
+' Top Shelf or Continue Watching item whose channel isn't named "… - Videos"
+' still gets the channel header.
 sub onAncestorsLoaded(response as object)
     if response.success and response.items <> invalid
         for each anc in response.items
