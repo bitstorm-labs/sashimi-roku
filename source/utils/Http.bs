@@ -75,7 +75,10 @@ namespace Http
         return invalid
     end function
 
-    function postJson(url as string, body as dynamic) as dynamic
+    ' meta (optional): the same { statusCode } convention as getJson. A POST
+    ' that returns invalid can mean rejected credentials, a redirect, a dead
+    ' server or a timeout, and the sign-in screen has to say which.
+    function postJson(url as string, body as dynamic, meta = invalid as object) as dynamic
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")
         request.SetMessagePort(port)
@@ -96,6 +99,7 @@ namespace Http
             msg = wait(30000, port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 code = msg.GetResponseCode()
+                if meta <> invalid then meta.statusCode = code
                 if code >= 200 and code < 300
                     responseStr = msg.GetString()
                     if responseStr <> "" and responseStr <> invalid
@@ -109,12 +113,14 @@ namespace Http
                     return invalid
                 end if
             else
+                if meta <> invalid then meta.statusCode = 0
                 #if DEBUG
                     print "HTTP POST timeout for " + url
                 #end if
                 return invalid
             end if
         end if
+        if meta <> invalid then meta.statusCode = -1
         return invalid
     end function
 
@@ -136,6 +142,35 @@ namespace Http
             end if
         end if
         return -1
+    end function
+
+    ' Turn whatever the user (or LAN discovery) gave us into a usable API base.
+    ' Jellyfin's discovery reply carries its PublishedServerUrl, which is often
+    ' a bare "host" or "host:port" with no scheme, and users type the same on a
+    ' D-pad -- neither is a URL roUrlTransfer can POST to. Default to http and
+    ' leave the rest alone: the port belongs to the host, so an explicit
+    ' non-default one (9096) survives and no default is ever assumed.
+    function normalizeServerUrl(url as string) as string
+        url = url.Trim()
+        if url = "" then return ""
+        lower = LCase(url)
+        if Left(lower, 7) <> "http://" and Left(lower, 8) <> "https://"
+            url = "http://" + url
+        end if
+        if Right(url, 1) = "/"
+            url = Left(url, Len(url) - 1)
+        end if
+        return url
+    end function
+
+    ' The https twin of an http base URL: same host, SAME port -- only the
+    ' scheme changes. Returns "" for anything already https, so a caller can
+    ' read "" as "nothing else to try". It deliberately never substitutes 443
+    ' for an explicit port; a server on 9096 has nothing to do with whatever
+    ' answers on 443, and guessing there is how you break a LAN setup.
+    function httpsVariant(url as string) as string
+        if Left(LCase(url), 7) <> "http://" then return ""
+        return "https://" + Mid(url, 8)
     end function
 
     function apiUrl(path as string) as string
