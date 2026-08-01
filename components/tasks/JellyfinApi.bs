@@ -39,6 +39,14 @@ sub processRequest()
 
     if action = "authenticate"
         doAuthenticate(request)
+    else if action = "quickConnectEnabled"
+        doQuickConnectEnabled(request)
+    else if action = "quickConnectInitiate"
+        doQuickConnectInitiate(request)
+    else if action = "quickConnectPoll"
+        doQuickConnectPoll(request)
+    else if action = "authenticateQuickConnect"
+        doAuthenticateWithQuickConnect(request)
     else if action = "logout"
         doLogout(request)
     else if action = "validateSession"
@@ -111,6 +119,12 @@ end sub
 ' find the address that needs no redirect and use that from the start. It fixes
 ' every other POST too, and DELETE, which is demoted the same way.
 sub doGetPublicInfo(request as object)
+    ' Echoed back untouched: the sign-in screen probes for more than one reason
+    ' now (sign in, or check whether Quick Connect is offered) and has to tell
+    ' the answers apart.
+    context = ""
+    if request.context <> invalid then context = request.context
+
     serverUrl = Http.normalizeServerUrl(request.serverUrl)
     probe = probePublicInfo(serverUrl)
 
@@ -144,6 +158,7 @@ sub doGetPublicInfo(request as object)
             success: false
             action: "getPublicInfo"
             error: probe.error
+            context: context
         }
         return
     end if
@@ -156,6 +171,7 @@ sub doGetPublicInfo(request as object)
         action: "getPublicInfo"
         serverName: serverName
         serverUrl: serverUrl
+        context: context
     }
 end sub
 
@@ -252,42 +268,46 @@ sub doAuthenticate(request as object)
     meta = {}
     result = Http.postJson(url, body, meta)
 
+    failure = "Authentication failed. Check your username and password."
     if result = invalid
         #if DEBUG
             print "[API] Auth request failed: " + str(meta.statusCode).Trim()
         #end if
-        m.top.response = {
-            success: false
-            action: "authenticate"
-            error: authFailureMessage(meta.statusCode)
-        }
-        return
+        failure = authFailureMessage(meta.statusCode)
     end if
 
-    token = result.AccessToken
-    if token <> invalid and result.User <> invalid
+    emitAuthResponse("authenticate", result, serverUrl, failure)
+end sub
+
+' The tail both sign-in paths share. AuthenticateByName and
+' AuthenticateWithQuickConnect return the same AccessToken/User payload, so
+' they emit the same response shape and the screen persists either one through
+' a single code path.
+sub emitAuthResponse(action as string, result as dynamic, serverUrl as string, failure as string)
+    if result <> invalid and result.AccessToken <> invalid and result.User <> invalid
         #if DEBUG
             print "[API] Auth success"
         #end if
         m.top.response = {
             success: true
-            action: "authenticate"
-            accessToken: token
+            action: action
+            accessToken: result.AccessToken
             userId: result.User.Id
             userName: result.User.Name
             serverUrl: serverUrl
         }
-    else
-        ' Never dump the auth response body — it can carry an AccessToken
-        #if DEBUG
-            print "[API] Auth failed"
-        #end if
-        m.top.response = {
-            success: false
-            action: "authenticate"
-            error: "Authentication failed. Check your username and password."
-        }
+        return
     end if
+
+    ' Never dump the auth response body — it can carry an AccessToken
+    #if DEBUG
+        print "[API] Auth failed"
+    #end if
+    m.top.response = {
+        success: false
+        action: action
+        error: failure
+    }
 end sub
 
 ' Every failed sign-in used to read "Could not reach server." whatever had
@@ -308,6 +328,138 @@ function authFailureMessage(code as integer) as string
     end if
     return "Could not reach server."
 end function
+
+' ---------- Quick Connect ----------
+'
+' Roku has no keyboard: every character of a password is a D-pad walk across an
+' on-screen grid. Quick Connect trades that for a six-digit code the user reads
+' off the TV and approves from a device that does have a keyboard, so nothing
+' secret is ever typed here.
+'
+' All four calls take serverUrl in the request and set m.global.serverUrl from
+' it, the same way doAuthenticate does — sign-in happens before there is a
+' session, so Http.apiUrl() has nothing else to build on.
+
+' Whether this server offers Quick Connect at all. The endpoint answers with a
+' bare `true`/`false`, hence getText rather than getJson. A server too old to
+' have the route 404s, which reads the same as a disabled one: not available.
+' Never an error response — "cannot" and "will not" are the same answer to the
+' only question the screen is asking.
+sub doQuickConnectEnabled(request as object)
+    m.global.serverUrl = request.serverUrl
+    body = Http.getText(Http.apiUrl("/QuickConnect/Enabled"))
+    enabled = false
+    if body <> invalid then enabled = (LCase(body.Trim()) = "true")
+    #if DEBUG
+        print "[API] Quick Connect enabled: "; enabled
+    #end if
+    m.top.response = {
+        success: true
+        action: "quickConnectEnabled"
+        enabled: enabled
+        serverUrl: request.serverUrl
+    }
+end sub
+
+' Ask for a code. The DeviceId in the Authorization header is what the approval
+' is bound to server-side, so Initiate and AuthenticateWithQuickConnect must go
+' out as the same device — both use Http.authHeader(), which is where
+' m.global.deviceId lives, so this holds as long as neither bypasses it.
+sub doQuickConnectInitiate(request as object)
+    m.global.serverUrl = request.serverUrl
+    url = Http.apiUrl("/QuickConnect/Initiate")
+
+    result = Http.getJson(url)
+    ' Jellyfin has moved this route between GET and POST across releases, and
+    ' the wrong verb is a 404/405 rather than anything descriptive. Try the
+    ' other one before giving up; an unused pending request costs the server
+    ' nothing and expires on its own.
+    if result = invalid or result.Secret = invalid
+        result = Http.postJson(url, invalid)
+    end if
+
+    if result <> invalid and result.Secret <> invalid and result.Code <> invalid
+        m.top.response = {
+            success: true
+            action: "quickConnectInitiate"
+            code: result.Code
+            secret: result.Secret
+        }
+        return
+    end if
+
+    m.top.response = {
+        success: false
+        action: "quickConnectInitiate"
+        error: "Could not start Quick Connect on this server."
+    }
+end sub
+
+' One poll for "has the user approved it yet". 404 means the server has
+' forgotten this request — expired, or already consumed — and there is nothing
+' to wait for any more. Any other failure is reported without the expired flag
+' so the screen can ride out a blip instead of throwing away a code the user is
+' halfway through typing.
+sub doQuickConnectPoll(request as object)
+    m.global.serverUrl = request.serverUrl
+    url = Http.apiUrl("/QuickConnect/Connect?secret=" + Http.escape(request.secret))
+    meta = {}
+    result = Http.getJson(url, meta)
+
+    ' The secret is echoed so a late answer from a cancelled attempt cannot be
+    ' mistaken for one about the code currently on screen.
+    if result <> invalid and result.Authenticated <> invalid
+        m.top.response = {
+            success: true
+            action: "quickConnectPoll"
+            authenticated: (result.Authenticated = true)
+            expired: false
+            secret: request.secret
+        }
+        return
+    end if
+
+    code = 0
+    if meta.statusCode <> invalid then code = meta.statusCode
+    m.top.response = {
+        success: false
+        action: "quickConnectPoll"
+        authenticated: false
+        expired: (code = 404)
+        statusCode: code
+        secret: request.secret
+    }
+end sub
+
+' Trade the approved secret for a real access token. Same payload as
+' AuthenticateByName, so it lands in the same response shape.
+sub doAuthenticateWithQuickConnect(request as object)
+    serverUrl = request.serverUrl
+    m.global.serverUrl = serverUrl
+
+    #if DEBUG
+        print "[API] Authenticating with Quick Connect"
+    #end if
+
+    meta = {}
+    result = Http.postJson(Http.apiUrl("/Users/AuthenticateWithQuickConnect"), { Secret: request.secret }, meta)
+
+    failure = "Quick Connect sign-in failed. Try again."
+    if result = invalid
+        code = 0
+        if meta.statusCode <> invalid then code = meta.statusCode
+        ' The server 404s an unapproved or expired secret; 401/403 means it
+        ' will not honour this one either. None of those are a password
+        ' problem, so authFailureMessage's wording would only mislead.
+        if code = 404 or code = 401 or code = 403
+            failure = "That Quick Connect code is no longer valid. Start again to get a new one."
+        else
+            failure = authFailureMessage(code)
+        end if
+    end if
+
+    emitAuthResponse("authenticateQuickConnect", result, serverUrl, failure)
+end sub
 
 ' Revoke the access token server-side. Credentials come in the request payload
 ' rather than from m.global, so sign-out can clear local state immediately

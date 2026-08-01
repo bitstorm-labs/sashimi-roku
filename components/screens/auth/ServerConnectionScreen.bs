@@ -3,6 +3,7 @@ import "pkg:/source/utils/Registry.bs"
 
 sub init()
     m.formButtons = m.top.findNode("formButtons")
+    m.formBg = m.top.findNode("formBg")
     m.statusLabel = m.top.findNode("statusLabel")
     m.loadingLabel = m.top.findNode("loadingLabel")
     m.errorDialog = m.top.findNode("errorDialog")
@@ -11,6 +12,10 @@ sub init()
     m.serverList = m.top.findNode("serverList")
     m.discoveryBg = m.top.findNode("discoveryBg")
     m.discoveryTitle = m.top.findNode("discoveryTitle")
+    m.qcPanel = m.top.findNode("qcPanel")
+    m.qcCodeLabel = m.top.findNode("qcCodeLabel")
+    m.qcStatusLabel = m.top.findNode("qcStatusLabel")
+    m.qcTimer = m.top.findNode("qcTimer")
 
     m.isLoading = false
 
@@ -19,8 +24,28 @@ sub init()
     m.username = ""
     m.password = ""
 
+    ' The address the server actually answered on (scheme added, http -> https
+    ' resolved), kept so neither sign-in path has to probe for it twice.
+    m.resolvedServerUrl = ""
+
     ' Which field is being edited
     m.editingField = ""
+
+    ' What each form button does, parallel to the labels. The button list is no
+    ' longer fixed — Quick Connect only appears once a server has said it
+    ' supports it — so dispatching on a hardcoded index would silently drift.
+    m.buttonActions = []
+
+    ' Quick Connect state
+    m.quickConnectAvailable = false
+    m.qcActive = false
+    m.qcSecret = ""
+
+    ' Serialized request queue. Task fields coalesce same-tick writes, so a
+    ' background Quick Connect probe landing on the same tick as a Connect
+    ' press would silently lose one of them.
+    m.reqQueue = []
+    m.reqBusy = false
 
     ' Set up form button labels
     updateFormButtons()
@@ -31,8 +56,32 @@ sub init()
     m.apiTask.control = "RUN"
     m.discoveryTask.observeFieldScoped("servers", "onServersDiscovered")
     m.serverList.observeFieldScoped("itemSelected", "onServerSelected")
+    m.qcTimer.observeFieldScoped("fire", "onQuickConnectTick")
+    ' MainScene sets canCancel straight after createObject, which is already
+    ' too late for the updateFormButtons() above — the Cancel button was
+    ' missing from the first paint of every "add a server" visit.
+    m.top.observeFieldScoped("canCancel", "onCanCancelChanged")
 
     m.formButtons.setFocus(true)
+end sub
+
+' Rebuilding the ButtonGroup's list drops the focus highlight, so take it back:
+' this fires during screen setup, before the user has touched anything.
+sub onCanCancelChanged()
+    updateFormButtons()
+    m.formButtons.setFocus(true)
+end sub
+
+sub enqueue(req as object)
+    m.reqQueue.push(req)
+    pumpQueue()
+end sub
+
+sub pumpQueue()
+    if m.reqBusy then return
+    if m.reqQueue.count() = 0 then return
+    m.reqBusy = true
+    m.apiTask.request = m.reqQueue.shift()
 end sub
 
 sub updateFormButtons()
@@ -51,40 +100,67 @@ sub updateFormButtons()
         passwordLabel = "Password: ****"
     end if
 
-    buttons = [
-        serverLabel,
-        usernameLabel,
-        passwordLabel,
-        "Connect",
-        "Discover Servers"
-    ]
+    buttons = []
+    actions = []
+
+    ' Quick Connect goes first, and takes the resting focus, on every server
+    ' that offers it: the manual path costs a character-by-character grid walk
+    ' for the password, this one costs six digits typed on a real keyboard.
+    if m.quickConnectAvailable
+        buttons.push("Sign In with Quick Connect")
+        actions.push("quickConnect")
+    end if
+
+    buttons.push(serverLabel)
+    actions.push("serverUrl")
+    buttons.push(usernameLabel)
+    actions.push("username")
+    buttons.push(passwordLabel)
+    actions.push("password")
+    buttons.push("Connect")
+    actions.push("connect")
+    buttons.push("Discover Servers")
+    actions.push("discover")
+
     ' Adding a server (already signed in) — offer an explicit way out.
-    if m.top.canCancel then buttons.push("Cancel")
+    if m.top.canCancel
+        buttons.push("Cancel")
+        actions.push("cancel")
+    end if
+
+    m.buttonActions = actions
     m.formButtons.buttons = buttons
+
+    ' The card has to grow with the list, and the status line has to stay under
+    ' it: two of these buttons are conditional, and a fixed-height card left
+    ' Cancel hanging outside its own background. 30px padding, 64px buttons,
+    ' 14px spacing — the same numbers the ButtonGroup is laid out with.
+    height = 60 + buttons.count() * 64 + (buttons.count() - 1) * 14
+    m.formBg.height = height
+    m.statusLabel.translation = [0, m.formBg.translation[1] + height + 30]
 end sub
 
 sub onFormButtonSelected()
     index = m.formButtons.buttonSelected
-    if index = 0
-        ' Server Address
+    if index < 0 or index >= m.buttonActions.count() then return
+    action = m.buttonActions[index]
+
+    if action = "serverUrl"
         m.editingField = "serverUrl"
         showKeyboard("Server Address", "e.g. http://192.168.1.100:8096", m.serverUrl, false)
-    else if index = 1
-        ' Username
+    else if action = "username"
         m.editingField = "username"
         showKeyboard("Username", "", m.username, false)
-    else if index = 2
-        ' Password
+    else if action = "password"
         m.editingField = "password"
         showKeyboard("Password", "", m.password, true)
-    else if index = 3
-        ' Connect
+    else if action = "connect"
         onConnectPressed()
-    else if index = 4
-        ' Discover
+    else if action = "discover"
         onDiscoverPressed()
-    else if index = 5 and m.top.canCancel
-        ' Cancel (only present when adding a server)
+    else if action = "quickConnect"
+        onQuickConnectPressed()
+    else if action = "cancel"
         m.top.cancelled = true
     end if
 end sub
@@ -111,13 +187,14 @@ sub onKeyboardButton()
     if buttonIndex = 0 ' OK
         text = dialog.text
         if m.editingField = "serverUrl"
-            m.serverUrl = text
+            setServerUrl(text)
         else if m.editingField = "username"
             m.username = text
+            updateFormButtons()
         else if m.editingField = "password"
             m.password = text
+            updateFormButtons()
         end if
-        updateFormButtons()
     end if
 
     dialog.close = true
@@ -125,12 +202,34 @@ sub onKeyboardButton()
     m.formButtons.setFocus(true)
 end sub
 
+' A new address invalidates everything we knew about the last one. Resolving it
+' now — rather than waiting for Connect — is what lets the screen decide
+' whether to offer Quick Connect at all: an option that cannot work should
+' never be on screen, and the answer only exists once a server has answered.
+sub setServerUrl(url as string)
+    ' Re-entering the same address it already resolved is a no-op, not a reason
+    ' to probe again.
+    if url = m.serverUrl and m.resolvedServerUrl <> "" then return
+
+    m.serverUrl = url
+    m.quickConnectAvailable = false
+    m.resolvedServerUrl = ""
+    updateFormButtons()
+
+    if url.Trim() = "" then return
+    showStatus("Checking server...")
+    enqueue({
+        action: "getPublicInfo"
+        serverUrl: Http.normalizeServerUrl(url)
+        context: "probe"
+    })
+end sub
+
 sub onConnectPressed()
     if m.isLoading then return
 
     serverUrl = m.serverUrl.Trim()
     username = m.username.Trim()
-    password = m.password
 
     if serverUrl = ""
         showStatus("Please enter a server address.")
@@ -142,17 +241,29 @@ sub onConnectPressed()
         return
     end if
 
-    serverUrl = Http.normalizeServerUrl(serverUrl)
-
     showLoading(true)
     showStatus("")
 
     m.pendingUsername = username
-    m.pendingPassword = password
-    m.apiTask.request = {
+    m.pendingPassword = m.password
+
+    ' The address was already resolved when it was entered; re-probing it here
+    ' would only repeat two round trips to reach the same answer.
+    if m.resolvedServerUrl <> ""
+        enqueue({
+            action: "authenticate"
+            serverUrl: m.resolvedServerUrl
+            username: m.pendingUsername
+            password: m.pendingPassword
+        })
+        return
+    end if
+
+    enqueue({
         action: "getPublicInfo"
-        serverUrl: serverUrl
-    }
+        serverUrl: Http.normalizeServerUrl(serverUrl)
+        context: "signIn"
+    })
 end sub
 
 sub onDiscoverPressed()
@@ -195,8 +306,7 @@ sub onServerSelected()
     item = content.getChild(index)
     if item = invalid then return
 
-    m.serverUrl = item.description
-    updateFormButtons()
+    setServerUrl(item.description)
     hideDiscovery()
     m.formButtons.setFocus(true)
 end sub
@@ -207,43 +317,219 @@ sub hideDiscovery()
     m.serverList.visible = false
 end sub
 
+' ---------- Quick Connect ----------
+
+sub onQuickConnectPressed()
+    if m.qcActive then return
+    if m.resolvedServerUrl = ""
+        showStatus("Enter your server address first.")
+        return
+    end if
+
+    m.qcActive = true
+    m.qcSecret = ""
+    m.qcCodeLabel.text = ""
+    m.qcStatusLabel.text = "Requesting a code..."
+    showStatus("")
+
+    ' Hide the form and park focus on the screen itself: the panel has nothing
+    ' focusable in it, and leaving focus on a covered ButtonGroup means OK
+    ' presses a button the user cannot see.
+    m.formButtons.visible = false
+    m.formBg.visible = false
+    m.qcPanel.visible = true
+    m.top.setFocus(true)
+
+    enqueue({ action: "quickConnectInitiate", serverUrl: m.resolvedServerUrl })
+end sub
+
+sub onQuickConnectInitiated(response as object)
+    ' Cancelled while the request was in flight — the panel is already gone.
+    if not m.qcActive then return
+
+    if not response.success
+        endQuickConnect(response.error)
+        return
+    end if
+
+    m.qcSecret = response.secret
+    m.qcCodeLabel.text = spacedCode(response.code)
+    m.qcStatusLabel.text = "Waiting for approval..."
+    ' Wall-clock deadline rather than a poll count: how long a poll takes is
+    ' the network's business, but how long the user stares at a dead code is
+    ' ours. Jellyfin expires the request server-side too (10 minutes by
+    ' default), so stopping first keeps a forgotten screen off the server.
+    m.qcDeadline = CreateObject("roTimespan")
+    armQuickConnectPoll()
+end sub
+
+' One-shot timer, re-armed after each answer, so a slow response can never
+' stack a second poll behind the first.
+sub armQuickConnectPoll()
+    m.qcTimer.control = "stop"
+    m.qcTimer.control = "start"
+end sub
+
+sub onQuickConnectTick()
+    if not m.qcActive then return
+
+    if m.qcDeadline.TotalMilliseconds() > 300000
+        endQuickConnect("Quick Connect timed out. Try again.")
+        return
+    end if
+
+    enqueue({
+        action: "quickConnectPoll"
+        serverUrl: m.resolvedServerUrl
+        secret: m.qcSecret
+    })
+end sub
+
+sub onQuickConnectPolled(response as object)
+    if not m.qcActive then return
+    ' A poll that was already in flight when the user cancelled, answered after
+    ' they started a fresh attempt: it says nothing about the code on screen.
+    if response.secret <> m.qcSecret then return
+
+    if response.authenticated = true
+        m.qcTimer.control = "stop"
+        m.qcStatusLabel.text = "Approved - signing in..."
+        enqueue({
+            action: "authenticateQuickConnect"
+            serverUrl: m.resolvedServerUrl
+            secret: m.qcSecret
+        })
+        return
+    end if
+
+    if response.expired = true
+        endQuickConnect("That code expired. Try Quick Connect again for a new one.")
+        return
+    end if
+
+    ' Anything else is a blip, not a verdict: keep waiting out the deadline
+    ' rather than making the user read a fresh code off the TV.
+    armQuickConnectPoll()
+end sub
+
+sub endQuickConnect(message as string)
+    m.qcTimer.control = "stop"
+    m.qcActive = false
+    m.qcSecret = ""
+    m.qcPanel.visible = false
+    m.formBg.visible = true
+    m.formButtons.visible = not m.isLoading
+    m.formButtons.setFocus(true)
+    showStatus(message)
+end sub
+
+' "197268" -> "1 9 7 2 6 8". The code is read off a TV from across a room and
+' then typed somewhere else; the gaps are what stop digits running together.
+function spacedCode(code as string) as string
+    out = ""
+    for i = 1 to Len(code)
+        if i > 1 then out += " "
+        out += Mid(code, i, 1)
+    end for
+    return out
+end function
+
+' ---------- API ----------
+
 sub onApiResponse()
     response = m.apiTask.response
-    if response = invalid then return
+    m.reqBusy = false
+    if response = invalid
+        pumpQueue()
+        return
+    end if
 
     action = response.action
 
     if action = "getPublicInfo"
-        if response.success
-            m.apiTask.request = {
-                action: "authenticate"
-                serverUrl: response.serverUrl
-                username: m.pendingUsername
-                password: m.pendingPassword
-            }
-        else
-            showLoading(false)
-            m.errorDialog.showError = { title: "Connection Error", message: response.error }
+        onPublicInfo(response)
+    else if action = "quickConnectEnabled"
+        m.quickConnectAvailable = (response.enabled = true)
+        updateFormButtons()
+        if m.quickConnectAvailable and not m.qcActive
+            ' Rest the focus on the option that costs no typing.
+            m.formButtons.focusButton = 0
         end if
+    else if action = "quickConnectInitiate"
+        onQuickConnectInitiated(response)
+    else if action = "quickConnectPoll"
+        onQuickConnectPolled(response)
     else if action = "authenticate"
         showLoading(false)
         if response.success
-            Registry.saveAuth(
-                response.serverUrl,
-                response.accessToken,
-                response.userId,
-                response.userName
-            )
-
-            m.global.serverUrl = response.serverUrl
-            m.global.authToken = response.accessToken
-            m.global.userId = response.userId
-
-            m.top.loginSuccess = true
+            completeLogin(response)
+        else
+            showStatus(response.error)
+        end if
+    else if action = "authenticateQuickConnect"
+        endQuickConnect("")
+        if response.success
+            completeLogin(response)
         else
             showStatus(response.error)
         end if
     end if
+
+    pumpQueue()
+end sub
+
+sub onPublicInfo(response as object)
+    context = ""
+    if response.context <> invalid then context = response.context
+
+    if not response.success
+        if context = "probe"
+            ' Background check after an address edit: say what is wrong in the
+            ' status line, but don't throw a modal over a form the user is
+            ' still filling in.
+            showStatus(response.error)
+            return
+        end if
+        showLoading(false)
+        m.errorDialog.showError = { title: "Connection Error", message: response.error }
+        return
+    end if
+
+    m.resolvedServerUrl = response.serverUrl
+
+    if context = "probe"
+        showStatus("")
+        ' Show the address the server actually answered on — it is what the app
+        ' will talk to and what gets persisted, so it should not be a surprise.
+        m.serverUrl = response.serverUrl
+        updateFormButtons()
+        enqueue({ action: "quickConnectEnabled", serverUrl: response.serverUrl })
+        return
+    end if
+
+    enqueue({
+        action: "authenticate"
+        serverUrl: response.serverUrl
+        username: m.pendingUsername
+        password: m.pendingPassword
+    })
+end sub
+
+' The one place a session is persisted, whichever way it was obtained. Password
+' and Quick Connect responses carry the same fields by design.
+sub completeLogin(response as object)
+    Registry.saveAuth(
+        response.serverUrl,
+        response.accessToken,
+        response.userId,
+        response.userName
+    )
+
+    m.global.serverUrl = response.serverUrl
+    m.global.authToken = response.accessToken
+    m.global.userId = response.userId
+
+    m.top.loginSuccess = true
 end sub
 
 sub showLoading(loading as boolean)
@@ -259,6 +545,10 @@ end sub
 function onKeyEvent(key as string, press as boolean) as boolean
     if press
         if key = "back"
+            if m.qcActive
+                endQuickConnect("Quick Connect cancelled.")
+                return true
+            end if
             if m.serverList.visible
                 hideDiscovery()
                 m.formButtons.setFocus(true)

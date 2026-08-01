@@ -101,6 +101,63 @@
             visible="false"
         />
 
+        <!-- Quick Connect panel: covers the form while a code is live. Nothing
+             in it is focusable — the screen itself holds focus so Back is the
+             only key that does anything. -->
+        <Group id="qcPanel" visible="false">
+            <Rectangle translation="[510, 280]" width="900" height="480" color="#101420" />
+            <Label
+                text="Quick Connect"
+                color="#FFFFFF"
+                horizAlign="center"
+                width="900"
+                translation="[510, 316]"
+            >
+                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="38" />
+            </Label>
+            <Label
+                text="On your phone or computer, sign in to Jellyfin, open Quick Connect from the user menu, and enter this code:"
+                color="#AAAAAA"
+                horizAlign="center"
+                width="780"
+                wrap="true"
+                translation="[570, 378]"
+            >
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+            </Label>
+            <Label
+                id="qcCodeLabel"
+                text=""
+                color="#FFFFFF"
+                horizAlign="center"
+                width="900"
+                translation="[510, 496]"
+            >
+                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="80" />
+            </Label>
+            <Label
+                id="qcStatusLabel"
+                text=""
+                color="#888888"
+                horizAlign="center"
+                width="900"
+                translation="[510, 622]"
+            >
+                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+            </Label>
+            <Label
+                text="Press Back to cancel"
+                font="font:SmallSystemFont"
+                color="#666666"
+                horizAlign="center"
+                width="900"
+                translation="[510, 690]"
+            />
+        </Group>
+        <!-- Poll interval. One-shot: ServerConnectionScreen re-arms it after
+             each answer so polls cannot stack up. -->
+        <Timer id="qcTimer" repeat="false" duration="3" />
+
         <ErrorDialog id="errorDialog" />
         <JellyfinApi id="apiTask" />
         <ServerDiscoveryTask id="discoveryTask" />

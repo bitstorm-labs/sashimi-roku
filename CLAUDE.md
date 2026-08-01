@@ -39,15 +39,17 @@ curl --digest -u "rokudev:$PW" http://192.168.86.30/pkgs/dev.jpg -o shot.jpg
 nc 192.168.86.30 8085
 ```
 
-**ECP keypress is locked (403) on this device.** You cannot drive the UI
-remotely — no navigating menus, no typing into the login or search keyboard.
-What still works: `POST /launch/dev?contentId=…&mediaType=…` (deep links, which
-is how you reach playback without input), `/query/active-app`,
+**ECP keypress works again** (it used to 403 on this device; re-verified
+2026-07-31 with `POST /keypress/Down` → 200 and a visible focus move). You can
+drive the UI remotely, but presses sent back-to-back are coalesced — pace them
+~0.5s apart or only the first one or two land. Also useful: `POST
+/launch/dev?contentId=…&mediaType=…` (deep links), `/query/active-app`,
 `/query/device-info`.
 
 Consequences worth internalising:
-- Don't test sign-out on the dev box — it would strand it at a login screen you
-  can't type into. Verify the server side against the Jellyfin API instead.
+- Don't test sign-out on the dev box — it would strand it at a login screen
+  someone has to type into. To reach the sign-in screen safely, use Settings →
+  Servers → Add Server, which opens the same screen with Back as an escape.
 - To verify something that normally needs a button press, drive it from an
   instrumented `#if DEBUG` build and read the result on port 8085. That's how
   the caption-mode work was verified (`SetCaptionsMode` from inside the app).
