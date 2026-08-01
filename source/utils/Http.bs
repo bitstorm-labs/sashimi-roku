@@ -75,6 +75,44 @@ namespace Http
         return invalid
     end function
 
+    ' Raw response body, for the endpoints that answer with something ParseJSON
+    ' cannot be trusted with. /QuickConnect/Enabled replies with a bare `true`:
+    ' a valid JSON document under RFC 7159 but not an object or array, and
+    ' Roku's parser is not guaranteed to accept a scalar root. Returns invalid
+    ' on any non-2xx, with the same { statusCode } meta convention as getJson.
+    function getText(url as string, meta = invalid as object) as dynamic
+        request = CreateObject("roUrlTransfer")
+        port = CreateObject("roMessagePort")
+        request.SetMessagePort(port)
+        request.SetCertificatesFile("common:/certs/ca-bundle.crt")
+        request.InitClientCertificates()
+        request.SetUrl(url)
+        request.AddHeader("Authorization", authHeader())
+        request.AddHeader("Accept", "application/json")
+        request.RetainBodyOnError(true)
+
+        if request.AsyncGetToString()
+            msg = wait(30000, port)
+            if msg <> invalid and type(msg) = "roUrlEvent"
+                code = msg.GetResponseCode()
+                if meta <> invalid then meta.statusCode = code
+                if code >= 200 and code < 300 then return msg.GetString()
+                #if DEBUG
+                    print "HTTP GET error: " + str(code)
+                #end if
+                return invalid
+            end if
+            request.AsyncCancel()
+            if meta <> invalid then meta.statusCode = 0
+            #if DEBUG
+                print "HTTP GET timeout"
+            #end if
+            return invalid
+        end if
+        if meta <> invalid then meta.statusCode = -1
+        return invalid
+    end function
+
     ' meta (optional): the same { statusCode } convention as getJson. A POST
     ' that returns invalid can mean rejected credentials, a redirect, a dead
     ' server or a timeout, and the sign-in screen has to say which.
