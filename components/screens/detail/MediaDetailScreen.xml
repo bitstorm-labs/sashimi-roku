@@ -74,10 +74,6 @@
         <Group id="badgesGroup" translation="[280, 352]" />
         <Group id="tagsGroup" translation="[60, 446]" />
 
-        <Label id="genresLabel" text="" color="#BFBFBF" width="1000" maxLines="1" translation="[60, 448]">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
-        </Label>
-
         <Label id="overviewLabel" text="" color="#BFBFBF" width="940" maxLines="2"
                wrap="true" translation="[60, 596]">
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="24" />

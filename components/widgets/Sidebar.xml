@@ -17,21 +17,28 @@
         <!-- Hairline right edge so the strip reads as defined -->
         <Rectangle id="divider" width="2" height="1080" color="0xFFFFFF14" translation="[134,0]" />
 
-        <Poster id="logo" uri="pkg:/images/logo.png" width="64" height="48"
-            loadDisplayMode="scaleToFit" translation="[36,52]" />
-        <Label id="wordmark" text="Sashimi" visible="false" translation="[118,44]" />
+        <!-- Everything that dims at rest lives under ONE group so the rest
+             opacity is applied once — per-layer 0.68 on stacked nodes (avatar
+             bg under photo) multiplied and read darker than intended. -->
+        <Group id="railContent">
+            <!-- 88x66 at [24,44]: bottom edge 110 clears the nav block's
+                 topBound of 150; horizontal center 68 matches the avatar's. -->
+            <Poster id="logo" uri="pkg:/images/logo.png" width="88" height="66"
+                loadDisplayMode="scaleToFit" translation="[24,44]" />
+            <Label id="wordmark" text="Sashimi" visible="false" translation="[128,58]" />
 
-        <Group id="navGroup" />
+            <Group id="navGroup" />
 
-        <!-- Account row at the foot -->
-        <Poster id="avatarBg" uri="pkg:/images/avatar_accent.png" width="56" height="56" translation="[40,968]" />
-        <Label id="avatarLabel" text="?" width="56" height="56" translation="[40,968]" visible="true" />
-        <MaskGroup id="avatarImgMask" translation="[40,968]" maskUri="pkg:/images/circle_mask.png" maskSize="[56,56]">
-            <Poster id="avatarImg" width="56" height="56" loadWidth="112" loadHeight="112" loadDisplayMode="scaleToZoom" />
-        </MaskGroup>
-        <Label id="accountLabel" text="Account" visible="false" translation="[118,960]" />
-        <Label id="accountSub" text="Switch server" visible="false" translation="[118,994]" />
-        <Label id="versionLabel" text="" width="200" height="26" translation="[118,1028]" visible="false" />
+            <!-- Account row at the foot -->
+            <Poster id="avatarBg" uri="pkg:/images/avatar_accent.png" width="56" height="56" translation="[40,968]" />
+            <Label id="avatarLabel" text="?" width="56" height="56" translation="[40,968]" visible="true" />
+            <MaskGroup id="avatarImgMask" translation="[40,968]" maskUri="pkg:/images/circle_mask.png" maskSize="[56,56]">
+                <Poster id="avatarImg" width="56" height="56" loadWidth="112" loadHeight="112" loadDisplayMode="scaleToZoom" />
+            </MaskGroup>
+            <Label id="accountLabel" text="Account" visible="false" translation="[118,960]" />
+            <Label id="accountSub" text="Switch server" visible="false" translation="[118,994]" />
+            <Label id="versionLabel" text="" width="200" height="26" translation="[118,1028]" visible="false" />
+        </Group>
 
         <JellyfinApi id="apiTask" />
     </children>
