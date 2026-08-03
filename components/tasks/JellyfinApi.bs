@@ -1199,11 +1199,18 @@ sub doGetSiblingEpisodes(request as object)
     ' second fetch to fall back on — without them the next episode inherits the
     ' previous one's chapter marks.
     url += "&Fields=Overview,UserData,ImageTags,ParentBackdropImageTags,Path,Chapters"
-    result = Http.getJson(url)
+    meta = {}
+    result = Http.getJson(url, meta)
     if result <> invalid and result.Items <> invalid
+        print "[API] siblings http="; meta.statusCode; " n="; result.Items.count()
         m.top.response = { success: true, action: "getSiblingEpisodes", items: result.Items }
     else
-        m.top.response = { success: true, action: "getSiblingEpisodes", items: [] }
+        ' A failed fetch (timeout / non-2xx / bad JSON) is NOT an empty season.
+        ' success=false lets the player retry instead of concluding "no next
+        ' episode" off a dropped request — that misread was the top suspect for
+        ' intermittent "autoplay didn't fire" reports.
+        print "[API] siblings http="; meta.statusCode; " n=-1"
+        m.top.response = { success: false, action: "getSiblingEpisodes", items: [] }
     end if
 end sub
 

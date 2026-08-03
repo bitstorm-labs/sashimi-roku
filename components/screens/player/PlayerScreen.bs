@@ -86,6 +86,7 @@ sub init()
     m.lastPosition = 0
     m.isPaused = false
     m.subtitleBase = ""
+    m.siblingsRetried = false ' one retry per autoplay handoff (reset in onPlaybackEnded)
 
     ' OSD virtual-highlight state
     m.osdVisible = false
@@ -475,16 +476,31 @@ sub onVideoState()
         ' mark-played or auto-advance. The error branch handles recovery;
         ' a genuine end-of-episode lands within 30s of the runtime.
         nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
-        if m.startedReported and nearEnd then onPlaybackEnded()
+        print "[Player] finished pos="; Int(m.video.position); " dur="; m.durationSecs; " started="; m.startedReported; " nearEnd="; nearEnd; " method="; m.playMethod
+        if m.startedReported and nearEnd
+            onPlaybackEnded()
+        else if m.startedReported and not m.errorDialogUp and m.pendingStartSecs < 0
+            ' A mid-stream "finished" nowhere near the end used to be swallowed
+            ' with no action at all — frozen last frame, dead remote. If no
+            ' recovery is already in flight (no pending restart, no error
+            ' dialog), exit cleanly instead. Deliberately NOT mark-played and
+            ' NOT auto-advance: the near-end gate above exists to block Roku's
+            ' spurious finished-after-error, and this branch keeps that.
+            print "[Player] finished early - exiting cleanly"
+            exitPlayer()
+        end if
     else if state = "error"
         ' Roku Video node error detail — the only reliable signal for WHY a
         ' stream was rejected (codec/level/segment/network). Logged for support.
         ei = m.video.errorInfo
+        ' A finish/error genuinely near the end is not a stall (also gates the
+        ' step-down below).
+        nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
+        print "[Player] VIDEO ERROR code="; m.video.errorCode; " method="; m.playMethod; " started="; m.startedReported; " nearEnd="; nearEnd; " stepDownIdx="; m.stepDownIdx
+        ' errorMsg/errorInfo can embed the stream URL, which carries
+        ' api_key=<token> — DEBUG builds only
         #if DEBUG
-            print "[Player] VIDEO ERROR code="; m.video.errorCode; " msg="; m.video.errorMsg; " method="; m.playMethod; " started="; m.startedReported
-        #end if
-        ' errorInfo can embed the stream URL, which carries api_key=<token>
-        #if DEBUG
+            print "[Player] errMsg: "; m.video.errorMsg
             if ei <> invalid then print "[Player] errCode: "; ei.errorCode
         #end if
         ' Force Direct Play opts out of the adaptive transcode fallbacks below:
@@ -527,8 +543,6 @@ sub onVideoState()
         '      Stepping the cap down forces the server to RE-ENCODE the video to
         '      a bitrate the hardware can actually start. (Same file plays on
         '      iPad, which has no trouble with 15Mbps — this is device-specific.)
-        ' A finish/error genuinely near the end is not a stall.
-        nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
         onTranscode = (m.playMethod = "Transcode" or m.forceTranscode)
         stallAfterStart = (m.startedReported and not nearEnd)
         coldTranscodeFail = (not m.startedReported and onTranscode)
@@ -606,6 +620,7 @@ sub checkSegment(posSecs as dynamic)
         if autoSkip and not m.skippedSegments.DoesExist(segKey)
             m.skippedSegments[segKey] = true
             m.seeking = false
+            print "[Player] skip seek -> "; Int(active.endSec); " dur="; m.durationSecs
             m.video.seek = active.endSec
             m.curSegment = invalid
             hideSkipPill()
@@ -633,6 +648,7 @@ end sub
 sub skipCurrentSegment()
     if m.curSegment = invalid then return
     m.seeking = false
+    print "[Player] skip seek -> "; Int(m.curSegment.endSec); " dur="; m.durationSecs
     m.video.seek = m.curSegment.endSec
     m.curSegment = invalid
     hideSkipPill()
@@ -1407,18 +1423,47 @@ sub onPlaybackEnded()
     hideOsd()
     enqueue({ action: "markPlayed", itemId: m.item.Id })
 
-    if AppSettings.autoPlayNextEpisode() and m.item.Type = "Episode" and m.item.SeasonId <> invalid
+    autoplay = AppSettings.autoPlayNextEpisode()
+    itemType = ""
+    if m.item.Type <> invalid then itemType = m.item.Type
+    print "[Player] ended autoplay="; autoplay; " type="; itemType; " hasSeasonId="; (m.item.SeasonId <> invalid)
+    if autoplay and itemType = "Episode" and m.item.SeasonId <> invalid
         m.statusLabel.visible = true
         m.statusLabel.text = "Up next..."
+        m.siblingsRetried = false
         enqueue({ action: "getSiblingEpisodes", parentId: m.item.SeasonId })
+        ' The handoff is up to three serialized 30s requests (reportStopped,
+        ' markPlayed, siblings). Without a watchdog a dead server freezes the
+        ' last frame behind "Up next..." indefinitely; the stall dialog at
+        ' least gives the viewer Try Again / Back. requestStream re-arms it
+        ' when the next stream starts negotiating.
+        armStallWatchdog()
     else
         m.top.done = true
     end if
 end sub
 
 sub onSiblingsLoaded(r as object)
+    ' success=false is a failed FETCH (timeout / non-2xx), not an empty season
+    ' — the two used to be indistinguishable, which made a dropped request look
+    ' like "no next episode". Retry once before giving up.
+    if not r.success
+        if not m.siblingsRetried
+            m.siblingsRetried = true
+            print "[Player] siblings fetch failed - retrying once"
+            enqueue({ action: "getSiblingEpisodes", parentId: m.item.SeasonId })
+            armStallWatchdog()
+            return
+        end if
+        print "[Player] autoplay giving up: siblings fetch failed twice"
+        m.bufferTimer.control = "stop"
+        m.top.done = true
+        return
+    end if
+
     nextEp = invalid
-    if r.success and r.items <> invalid and m.item.IndexNumber <> invalid
+    curIdx = -1
+    if r.items <> invalid and m.item.IndexNumber <> invalid
         curIdx = m.item.IndexNumber
         for each ep in r.items
             if ep.IndexNumber <> invalid and ep.IndexNumber = curIdx + 1
@@ -1435,6 +1480,12 @@ sub onSiblingsLoaded(r as object)
             end for
         end if
     end if
+
+    n = 0
+    if r.items <> invalid then n = r.items.count()
+    nextIdx = -1
+    if nextEp <> invalid and nextEp.IndexNumber <> invalid then nextIdx = nextEp.IndexNumber
+    print "[Player] siblings n="; n; " curIdx="; curIdx; " next="; nextIdx
 
     if nextEp <> invalid
         m.stoppedReported = false
@@ -1463,6 +1514,10 @@ sub onSiblingsLoaded(r as object)
         populateInfoBar()
         requestStream(nextEp)
     else
+        ' Season genuinely over (or this item carries no IndexNumber to
+        ' advance from) — a normal end, same behavior as before.
+        print "[Player] autoplay done: no next episode in season"
+        m.bufferTimer.control = "stop"
         m.top.done = true
     end if
 end sub
