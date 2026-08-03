@@ -238,7 +238,17 @@ sub onItemLoaded(response as object)
 
     setBackdrop(item)
     setHeader(item)
-    setRatings(item)
+    if not m.isYouTube
+        setRatings(item)
+    else
+        ' YouTube videos never carry TMDB/critic scores worth showing; hide
+        ' the row and anchor the media badges where the ratings would start.
+        m.tmdbLogo.visible = false
+        m.tmdbScore.visible = false
+        m.tomatoIcon.visible = false
+        m.tomatoScore.visible = false
+        m.badgesGroup.translation = m.ratingsGroup.translation
+    end if
     m.genresLabel.visible = false
     buildTags(item)
 
@@ -614,7 +624,9 @@ sub onPlaybackInfoLoaded(response as object)
             buildCastRow(m.item)
             commitRows()
         end if
-        needSeriesMeta = (m.item.CommunityRating = invalid) and (m.item.CriticRating = invalid) and (m.item.SeriesId <> invalid)
+        ' YouTube: the "series" is a Pinchflat channel — its metadata must not
+        ' donate TMDB/critic scores to individual videos.
+        needSeriesMeta = (m.item.CommunityRating = invalid) and (m.item.CriticRating = invalid) and (m.item.SeriesId <> invalid) and (not m.isYouTube)
         if needSeriesMeta then enqueue({ action: "getItem", itemId: m.item.SeriesId, context: "seriesMeta" })
     end if
 end sub

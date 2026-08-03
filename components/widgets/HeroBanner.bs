@@ -11,6 +11,8 @@ sub init()
     m.heroTitle = m.top.findNode("heroTitle")
     m.heroSubtitle = m.top.findNode("heroSubtitle")
     m.heroMeta = m.top.findNode("heroMeta")
+    m.ytIcon = m.top.findNode("ytIcon")
+    m.ytLabel = m.top.findNode("ytLabel")
     m.heroOverview = m.top.findNode("heroOverview")
     m.dotsGroup = m.top.findNode("dotsGroup")
     m.dotFill = m.top.findNode("dotFill")
@@ -208,23 +210,25 @@ sub showItem(index as integer)
     end if
     m.heroSubtitle.text = subtitle
 
-    ' Metadata row (tvOS: TMDB logo + rating, critic %, year + runtime; YouTube: date + "YouTube")
+    ' Metadata row (tvOS: TMDB logo + rating, critic %, year + runtime;
+    ' YouTube: red badge + date — TMDB/critic scores never apply to videos)
     meta = ""
-    if item.CommunityRating <> invalid
-        rating = Int(item.CommunityRating * 10) / 10.0
-        meta += str(rating).Trim()
-    end if
-    if item.CriticRating <> invalid
-        if meta <> "" then meta += "    "
-        meta += str(item.CriticRating).Trim() + "%"
+    if not isYouTube
+        if item.CommunityRating <> invalid
+            rating = Int(item.CommunityRating * 10) / 10.0
+            meta += str(rating).Trim()
+        end if
+        if item.CriticRating <> invalid
+            if meta <> "" then meta += "    "
+            meta += str(item.CriticRating).Trim() + "%"
+        end if
     end if
     if isYouTube
+        ' "YouTube" itself is rendered by ytLabel (brand red); only the date
+        ' goes through the shared meta label.
         if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 10
-            if meta <> "" then meta += "    "
             meta += YT.formatDate(item.PremiereDate)
         end if
-        if meta <> "" then meta += "    "
-        meta += "YouTube"
     else
         if item.ProductionYear <> invalid
             if meta <> "" then meta += "    "
@@ -247,11 +251,22 @@ sub showItem(index as integer)
         end if
     end if
     m.heroMeta.text = meta
-    ' Show TMDB logo when we have a community rating (tvOS: logo before number)
-    if item.CommunityRating <> invalid
+    if isYouTube
+        ' YouTube badge: play icon + red "YouTube", then the date after it —
+        ' measured, since the wordmark width depends on the font.
+        m.tmdbLogo.visible = false
+        m.ytIcon.visible = true
+        m.ytLabel.visible = true
+        m.heroMeta.translation = [126 + Int(m.ytLabel.boundingRect().width) + 16, 338]
+    else if item.CommunityRating <> invalid
+        ' Show TMDB logo when we have a community rating (tvOS: logo before number)
+        m.ytIcon.visible = false
+        m.ytLabel.visible = false
         m.tmdbLogo.visible = true
         m.heroMeta.translation = [126, 338]
     else
+        m.ytIcon.visible = false
+        m.ytLabel.visible = false
         m.tmdbLogo.visible = false
         m.heroMeta.translation = [80, 338]
     end if
