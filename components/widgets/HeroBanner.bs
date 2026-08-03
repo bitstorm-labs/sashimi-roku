@@ -247,13 +247,13 @@ sub showItem(index as integer)
         end if
     end if
     m.heroMeta.text = meta
-    ' Show TMDB logo when we have a community rating (tvOS: logo h24 before number)
+    ' Show TMDB logo when we have a community rating (tvOS: logo before number)
     if item.CommunityRating <> invalid
         m.tmdbLogo.visible = true
-        m.heroMeta.translation = [126, 340]
+        m.heroMeta.translation = [126, 338]
     else
         m.tmdbLogo.visible = false
-        m.heroMeta.translation = [80, 340]
+        m.heroMeta.translation = [80, 338]
     end if
 
     ' Overview (tvOS: 22pt @75% white, 2 lines)
