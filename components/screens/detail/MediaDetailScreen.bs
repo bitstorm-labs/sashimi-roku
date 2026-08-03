@@ -4,7 +4,7 @@ import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/TimeFormat.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
-'  - Fixed header (backdrop/logo/title/meta/ratings/badges/genres/overview)
+'  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
 '  - Capsule action buttons (screen-managed left/right)
 '  - ONE multi-row RowList (Seasons / Episodes / Cast) — the RowList handles
 '    vertical nav BETWEEN its rows natively and only bubbles at the top edge,
@@ -38,7 +38,6 @@ sub init()
     m.titleFontStd = CreateObject("roSGNode", "Font")
     m.titleFontStd.uri = "pkg:/fonts/Roboto-Bold.ttf"
     m.titleFontStd.size = 38
-    m.genresLabel = m.top.findNode("genresLabel")
     m.overviewLabel = m.top.findNode("overviewLabel")
     m.detailButtons = m.top.findNode("detailButtons")
     m.rowList = m.top.findNode("rowList")
@@ -238,13 +237,24 @@ sub onItemLoaded(response as object)
 
     setBackdrop(item)
     setHeader(item)
-    setRatings(item)
-    m.genresLabel.visible = false
+    if not m.isYouTube
+        setRatings(item)
+    else
+        ' YouTube videos never carry TMDB/critic scores worth showing; hide
+        ' the row and anchor the media badges where the ratings would start.
+        m.tmdbLogo.visible = false
+        m.tmdbScore.visible = false
+        m.tomatoIcon.visible = false
+        m.tomatoScore.visible = false
+        m.badgesGroup.translation = m.ratingsGroup.translation
+    end if
     buildTags(item)
 
     overview = ""
     if item.Overview <> invalid then overview = item.Overview
     m.overviewLabel.text = overview
+
+    reflowHeader()
 
     buildButtons()
 
@@ -358,6 +368,40 @@ sub layoutHeader()
         m.detailButtons.translation = [60, 500]
         m.overviewLabel.translation = [60, 596]
         m.overviewLabel.width = 940
+        m.overviewLabel.maxLines = 2
+    end if
+end sub
+
+' Collapse the non-movie header's fixed slots onto the measured content.
+' layoutHeader()'s y positions assume the worst case (2-line title + a
+' ratings row); a 1-line title or a ratings-less item (YouTube) left dead
+' bands between rows. Stack each row under the measured title instead
+' (boundingRect, same pattern as the endsAt placement) and give the freed
+' space to a third overview line when it can't collide with the RowList.
+' Movies keep their poster-anchored layout untouched.
+sub reflowHeader()
+    if m.itemType = "Movie" then return
+    titleH = Int(m.titleLabel.boundingRect().height)
+    metaY = 296 + titleH + 16
+    m.metaLabel.translation = [60, metaY]
+    m.endsAtLabel.translation = [m.endsAtLabel.translation[0], metaY]
+    y = metaY + 40
+    ' The ratings/badges row takes space only when something renders in it: a
+    ' rating visible now, or media badges once getPlaybackInfo lands (of the
+    ' non-movie types, only episodes request playback info).
+    hasRating = m.tmdbScore.visible or m.tomatoScore.visible
+    if hasRating or m.itemType = "Episode"
+        m.ratingsGroup.translation = [60, y]
+        m.badgesGroup.translation = [m.badgesGroup.translation[0], y]
+        y += 40
+    end if
+    m.detailButtons.translation = [60, y + 24]
+    overviewY = y + 24 + 52 + 28
+    m.overviewLabel.translation = [60, overviewY]
+    ' 3 lines at 24pt need ~110px before the RowList at y=734.
+    if 734 - overviewY >= 110
+        m.overviewLabel.maxLines = 3
+    else
         m.overviewLabel.maxLines = 2
     end if
 end sub
@@ -579,26 +623,14 @@ sub setRatings(item as object)
     m.badgesGroup.translation = [rt[0] + endX, rt[1]]
 end sub
 
-sub setGenres(item as object)
-    genreStr = ""
-    if item.Genres <> invalid and item.Genres.count() > 0
-        maxG = 4
-        if item.Genres.count() < maxG then maxG = item.Genres.count()
-        for i = 0 to maxG - 1
-            if i > 0 then genreStr += " " + Chr(8226) + " "
-            genreStr += item.Genres[i]
-        end for
-    end if
-    m.genresLabel.text = genreStr
-end sub
-
 ' Episodes rarely carry their own ratings — fall back to the series (tvOS).
 sub onSeriesMetaLoaded(response as object)
     if not response.success then return
     series = response.item
     if series = invalid then return
     if m.item.CommunityRating = invalid and m.item.CriticRating = invalid then setRatings(series)
-    if m.genresLabel.text = "" then setGenres(series)
+    ' The donated rating may have made the ratings row appear — restack.
+    reflowHeader()
 end sub
 
 ' ---------- Media info badges ----------
@@ -614,7 +646,9 @@ sub onPlaybackInfoLoaded(response as object)
             buildCastRow(m.item)
             commitRows()
         end if
-        needSeriesMeta = (m.item.CommunityRating = invalid) and (m.item.CriticRating = invalid) and (m.item.SeriesId <> invalid)
+        ' YouTube: the "series" is a Pinchflat channel — its metadata must not
+        ' donate TMDB/critic scores to individual videos.
+        needSeriesMeta = (m.item.CommunityRating = invalid) and (m.item.CriticRating = invalid) and (m.item.SeriesId <> invalid) and (not m.isYouTube)
         if needSeriesMeta then enqueue({ action: "getItem", itemId: m.item.SeriesId, context: "seriesMeta" })
     end if
 end sub
