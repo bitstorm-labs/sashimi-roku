@@ -138,10 +138,22 @@ sub buildItems()
         ct = ""
         if lib.CollectionType <> invalid then ct = LCase(lib.CollectionType)
         item = { id: "lib:" + lib.Id, kind: "library", title: lib.Name, libId: lib.Id, libName: lib.Name, collectionType: ct }
+        ' Movie/TV/YouTube libraries get monochrome glyphs (with a purple
+        ' selected variant) instead of artwork thumbnails — the mixed-media
+        ' rail read as clutter. Other libraries keep their artwork, falling
+        ' back to the generic stack glyph.
         if YT.isLibraryName(lib.Name)
-            item.iconLocal = "pkg:/images/youtube_icon.png"
+            item.iconLocal = "pkg:/images/lib_youtube.png"
+            item.iconSelected = "pkg:/images/lib_youtube_selected.png"
+        else if ct = "movies"
+            item.iconLocal = "pkg:/images/lib_movies.png"
+            item.iconSelected = "pkg:/images/lib_movies_selected.png"
+        else if ct = "tvshows"
+            item.iconLocal = "pkg:/images/lib_tv.png"
+            item.iconSelected = "pkg:/images/lib_tv_selected.png"
         else
-            item.iconLocal = "pkg:/images/nav_library.png"
+            item.iconLocal = "pkg:/images/lib_generic.png"
+            item.iconSelected = "pkg:/images/lib_generic_selected.png"
             if lib.Id <> invalid then item.iconUri = ImageUrl.primary(lib.Id, 120)
         end if
         m.items.push(item)
@@ -174,6 +186,7 @@ sub buildRows()
         row.appendChild(hl)
 
         iconY = (m.rowPitch - m.iconSize) / 2
+        icon = invalid
         if it.kind = "library" and it.iconUri <> invalid
             ' Library artwork with rounded corners (mask)
             mask = CreateObject("roSGNode", "MaskGroup")
@@ -294,6 +307,28 @@ sub updateStyles()
             r.label.color = "#FFFFFF"
         else
             r.label.color = "#8C8C8C"
+        end if
+        ' Monochrome icons mirror the label states: selected = purple asset,
+        ' focused = full white, resting (rail expanded) = 55% white — the icon
+        ' equivalent of #8C8C8C. When the rail is collapsed, railContent
+        ' already dims everything to 0.68, so icons stay at 1.0 there and the
+        ' resting look matches what shipped before. Artwork rows (icon =
+        ' invalid) are untouched.
+        if r.icon <> invalid
+            it = m.items[i]
+            if i = m.selectedIndex and it.iconSelected <> invalid
+                r.icon.uri = it.iconSelected
+                r.icon.opacity = 1.0
+            else
+                r.icon.uri = it.iconLocal
+                if hasFocus and i = m.focusIndex
+                    r.icon.opacity = 1.0
+                else if hasFocus
+                    r.icon.opacity = 0.55
+                else
+                    r.icon.opacity = 1.0
+                end if
+            end if
         end if
     end for
     ' Avatar highlight (focus past the last nav item)
