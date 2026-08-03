@@ -4,7 +4,7 @@ import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/TimeFormat.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
-'  - Fixed header (backdrop/logo/title/meta/ratings/badges/genres/overview)
+'  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
 '  - Capsule action buttons (screen-managed left/right)
 '  - ONE multi-row RowList (Seasons / Episodes / Cast) — the RowList handles
 '    vertical nav BETWEEN its rows natively and only bubbles at the top edge,
@@ -38,7 +38,6 @@ sub init()
     m.titleFontStd = CreateObject("roSGNode", "Font")
     m.titleFontStd.uri = "pkg:/fonts/Roboto-Bold.ttf"
     m.titleFontStd.size = 38
-    m.genresLabel = m.top.findNode("genresLabel")
     m.overviewLabel = m.top.findNode("overviewLabel")
     m.detailButtons = m.top.findNode("detailButtons")
     m.rowList = m.top.findNode("rowList")
@@ -249,7 +248,6 @@ sub onItemLoaded(response as object)
         m.tomatoScore.visible = false
         m.badgesGroup.translation = m.ratingsGroup.translation
     end if
-    m.genresLabel.visible = false
     buildTags(item)
 
     overview = ""
@@ -625,26 +623,12 @@ sub setRatings(item as object)
     m.badgesGroup.translation = [rt[0] + endX, rt[1]]
 end sub
 
-sub setGenres(item as object)
-    genreStr = ""
-    if item.Genres <> invalid and item.Genres.count() > 0
-        maxG = 4
-        if item.Genres.count() < maxG then maxG = item.Genres.count()
-        for i = 0 to maxG - 1
-            if i > 0 then genreStr += " " + Chr(8226) + " "
-            genreStr += item.Genres[i]
-        end for
-    end if
-    m.genresLabel.text = genreStr
-end sub
-
 ' Episodes rarely carry their own ratings — fall back to the series (tvOS).
 sub onSeriesMetaLoaded(response as object)
     if not response.success then return
     series = response.item
     if series = invalid then return
     if m.item.CommunityRating = invalid and m.item.CriticRating = invalid then setRatings(series)
-    if m.genresLabel.text = "" then setGenres(series)
     ' The donated rating may have made the ratings row appear — restack.
     reflowHeader()
 end sub
