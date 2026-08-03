@@ -10,6 +10,7 @@ sub init()
     m.scrim = m.top.findNode("scrim")
     m.railBg = m.top.findNode("railBg")
     m.divider = m.top.findNode("divider")
+    m.railContent = m.top.findNode("railContent")
     m.logo = m.top.findNode("logo")
     m.wordmark = m.top.findNode("wordmark")
     m.navGroup = m.top.findNode("navGroup")
@@ -55,6 +56,9 @@ sub init()
     ' Avatar identity — the server URL may not be restored yet at init time,
     ' so also refresh when it becomes available (else the photo never loads).
     setAvatar()
+    ' Swap the initial-letter placeholder for the photo only once the photo
+    ' has actually decoded; restore it if the load fails.
+    m.avatarImg.observeFieldScoped("loadStatus", "onAvatarStatus")
     m.global.observeFieldScoped("serverUrl", "onServerReady")
 
     m.apiTask.observeFieldScoped("response", "onLibraries")
@@ -93,9 +97,24 @@ sub setAvatar()
     userId = Registry.getUserId()
     if userId <> "" and m.global.serverUrl <> invalid and m.global.serverUrl <> ""
         m.avatarImg.uri = m.global.serverUrl + "/Users/" + userId + "/Images/Primary?maxWidth=140&quality=90"
-        ' Roku ignores EXIF orientation — the photo is stored rotated; correct it
+        ' Roku ignores EXIF orientation — the photo is stored rotated; correct it.
+        ' NOTE: server-image dependent — a server whose avatar is stored upright
+        ' will render sideways here.
         m.avatarImg.scaleRotateCenter = [28, 28]
         m.avatarImg.rotation = 1.5708
+    end if
+end sub
+
+sub onAvatarStatus()
+    st = m.avatarImg.loadStatus
+    if st = "ready"
+        ' Photo decoded: the letter (and its accent disc) under the photo would
+        ' bleed through the photo's transparent corners — hide both.
+        m.avatarLabel.visible = false
+        m.avatarBg.visible = false
+    else if st = "failed"
+        m.avatarLabel.visible = true
+        m.avatarBg.visible = true
     end if
 end sub
 
@@ -207,15 +226,14 @@ sub layout()
     ' No dimming of the content when the rail is out — keep the preview bright
     m.scrim.opacity = 0
 
-    ' Dim the rail's contents when resting (not engaged); full brightness on focus
-    railOpacity = 0.68
-    if m.expanded then railOpacity = 1.0
-    m.logo.opacity = railOpacity
-    m.navGroup.opacity = railOpacity
-    m.avatarBg.opacity = railOpacity
-    m.avatarImg.opacity = railOpacity
-    m.avatarLabel.opacity = railOpacity
-    m.versionLabel.opacity = railOpacity
+    ' Dim the rail's contents when resting (not engaged); full brightness on
+    ' focus. One group opacity — per-layer values multiplied through stacked
+    ' nodes (avatar disc under photo) and rendered darker than 0.68.
+    if m.expanded
+        m.railContent.opacity = 1.0
+    else
+        m.railContent.opacity = 0.68
+    end if
 
     ' Version sits under the avatar — centered under the circle when collapsed,
     ' aligned with the account text when expanded.
