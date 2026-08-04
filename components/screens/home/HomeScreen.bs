@@ -543,6 +543,9 @@ sub addContinueWatchingRow(items as object)
 
         child.addFields({ itemJson: "", isPlayed: false, playedPercentage: 0, remainingText: "", badgeCount: 0 })
         child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
+        ' YouTube badge marker for the card (the hero already badges YouTube; the
+        ' cards did not, so a resumed YouTube video looked like any other CW card).
+        child.addFields({ isYouTube: isYouTubeItem })
         ' Explicit card style so HomeItem knows this is a landscape CW card from
         ' the CONTENT (onItemContentChanged always fires on recycle), not from a
         ' width-change side-channel (onSizeChanged only fires when width changes,

@@ -133,7 +133,7 @@ sub onLibraries()
 end sub
 
 sub buildItems()
-    m.items = [{ id: "home", kind: "home", title: "Home", iconLocal: "pkg:/images/nav_home.png" }]
+    m.items = [{ id: "home", kind: "home", title: "Home", iconLocal: "pkg:/images/nav_home.png", iconSelected: "pkg:/images/nav_home_selected.png" }]
     for each lib in m.libraries
         ct = ""
         if lib.CollectionType <> invalid then ct = LCase(lib.CollectionType)
@@ -158,8 +158,8 @@ sub buildItems()
         end if
         m.items.push(item)
     end for
-    m.items.push({ id: "search", kind: "search", title: "Search", iconLocal: "pkg:/images/nav_search.png" })
-    m.items.push({ id: "settings", kind: "settings", title: "Settings", iconLocal: "pkg:/images/nav_settings.png" })
+    m.items.push({ id: "search", kind: "search", title: "Search", iconLocal: "pkg:/images/nav_search.png", iconSelected: "pkg:/images/nav_search_selected.png" })
+    m.items.push({ id: "settings", kind: "settings", title: "Settings", iconLocal: "pkg:/images/nav_settings.png", iconSelected: "pkg:/images/nav_settings_selected.png" })
 end sub
 
 sub buildRows()
