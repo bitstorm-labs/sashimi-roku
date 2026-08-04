@@ -25,6 +25,8 @@ sub init()
 
     m.items = []
     m.currentIndex = 0
+    m.dotsX = 80
+    m.dotsY = 470
     m.hasFocus = false
     m.dotPositions = []
 
@@ -157,6 +159,72 @@ sub buildDots(activeIndex as integer)
     end for
 end sub
 
+' Center the text block vertically in the 512px banner and the page dots
+' horizontally. The XML pins fixed slots (title y140, an episode-subline slot
+' at y292, meta/overview low at y338/386); a movie has no subline, so that slot
+' is dead space and the whole block reads bottom-heavy and uncentered. Stack
+' only the rows actually present and center the group; center the dots too.
+sub reflowHeroText()
+    bannerH = 512
+    leftX = 80
+
+    h1 = Int(m.heroTitle.boundingRect().height)
+    if h1 <= 0 then h1 = 76
+
+    hasSub = (m.heroSubtitle.text <> "")
+    hasOverview = (m.heroOverview.text <> "")
+
+    subGap = 0 : subH = 0
+    if hasSub
+        subGap = 10
+        subH = Int(m.heroSubtitle.boundingRect().height)
+        if subH <= 0 then subH = 34
+    end if
+    metaGap = 16 : metaH = 24
+    ovGap = 0 : ovH = 0
+    if hasOverview
+        ovGap = 16
+        ovH = Int(m.heroOverview.boundingRect().height)
+        if ovH <= 0 then ovH = 58
+    end if
+
+    blockH = h1 + subGap + subH + metaGap + metaH + ovGap + ovH
+    titleY = Int((bannerH - blockH) / 2)
+    if titleY < 44 then titleY = 44
+
+    m.heroTitle.translation = [leftX, titleY]
+    y = titleY + h1
+
+    if hasSub
+        y += subGap
+        m.heroSubtitle.translation = [leftX, y]
+        y += subH
+    end if
+
+    y += metaGap
+    metaY = y
+    ' Preserve each meta element's X (set by the rating/YouTube branch); move Y.
+    ' The TMDB logo sits +2 so its optical center lands on the meta centerline.
+    mt = m.heroMeta.translation : m.heroMeta.translation = [mt[0], metaY]
+    lt = m.tmdbLogo.translation : m.tmdbLogo.translation = [lt[0], metaY + 2]
+    it = m.ytIcon.translation : m.ytIcon.translation = [it[0], metaY]
+    yl = m.ytLabel.translation : m.ytLabel.translation = [yl[0], metaY]
+    y += metaH
+
+    if hasOverview
+        y += ovGap
+        m.heroOverview.translation = [leftX, y]
+    end if
+
+    ' Page dots: horizontally centered in the banner, fixed near the bottom
+    ' (a rotator's pagination stays put across slides regardless of text height).
+    m.dotsY = 470
+    totalW = 0
+    if m.items.count() > 1 then totalW = 48 + 22 * (m.items.count() - 1)
+    m.dotsX = Int((1820 - totalW) / 2)
+    m.dotsGroup.translation = [m.dotsX, m.dotsY]
+end sub
+
 sub showItem(index as integer)
     if index < 0 or index >= m.items.count() then return
 
@@ -165,7 +233,7 @@ sub showItem(index as integer)
     ' Set backdrop image (tvOS requests large, fits right 70%)
     itemId = ""
     if item.Id <> invalid then itemId = item.Id
-    if YT.isItem(item) and itemId <> ""
+    if YT.isItem(item, false, m.global.youtubePaths) and itemId <> ""
         ' tvOS YouTube hero: the video's own Primary thumbnail first
         m.heroImage.uri = ImageUrl.primary(itemId, 1280)
     else if item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
@@ -183,8 +251,8 @@ sub showItem(index as integer)
         m.heroImage.uri = ""
     end if
 
-    ' Detect YouTube content (unified helper)
-    isYouTube = YT.isItem(item)
+    ' Detect YouTube content (unified helper; library-membership aware)
+    isYouTube = YT.isItem(item, false, m.global.youtubePaths)
 
     ' Title (tvOS displayTitle: series/channel name for episodes, else item name)
     title = ""
@@ -278,12 +346,14 @@ sub showItem(index as integer)
     end if
     m.heroOverview.text = overview
 
-    ' Rebuild dots for this index and restart the active-dot progress fill
+    ' Rebuild dots for this index, center the text block + dots, then restart
+    ' the active-dot progress fill (reflow sets m.dotsX / m.dotsY for the fill).
     buildDots(index)
+    reflowHeroText()
     if m.items.count() > 1 and index < m.dotPositions.count()
         m.dotAnim.control = "stop"
         m.dotFill.width = 0
-        m.dotFill.translation = [80 + m.dotPositions[index], 470]
+        m.dotFill.translation = [m.dotsX + m.dotPositions[index], m.dotsY]
         m.dotAnim.control = "start"
     end if
 end sub
