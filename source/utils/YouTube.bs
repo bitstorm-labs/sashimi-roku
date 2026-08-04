@@ -15,12 +15,21 @@ namespace YT
     ' and "no backdrop" are NOT used — real episodes have 16:9 thumbnails and
     ' some real series lack a backdrop, so those heuristics cause false
     ' positives (e.g. blanking Continue Watching thumbnails).
-    function isItem(item as dynamic, forcedByLibrary = false as boolean) as boolean
+    function isItem(item as dynamic, forcedByLibrary = false as boolean, libraryPaths = invalid as dynamic) as boolean
         if forcedByLibrary then return true
         if item = invalid then return false
         ' tvOS threads forceYouTubeStyle from the originating screen; on Roku
         ' the flag rides the item AA (survives FormatJSON/ParseJSON).
         if item._forceYouTube <> invalid and item._forceYouTube = true then return true
+        ' Membership in the "YouTube" library's own folder(s) — the reliable
+        ' signal for cross-library lists (Continue Watching) where the item
+        ' carries a Path but not its library name. libraryPaths comes from the
+        ' library selected by NAME, so a different admin's path still works.
+        if libraryPaths <> invalid and item.Path <> invalid
+            for each root in libraryPaths
+                if root <> invalid and root <> "" and Instr(1, item.Path, root) = 1 then return true
+            end for
+        end if
         if item.Path <> invalid and Instr(1, LCase(item.Path), "youtube") > 0 then return true
         if item.SeriesName <> invalid and Instr(1, LCase(item.SeriesName), "youtube") > 0 then return true
         ' Pinchflat channels are named "Channel - Videos"; the disk path has
