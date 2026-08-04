@@ -124,7 +124,7 @@
             text=""
             color="#BFBFBF"
             width="800"
-            maxLines="2"
+            maxLines="3"
             wrap="true"
             translation="[80, 386]"
         >
