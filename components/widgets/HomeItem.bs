@@ -10,6 +10,7 @@ sub init()
     m.circularPoster = m.top.findNode("circularPoster")
     m.circularGlow = m.top.findNode("circularGlow")
     m.focusRing = m.top.findNode("focusRing")
+    m.ytBadge = m.top.findNode("ytBadge")
     m.watchedBadge = m.top.findNode("watchedBadge")
     m.newBadge = m.top.findNode("newBadge")
     m.newBadgeLabel = m.top.findNode("newBadgeLabel")
@@ -208,6 +209,7 @@ sub onItemContentChanged()
 
     ' Reset state
     m.focusRing.opacity = 0.0
+    m.ytBadge.visible = false
     m.watchedBadge.visible = false
     m.newBadge.visible = false
     m.newBadgeLabel.visible = false
@@ -218,6 +220,13 @@ sub onItemContentChanged()
     m.remainingLabel.visible = false
     applyQualityBadge()
     applyRatingBadge()
+
+    ' YouTube badge on video cards. Circular cards are the channel avatars —
+    ' already visibly YouTube (round + channel name), so the glyph there would
+    ' just clutter the corner; the gap the user sees is the landscape Continue
+    ' Watching and portrait video cards, which read as ordinary media.
+    isYouTubeCard = (content.doesExist("isYouTube") and content.isYouTube = true)
+    m.ytBadge.visible = (isYouTubeCard and not m.isCircular)
 
     if m.isCircular
         m.posterMask.visible = false

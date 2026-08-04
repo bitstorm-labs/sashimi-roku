@@ -372,20 +372,37 @@ sub layoutHeader()
     end if
 end sub
 
-' Collapse the non-movie header's fixed slots onto the measured content.
-' layoutHeader()'s y positions assume the worst case (2-line title + a
-' ratings row); a 1-line title or a ratings-less item (YouTube) left dead
-' bands between rows. Stack each row under the measured title instead
-' (boundingRect, same pattern as the endsAt placement) and give the freed
-' space to a third overview line when it can't collide with the RowList.
-' Movies keep their poster-anchored layout untouched.
+' Collapse the header's fixed slots onto the measured content. layoutHeader()'s
+' y positions assume the worst case (2-line title + a ratings row); a 1-line
+' title or a ratings-less item (YouTube) left dead bands between rows. Stack
+' each row under the real top anchor and give the freed space to the overview.
+'
+' The top anchor differs by type:
+'  - Movie: the measured title in the right-of-poster column. Rows stack under
+'    it; buttons stay poster-bottom-aligned; overview runs full width below the
+'    poster.
+'  - Series: the LOGO replaces the title (onLogoStatus hides it). scaleToFit
+'    centers the decoded logo in its 760x210 box, so anchor to the logo's real
+'    rendered bottom — NOT the hidden title's box at y296, which left a ~90px
+'    void. Runs from onLogoStatus once bitmap dims are known.
+'  - Episode: the title stays visible below the logo — anchor to it.
 sub reflowHeader()
-    if m.itemType = "Movie" then return
-    titleH = Int(m.titleLabel.boundingRect().height)
-    metaY = 296 + titleH + 16
+    if m.itemType = "Movie"
+        reflowMovieHeader()
+        return
+    end if
+
+    if m.itemType = "Series" and m.logoImage.loadStatus = "ready"
+        topY = seriesLogoBottom() + 20
+    else
+        titleH = Int(m.titleLabel.boundingRect().height)
+        topY = 296 + titleH + 16
+    end if
+
+    metaY = topY
     m.metaLabel.translation = [60, metaY]
     m.endsAtLabel.translation = [m.endsAtLabel.translation[0], metaY]
-    y = metaY + 40
+    y = metaY + 38
     ' The ratings/badges row takes space only when something renders in it: a
     ' rating visible now, or media badges once getPlaybackInfo lands (of the
     ' non-movie types, only episodes request playback info).
@@ -395,11 +412,61 @@ sub reflowHeader()
         m.badgesGroup.translation = [m.badgesGroup.translation[0], y]
         y += 40
     end if
-    m.detailButtons.translation = [60, y + 24]
-    overviewY = y + 24 + 52 + 28
+    m.detailButtons.translation = [60, y + 20]
+    overviewY = y + 20 + 52 + 24
     m.overviewLabel.translation = [60, overviewY]
-    ' 3 lines at 24pt need ~110px before the RowList at y=734.
-    if 734 - overviewY >= 110
+    applyOverviewLines(overviewY)
+end sub
+
+' Movies stack meta/ratings/tags under the measured title in the right column,
+' keep the buttons aligned to the poster bottom, and run the overview full
+' width just under the poster. Measuring the title closes the dead band the
+' fixed y=172 left under a 1-line title while still clearing a 2-line one.
+sub reflowMovieHeader()
+    titleY = 84
+    titleH = Int(m.titleLabel.boundingRect().height)
+    y = titleY + titleH + 8
+    m.metaLabel.translation = [360, y]
+    y += 40
+    m.ratingsGroup.translation = [360, y]
+    m.badgesGroup.translation = [m.badgesGroup.translation[0], y]
+    y += 40
+    m.tagsGroup.translation = [360, y]
+    ' Buttons stay poster-bottom-aligned (poster is 260x390 at y60 => bottom
+    ' 450); the tvOS layout aligns them there deliberately.
+    m.detailButtons.translation = [360, 398]
+    ' Overview runs full width just below the poster.
+    overviewY = 466
+    m.overviewLabel.translation = [60, overviewY]
+    m.overviewLabel.width = 1200
+    applyOverviewLines(overviewY)
+end sub
+
+' Real rendered bottom of the series logo. scaleToFit fits the decoded bitmap
+' inside the 760x210 box at [60,60] and centers it vertically, so the bottom
+' depends on the logo's aspect. Falls back to the full box bottom before the
+' bitmap is known.
+function seriesLogoBottom() as integer
+    boxTop = 60
+    boxH = 210
+    bw = m.logoImage.bitmapWidth
+    bh = m.logoImage.bitmapHeight
+    renderedH = boxH
+    if bw > 0 and bh > 0
+        scale = 760.0 / bw
+        if (boxH * 1.0) / bh < scale then scale = (boxH * 1.0) / bh
+        renderedH = bh * scale
+    end if
+    return boxTop + Int((boxH + renderedH) / 2)
+end function
+
+' Give the overview a 4th line when there's room to the RowList at y=734,
+' a 3rd when there's less, else 2. ~30px per 24pt line.
+sub applyOverviewLines(overviewY as integer)
+    room = 734 - overviewY
+    if room >= 140
+        m.overviewLabel.maxLines = 4
+    else if room >= 110
         m.overviewLabel.maxLines = 3
     else
         m.overviewLabel.maxLines = 2
@@ -579,6 +646,9 @@ end sub
 sub onLogoStatus()
     if m.logoImage.loadStatus = "ready" and m.itemType = "Series"
         m.titleLabel.visible = false
+        ' The metadata was anchored to the hidden title's box; now that the
+        ' logo's real rendered height is known, re-anchor under the logo.
+        reflowHeader()
     else if m.logoImage.loadStatus = "failed"
         m.titleLabel.visible = true
     end if
