@@ -49,6 +49,13 @@ sub init()
     ' ("" = nothing chosen yet, "OFF" = explicitly disabled). Raw stream
     ' indexes are per-file, so the player re-matches by title each episode.
     m.global.addFields({ sessionSubtitleTitle: "" })
+    ' Physical folder roots of libraries NAMED "youtube" (from VirtualFolders,
+    ' e.g. /media/pf/shows). A Continue Watching item "came from the YouTube
+    ' library" iff its Path sits under one of these — the reliable signal, since
+    ' Pinchflat channel names only sometimes carry the " - Videos" suffix the
+    ' old heuristic keyed on. Empty when unknown (non-admin token) → detection
+    ' falls back to the name/suffix heuristics with no regression.
+    m.global.addFields({ youtubePaths: [] })
     ' Set by any screen that gets a 401/403 back: the stored token is no longer
     ' valid, so the only correct move is to sign out and re-authenticate.
     m.global.addFields({ sessionExpired: false })

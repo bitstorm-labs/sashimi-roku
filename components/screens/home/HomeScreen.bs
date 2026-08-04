@@ -148,6 +148,8 @@ sub onApiResponse()
 
     if action = "getLibraryViews"
         onLibrariesLoaded(response)
+    else if action = "getVirtualFolders"
+        onVirtualFoldersLoaded(response)
     else if action = "getResumeItems"
         onResumeItemsLoaded(response)
     else if action = "getNextUp"
@@ -193,6 +195,32 @@ sub onLibrariesLoaded(response as object)
 
     #if DEBUG
         print "[Home] Loaded " + str(m.libraries.count()) + " libraries"
+    #end if
+    ' Learn the YouTube library's physical folder(s) before building rows, so
+    ' Continue Watching items can be attributed to it by membership. This is
+    ' next in the request chain (the task coalesces same-tick writes).
+    m.apiTask.request = { action: "getVirtualFolders" }
+end sub
+
+' Select libraries BY NAME (the "YouTube" library) and record their own
+' configured folder roots. Membership under one of these is what makes a
+' cross-library Continue Watching item count as YouTube — reliable where the
+' "Channel - Videos" naming isn't. Non-admin tokens get nothing here and fall
+' back to the name/suffix heuristics. Always chains on to the resume load.
+sub onVirtualFoldersLoaded(response as object)
+    paths = []
+    if response.success and response.items <> invalid
+        for each folder in response.items
+            if YT.isLibraryName(folder.Name) and folder.Locations <> invalid
+                for each loc in folder.Locations
+                    if loc <> invalid and loc <> "" then paths.push(loc)
+                end for
+            end if
+        end for
+    end if
+    m.global.youtubePaths = paths
+    #if DEBUG
+        print "[Home] YouTube library folders: " + FormatJSON(paths)
     #end if
     m.apiTask.request = { action: "getResumeItems", limit: 20 }
 end sub
@@ -457,8 +485,10 @@ sub addContinueWatchingRow(items as object)
         itemType = ""
         if item.Type <> invalid then itemType = item.Type
 
-        ' Detect YouTube items (unified helper)
-        isYouTubeItem = YT.isItem(item)
+        ' Detect YouTube items (unified helper). Pass the YouTube library's own
+        ' folder roots so a Continue Watching video is attributed by library
+        ' membership, not just the sometimes-absent "Channel - Videos" naming.
+        isYouTubeItem = YT.isItem(item, false, m.global.youtubePaths)
 
         if isYouTubeItem
             ' YouTube: use episode primary image (thumbnail)

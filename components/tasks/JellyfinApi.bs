@@ -55,6 +55,8 @@ sub processRequest()
         doGetPublicInfo(request)
     else if action = "getLibraryViews"
         doGetLibraryViews()
+    else if action = "getVirtualFolders"
+        doGetVirtualFolders()
     else if action = "getResumeItems"
         doGetResumeItems(request)
     else if action = "getNextUp"
@@ -547,6 +549,26 @@ sub doGetLibraryViews()
         msg = "Could not reach your server."
         if code = 401 or code = 403 then msg = "Your session has expired. Please sign in again."
         m.top.response = { success: false, action: "getLibraryViews", error: msg, statusCode: code }
+    end if
+end sub
+
+' Physical folders behind each library, so a Continue Watching item (which
+' carries a Path but not its library's name) can be attributed to the library
+' it came from. The caller selects the library BY NAME (YT.isLibraryName) and
+' reads that library's own Locations — nothing about the path is hardcoded, so
+' any admin's "YouTube" library works regardless of where it lives on disk.
+' Requires an admin token; a 403 just yields no folders and detection falls
+' back to the name/suffix heuristics.
+sub doGetVirtualFolders()
+    url = Http.apiUrl("/Library/VirtualFolders")
+    meta = {}
+    result = Http.getJson(url, meta)
+    if result <> invalid
+        m.top.response = { success: true, action: "getVirtualFolders", items: result }
+    else
+        code = 0
+        if meta.statusCode <> invalid then code = meta.statusCode
+        m.top.response = { success: false, action: "getVirtualFolders", items: [], statusCode: code }
     end if
 end sub
 
