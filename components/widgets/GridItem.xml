@@ -5,6 +5,12 @@
         <field id="focusPercent" type="float" onChange="onFocusChanged" />
     </interface>
     <children>
+        <!-- All card visuals sit in a group nudged 15px right so the 210px
+             poster is centered in the 240px grid cell. Without the inset the
+             poster is flush at the cell's left edge, and on the leftmost column
+             its focus-scaled ring is clipped by the grid (which clips items to
+             their cell). 15px clears the ~5px the 1.05x scale grows leftward. -->
+        <Group id="cardContent" translation="[15, 0]">
         <!-- Poster with rounded corners (r12, matching HomeItem); the mask
              group scales as a unit on focus. cardBg + dimOverlay live inside so
              they're clipped to the same rounded corners (a square cardBg behind
@@ -85,5 +91,6 @@
         >
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="17" />
         </Label>
+        </Group>
     </children>
 </component>
