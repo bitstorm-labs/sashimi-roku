@@ -28,7 +28,7 @@
         <MarkupGrid
             id="resultsGrid"
             translation="[660, 158]"
-            itemSize="[220, 330]"
+            itemSize="[240, 360]"
             itemSpacing="[26, 34]"
             numColumns="4"
             numRows="3"
