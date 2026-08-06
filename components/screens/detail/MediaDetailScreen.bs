@@ -353,8 +353,8 @@ sub layoutHeader()
         m.metaLabel.translation = [360, 172]
         m.ratingsGroup.translation = [360, 224]
         m.tagsGroup.translation = [360, 274]
-        m.detailButtons.translation = [360, 398]   ' bottoms align with poster
-        m.overviewLabel.translation = [60, 478]
+        m.detailButtons.translation = [60, 466]   ' full-width row under the cover (tvOS parity)
+        m.overviewLabel.translation = [60, 562]
         m.overviewLabel.width = 1200
         m.overviewLabel.maxLines = 3
     else
@@ -419,9 +419,9 @@ sub reflowHeader()
 end sub
 
 ' Movies stack meta/ratings/tags under the measured title in the right column,
-' keep the buttons aligned to the poster bottom, and run the overview full
-' width just under the poster. Measuring the title closes the dead band the
-' fixed y=172 left under a 1-line title while still clearing a 2-line one.
+' put the buttons in a full-width row under the cover, and run the overview
+' full width below that. Measuring the title closes the dead band the fixed
+' y=172 left under a 1-line title while still clearing a 2-line one.
 sub reflowMovieHeader()
     titleY = 84
     titleH = Int(m.titleLabel.boundingRect().height)
@@ -432,11 +432,12 @@ sub reflowMovieHeader()
     m.badgesGroup.translation = [m.badgesGroup.translation[0], y]
     y += 40
     m.tagsGroup.translation = [360, y]
-    ' Buttons stay poster-bottom-aligned (poster is 260x390 at y60 => bottom
-    ' 450); the tvOS layout aligns them there deliberately.
-    m.detailButtons.translation = [360, 398]
-    ' Overview runs full width just below the poster.
-    overviewY = 466
+    ' Buttons sit in a full-width row under the cover (tvOS parity — the detail
+    ' controls moved out from beside the poster to under it). Poster is 260x390
+    ' at y60 => bottom 450; the row starts just below.
+    m.detailButtons.translation = [60, 466]
+    ' Overview runs full width below the button row.
+    overviewY = 562
     m.overviewLabel.translation = [60, overviewY]
     m.overviewLabel.width = 1200
     applyOverviewLines(overviewY)
