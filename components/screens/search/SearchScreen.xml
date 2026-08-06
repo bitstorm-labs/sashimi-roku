@@ -28,12 +28,11 @@
         <MarkupGrid
             id="resultsGrid"
             translation="[660, 158]"
-            itemSize="[220, 330]"
+            itemSize="[240, 360]"
             itemSpacing="[26, 34]"
             numColumns="4"
             numRows="3"
-            drawFocusFeedback="true"
-            focusBitmapUri="pkg:/images/focus_ring_r16.9.png"
+            drawFocusFeedback="false"
             itemComponentName="GridItem"
             visible="false"
         />
