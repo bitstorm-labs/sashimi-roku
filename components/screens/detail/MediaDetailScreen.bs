@@ -574,7 +574,8 @@ sub setHeader(item as object)
             end if
         end if
     else
-        ' Movies: runtime + Ends at (year/cert live in the tags row now)
+        ' Movies: release year + runtime + Ends at (cert/genres live in the tags row)
+        if item.ProductionYear <> invalid then meta.push(str(item.ProductionYear).Trim())
         if item.RunTimeTicks <> invalid and item.RunTimeTicks > 0
             minutes = Int(item.RunTimeTicks / 600000000)
             if minutes > 0
