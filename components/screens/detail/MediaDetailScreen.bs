@@ -110,7 +110,11 @@ sub onApiResponse()
     else if action = "getSeasons"
         onSeasonsLoaded(response)
     else if action = "getNextUp"
-        if response.context <> invalid and response.context = "deepLinkPlay" then onDeepLinkNextUp(response)
+        if response.context <> invalid and response.context = "deepLinkPlay"
+            onDeepLinkNextUp(response)
+        else if response.context <> invalid and response.context = "playResolve"
+            onPlayResolveNextUp(response)
+        end if
     else if action = "getEpisodes"
         if response.context <> invalid and response.context = "deepLinkPlay"
             onDeepLinkFirstEpisode(response)
@@ -126,9 +130,15 @@ sub onApiResponse()
             enqueue({ action: "getItem", itemId: m.item.Id })
         end if
     else if action = "getItems"
-        ' Shuffle result — play the random episode
-        if response.success and response.items <> invalid and response.items.count() > 0
-            m.top.playItem = { item: response.items[0], action: "play" }
+        if response.context <> invalid and response.context = "playResolveUnwatched"
+            onPlayResolveUnwatched(response)
+        else if response.context <> invalid and response.context = "playResolveFirst"
+            onPlayResolveFirst(response)
+        else
+            ' Shuffle result — play the random episode
+            if response.success and response.items <> invalid and response.items.count() > 0
+                m.top.playItem = { item: response.items[0], action: "play" }
+            end if
         end if
     else if action = "getLocalTrailers"
         ' Play the local trailer
@@ -337,6 +347,44 @@ sub onDeepLinkFirstEpisode(response as object)
         m.top.playItem = { item: response.items[0], action: "resume" }
     else
         m.top.deepLinkFailed = true
+    end if
+end sub
+
+' ---------- Play-button container resolution ----------
+' The Play button on a Series/Season must launch an episode, not the container.
+' Resolution mirrors the other clients (resolvePlayableItem):
+'   Series -> Next Up -> first unwatched -> first episode
+'   Season ->            first unwatched -> first episode
+' Resolved episodes play with "resume" so a partially-watched next-up picks up
+' where it left off. Each fallback step is a separate async request keyed by
+' context; the dispatcher in onApiResponse routes them here.
+
+sub onPlayResolveNextUp(response as object)
+    if response.success and response.items <> invalid and response.items.count() > 0
+        m.top.playItem = { item: response.items[0], action: "resume" }
+        return
+    end if
+    ' No Next Up (fully watched, or a never-started show NextUp didn't surface):
+    ' fall through to the first unwatched episode.
+    if m.item = invalid then return
+    enqueue({ action: "getItems", parentId: m.item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, context: "playResolveUnwatched" })
+end sub
+
+sub onPlayResolveUnwatched(response as object)
+    if response.success and response.items <> invalid and response.items.count() > 0
+        m.top.playItem = { item: response.items[0], action: "resume" }
+        return
+    end if
+    ' Fully-watched season/series: fall back to the first episode.
+    if m.item = invalid then return
+    enqueue({ action: "getItems", parentId: m.item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, context: "playResolveFirst" })
+end sub
+
+sub onPlayResolveFirst(response as object)
+    if response.success and response.items <> invalid and response.items.count() > 0
+        m.top.playItem = { item: response.items[0], action: "resume" }
+    else
+        m.global.toastMessage = { message: "No episodes to play" }
     end if
 end sub
 
@@ -918,7 +966,18 @@ sub onButtonActivated(event as object)
     item = m.item
     if item = invalid then return
     if kind = "play" or kind = "resume"
-        m.top.playItem = { item: item, action: kind }
+        ' Series/Season are containers, not playable. Resolve to the episode the
+        ' viewer is up to BEFORE handing anything to the player — otherwise the
+        ' player requests a stream for a non-playable id and dead-ends. Mirrors
+        ' the other clients' resolvePlayableItem: Next Up, then first unwatched,
+        ' then first episode. Movie/Episode are playable and pass through.
+        if m.itemType = "Series"
+            enqueue({ action: "getNextUp", seriesId: item.Id, limit: 1, context: "playResolve" })
+        else if m.itemType = "Season"
+            enqueue({ action: "getItems", parentId: item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, context: "playResolveUnwatched" })
+        else
+            m.top.playItem = { item: item, action: kind }
+        end if
     else if kind = "markPlayed" or kind = "markUnplayed"
         enqueue({ action: kind, itemId: item.Id })
     else if kind = "series"
