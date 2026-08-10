@@ -24,11 +24,11 @@ sub init()
     m.currentIndex = 0
     m.hasFocus = false
 
-    ' Hero rendered at 84%, anchored top-CENTER so it stays
-    ' horizontally centered on screen (the banner spans 1820 with the group
-    ' at x=50, so local x=910 is the screen's midline). Top edge stays put;
-    ' the focus pop multiplies on top of this base.
-    m.baseScale = 0.84
+    ' Hero rendered at 92%, anchored top-CENTER so it stays horizontally
+    ' centered: scaleRotateCenter x=910 is the banner's midline, so changing the
+    ' scale widens it symmetrically without moving it. Top edge stays put; the
+    ' focus pop multiplies on top of this base.
+    m.baseScale = 0.92
     m.top.scaleRotateCenter = [910, 0]
     m.top.scale = [m.baseScale, m.baseScale]
 

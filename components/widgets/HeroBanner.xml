@@ -10,7 +10,7 @@
     </interface>
     <children>
         <!-- Rounded banner (tvOS: 32:9 card, corner radius 24) -->
-        <MaskGroup id="bannerMask" maskUri="pkg:/images/hero_mask_r24.png" maskSize="[1820, 512]">
+        <MaskGroup id="bannerMask" maskUri="pkg:/images/hero_mask_soft.png" maskSize="[1820, 512]">
             <!-- Banner background -->
             <Rectangle id="heroBg" width="1820" height="512" color="#121217" />
 
