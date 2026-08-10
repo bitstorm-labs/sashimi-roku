@@ -66,6 +66,8 @@ sub init()
     m.isDeepLink = false
     m.seasons = []
     m.selectedSeasonIndex = 0
+    m.playTarget = invalid      ' resolved episode a Series/Season Play button launches
+    m.pendingPlay = false       ' Play pressed before the target resolved
     m.zone = "buttons"          ' buttons | rows
     m.rowKinds = []             ' kind per RowList row, e.g. ["season","episode","cast"]
     m.rowContent = invalid
@@ -110,7 +112,11 @@ sub onApiResponse()
     else if action = "getSeasons"
         onSeasonsLoaded(response)
     else if action = "getNextUp"
-        if response.context <> invalid and response.context = "deepLinkPlay" then onDeepLinkNextUp(response)
+        if response.context <> invalid and response.context = "deepLinkPlay"
+            onDeepLinkNextUp(response)
+        else if response.context <> invalid and response.context = "playTargetNextUp"
+            onPlayTargetNextUp(response)
+        end if
     else if action = "getEpisodes"
         if response.context <> invalid and response.context = "deepLinkPlay"
             onDeepLinkFirstEpisode(response)
@@ -126,9 +132,15 @@ sub onApiResponse()
             enqueue({ action: "getItem", itemId: m.item.Id })
         end if
     else if action = "getItems"
-        ' Shuffle result — play the random episode
-        if response.success and response.items <> invalid and response.items.count() > 0
-            m.top.playItem = { item: response.items[0], action: "play" }
+        if response.context <> invalid and response.context = "playTargetUnwatched"
+            onPlayTargetUnwatched(response)
+        else if response.context <> invalid and response.context = "playTargetFirst"
+            onPlayTargetFirst(response)
+        else
+            ' Shuffle result — play the random episode
+            if response.success and response.items <> invalid and response.items.count() > 0
+                m.top.playItem = { item: response.items[0], action: "play" }
+            end if
         end if
     else if action = "getLocalTrailers"
         ' Play the local trailer
@@ -262,9 +274,16 @@ sub onItemLoaded(response as object)
     m.rowKinds = []
     m.seasons = []
     m.currentEpIndex = invalid
+    m.playTarget = invalid
+    m.pendingPlay = false
 
     if m.itemType = "Series"
         enqueue({ action: "getSeasons", seriesId: item.Id })
+        ' Resolve the episode the Play button will launch, so it can label
+        ' itself "Play S1:E1" / "Resume S1:E2" like the other clients.
+        enqueue({ action: "getNextUp", seriesId: item.Id, limit: 1, context: "playTargetNextUp" })
+    else if m.itemType = "Season"
+        enqueue({ action: "getItems", parentId: item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, context: "playTargetUnwatched" })
     else if m.itemType = "Movie"
         enqueue({ action: "getPlaybackInfo", itemId: item.Id })
         buildCastRow(item)
@@ -338,6 +357,65 @@ sub onDeepLinkFirstEpisode(response as object)
     else
         m.top.deepLinkFailed = true
     end if
+end sub
+
+' ---------- Play-button container resolution ----------
+' A Series/Season Play button must launch an EPISODE, not the container. The
+' target is resolved at load — so the button can show "Play S1:E1" / "Resume
+' S1:E2" like the other clients — and cached in m.playTarget. Resolution order
+' mirrors resolvePlayableItem:
+'   Series -> Next Up -> first unwatched -> first episode
+'   Season ->            first unwatched -> first episode
+' Each fallback is a separate async request keyed by context; onApiResponse
+' routes the results here.
+
+sub onPlayTargetNextUp(response as object)
+    if response.success and response.items <> invalid and response.items.count() > 0
+        setPlayTarget(response.items[0])
+        return
+    end if
+    ' No Next Up (fully watched, or a never-started show NextUp didn't surface):
+    ' fall through to the first unwatched episode.
+    if m.item = invalid then return
+    enqueue({ action: "getItems", parentId: m.item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, context: "playTargetUnwatched" })
+end sub
+
+sub onPlayTargetUnwatched(response as object)
+    if response.success and response.items <> invalid and response.items.count() > 0
+        setPlayTarget(response.items[0])
+        return
+    end if
+    ' Fully-watched season/series: fall back to the first episode.
+    if m.item = invalid then return
+    enqueue({ action: "getItems", parentId: m.item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, context: "playTargetFirst" })
+end sub
+
+sub onPlayTargetFirst(response as object)
+    if response.success and response.items <> invalid and response.items.count() > 0
+        setPlayTarget(response.items[0])
+    else if m.pendingPlay
+        ' Nothing playable and the viewer already pressed Play.
+        m.pendingPlay = false
+        m.global.toastMessage = { message: "No episodes to play" }
+    end if
+end sub
+
+' Cache the resolved episode, relabel the Play button to match it, and — if the
+' viewer pressed Play while resolution was still in flight — launch it now.
+sub setPlayTarget(ep as object)
+    m.playTarget = ep
+    buildButtons()
+    if m.pendingPlay
+        m.pendingPlay = false
+        playResolvedTarget()
+    end if
+end sub
+
+sub playResolvedTarget()
+    if m.playTarget = invalid then return
+    act = "play"
+    if m.playTarget.UserData <> invalid and m.playTarget.UserData.PlaybackPositionTicks <> invalid and m.playTarget.UserData.PlaybackPositionTicks > 0 then act = "resume"
+    m.top.playItem = { item: m.playTarget, action: act }
 end sub
 
 ' tvOS movie detail: poster on the left, text column beside it — the shared
@@ -880,19 +958,37 @@ end function
 
 sub buildButtons()
     item = m.item
+    isContainer = (m.itemType = "Series" or m.itemType = "Season")
+
+    ' The primary button reflects what will actually play: for a container that's
+    ' the resolved episode (m.playTarget) — its progress and S:E number — so the
+    ' label reads "Play S1:E1" / "Resume S1:E2". Until the target resolves it's a
+    ' plain "Play". Movie/Episode reflect the item itself.
+    primary = item
+    if isContainer and m.playTarget <> invalid then primary = m.playTarget
+
     hasProgress = false
-    if item.UserData <> invalid and item.UserData.PlaybackPositionTicks <> invalid
-        if item.UserData.PlaybackPositionTicks > 0 then hasProgress = true
+    if primary.UserData <> invalid and primary.UserData.PlaybackPositionTicks <> invalid
+        if primary.UserData.PlaybackPositionTicks > 0 then hasProgress = true
     end if
+
+    epSuffix = ""
+    if isContainer and m.playTarget <> invalid and m.playTarget.ParentIndexNumber <> invalid and m.playTarget.IndexNumber <> invalid
+        epSuffix = " S" + str(m.playTarget.ParentIndexNumber).Trim() + ":E" + str(m.playTarget.IndexNumber).Trim()
+    end if
+
+    ' Whole-item watched state (the Mark Watched toggle) always reads the detail
+    ' item itself, never the resolved episode.
     isPlayed = false
     if item.UserData <> invalid and item.UserData.Played <> invalid then isPlayed = item.UserData.Played
 
     defs = []
     if hasProgress
-        defs.push({ kind: "resume", label: "Resume", primary: true })
-        defs.push({ kind: "play", label: "Start Over", primary: false })
+        defs.push({ kind: "resume", label: "Resume" + epSuffix, primary: true })
+        ' "Start Over" only makes sense for a concrete playable item.
+        if not isContainer then defs.push({ kind: "play", label: "Start Over", primary: false })
     else
-        defs.push({ kind: "play", label: "Play", primary: true })
+        defs.push({ kind: "play", label: "Play" + epSuffix, primary: true })
     end if
     if isPlayed
         defs.push({ kind: "markUnplayed", label: "Watched", primary: false })
@@ -918,7 +1014,19 @@ sub onButtonActivated(event as object)
     item = m.item
     if item = invalid then return
     if kind = "play" or kind = "resume"
-        m.top.playItem = { item: item, action: kind }
+        ' Series/Season are containers, not playable. The target episode is
+        ' resolved at load (m.playTarget) so the button already reflects it —
+        ' just launch it. If the viewer beat the resolution, remember the intent
+        ' and launch the moment it lands. Movie/Episode play directly.
+        if m.itemType = "Series" or m.itemType = "Season"
+            if m.playTarget <> invalid
+                playResolvedTarget()
+            else
+                m.pendingPlay = true
+            end if
+        else
+            m.top.playItem = { item: item, action: kind }
+        end if
     else if kind = "markPlayed" or kind = "markUnplayed"
         enqueue({ action: kind, itemId: item.Id })
     else if kind = "series"
