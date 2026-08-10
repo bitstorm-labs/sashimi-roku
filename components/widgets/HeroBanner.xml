@@ -131,10 +131,6 @@
             <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
         </Label>
 
-        <!-- Page indicators (tvOS: left-aligned capsules, active 48x5 w/ progress fill) -->
-        <Group id="dotsGroup" translation="[80, 470]" />
-        <Rectangle id="dotFill" width="0" height="5" color="#FFFFFF" opacity="0.9" translation="[80, 470]" />
-
         <!-- Focus border (tvOS: accent stroke 4 @ 60%) -->
         <Rectangle id="focusTop" width="1820" height="4" color="#FFFFFF" opacity="0.0" />
         <Rectangle id="focusBottom" width="1820" height="4" color="#FFFFFF" opacity="0.0" translation="[0, 508]" />
@@ -143,9 +139,5 @@
 
         <!-- Auto-advance timer (tvOS: 6s) -->
         <Timer id="advanceTimer" repeat="true" duration="6" />
-        <!-- Active-dot progress fill animation (runs each slide) -->
-        <Animation id="dotAnim" duration="6" repeat="false" easeFunction="linear">
-            <FloatFieldInterpolator id="dotAnimInterp" key="[0.0, 1.0]" keyValue="[0.0, 48.0]" fieldToInterp="dotFill.width" />
-        </Animation>
     </children>
 </component>
