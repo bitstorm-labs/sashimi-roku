@@ -14,24 +14,21 @@
 
         <!-- Hero Banner (tvOS: 32:9 featured card) -->
         <!-- Hero scale lives in HeroBanner.bs (m.baseScale) — one source of truth -->
-        <!-- x=-18 centers the SCALED banner in the area right of the rail: the
-             screen group sits at +136 (rail), and the 0.84 scale about
-             scaleRotateCenter x=910 renders the left edge at tx + 910*(1-0.84)
-             = tx+145.6. Visible width 1920-136=1784, scaled banner 1529 ->
-             equal ~128px margins needs rendered-left 127.6 -> tx = -18.
-             (The old tx=50 predated the rail offset: 196px left / 60px right,
-             i.e. the banner sat visibly right of center.) -->
+        <!-- Banner scales about its center (scaleRotateCenter x=910), so tx=-18
+             keeps it centered in the ~1784px area right of the 136px rail
+             regardless of m.baseScale. At 0.92 that's a 1674px banner with
+             ~54px margins each side. -->
         <HeroBanner
             id="heroBanner"
-            translation="[-18, 122]"
+            translation="[-18, 80]"
             visible="false"
         />
 
         <!-- Content rows (tvOS: H-pad 80 via 50 + RowList internal 30... items inset at 30) -->
-        <!-- y=592: 40px under the 84%-scaled hero (122 + 512*0.84) -->
+        <!-- y=591: 40px under the 92%-scaled hero (80 + 512*0.92 ~= 551) -->
         <RowList
             id="rowList"
-            translation="[80, 592]"
+            translation="[80, 591]"
             itemSize="[1820, 450]"
             numRows="2"
             itemSpacing="[0, 30]"
@@ -73,7 +70,7 @@
         />
 
         <Animation id="heroSlideAnim" duration="0.3" easeFunction="outQuad">
-            <Vector2DFieldInterpolator id="rowsInterp" key="[0.0,1.0]" keyValue="[[80.0,592.0],[80.0,150.0]]" fieldToInterp="rowList.translation" />
+            <Vector2DFieldInterpolator id="rowsInterp" key="[0.0,1.0]" keyValue="[[80.0,591.0],[80.0,150.0]]" fieldToInterp="rowList.translation" />
             <FloatFieldInterpolator id="heroFadeInterp" key="[0.0,1.0]" keyValue="[1.0,0.0]" fieldToInterp="heroBanner.opacity" />
         </Animation>
 

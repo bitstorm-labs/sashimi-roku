@@ -14,9 +14,6 @@ sub init()
     m.ytIcon = m.top.findNode("ytIcon")
     m.ytLabel = m.top.findNode("ytLabel")
     m.heroOverview = m.top.findNode("heroOverview")
-    m.dotsGroup = m.top.findNode("dotsGroup")
-    m.dotFill = m.top.findNode("dotFill")
-    m.dotAnim = m.top.findNode("dotAnim")
     m.focusTop = m.top.findNode("focusTop")
     m.focusBottom = m.top.findNode("focusBottom")
     m.focusLeft = m.top.findNode("focusLeft")
@@ -25,16 +22,13 @@ sub init()
 
     m.items = []
     m.currentIndex = 0
-    m.dotsX = 80
-    m.dotsY = 470
     m.hasFocus = false
-    m.dotPositions = []
 
-    ' Hero rendered at 84%, anchored top-CENTER so it stays
-    ' horizontally centered on screen (the banner spans 1820 with the group
-    ' at x=50, so local x=910 is the screen's midline). Top edge stays put;
-    ' the focus pop multiplies on top of this base.
-    m.baseScale = 0.84
+    ' Hero rendered at 92%, anchored top-CENTER so it stays horizontally
+    ' centered: scaleRotateCenter x=910 is the banner's midline, so changing the
+    ' scale widens it symmetrically without moving it. Top edge stays put; the
+    ' focus pop multiplies on top of this base.
+    m.baseScale = 0.92
     m.top.scaleRotateCenter = [910, 0]
     m.top.scale = [m.baseScale, m.baseScale]
 
@@ -42,8 +36,8 @@ sub init()
 
     ' The banner is never destroyed (MainScene caches the home screen for the
     ' whole session), so the 6s rotator has to be stopped explicitly whenever
-    ' the banner is off screen — otherwise it pulls a 1280px backdrop and
-    ' rebuilds every dot node through an entire movie.
+    ' the banner is off screen — otherwise it keeps pulling a 1280px backdrop
+    ' every 6s through an entire movie.
     m.top.observeField("visible", "applyAutoAdvance")
 
     m.top.observeField("focusedChild", "onFocusChanged")
@@ -94,7 +88,6 @@ sub onContentChanged()
         m.items.push(item)
     end for
 
-    buildDots(0)
     m.currentIndex = 0
     showItem(0)
     applyAutoAdvance()
@@ -105,65 +98,18 @@ end sub
 sub applyAutoAdvance()
     if m.items = invalid then return
     if m.top.visible and m.top.autoAdvance and m.items.count() > 1
-        ' The progress fill is keyed to the timer's 6s, so both restart together
-        ' or the dot finishes filling long before the slide changes.
-        m.dotAnim.control = "stop"
-        m.dotFill.width = 0
-        m.dotAnim.control = "start"
         m.advanceTimer.control = "stop"
         m.advanceTimer.control = "start"
     else
         m.advanceTimer.control = "stop"
-        m.dotAnim.control = "stop"
     end if
 end sub
 
-' tvOS page indicators: left-aligned row — active track 48x5, others 12x5.
-' Viewed dots at 70% white, upcoming at 30%. Active dot fills white over the 6s slide.
-sub buildDots(activeIndex as integer)
-    ' Clear existing dots
-    while m.dotsGroup.getChildCount() > 0
-        m.dotsGroup.removeChildIndex(0)
-    end while
-    m.dotPositions = []
-
-    if m.items.count() <= 1
-        m.dotFill.visible = false
-        return
-    end if
-    m.dotFill.visible = true
-
-    x = 0
-    for i = 0 to m.items.count() - 1
-        dot = CreateObject("roSGNode", "Rectangle")
-        dot.height = 5
-        dot.color = "#FFFFFF"
-        dot.translation = [x, 0]
-        if i = activeIndex
-            dot.width = 48
-            dot.opacity = 0.3   ' track; fill rect animates on top
-            m.dotPositions.push(x)
-            x += 48
-        else
-            dot.width = 12
-            if i < activeIndex
-                dot.opacity = 0.7   ' viewed
-            else
-                dot.opacity = 0.3   ' upcoming
-            end if
-            m.dotPositions.push(x)
-            x += 12
-        end if
-        x += 10
-        m.dotsGroup.appendChild(dot)
-    end for
-end sub
-
-' Center the text block vertically in the 512px banner and the page dots
-' horizontally. The XML pins fixed slots (title y140, an episode-subline slot
-' at y292, meta/overview low at y338/386); a movie has no subline, so that slot
-' is dead space and the whole block reads bottom-heavy and uncentered. Stack
-' only the rows actually present and center the group; center the dots too.
+' Center the text block vertically in the 512px banner. The XML pins fixed
+' slots (title y140, an episode-subline slot at y292, meta/overview low at
+' y338/386); a movie has no subline, so that slot is dead space and the whole
+' block reads bottom-heavy and uncentered. Stack only the rows actually present
+' and center the group.
 sub reflowHeroText()
     bannerH = 512
     leftX = 80
@@ -215,14 +161,6 @@ sub reflowHeroText()
         y += ovGap
         m.heroOverview.translation = [leftX, y]
     end if
-
-    ' Page dots: horizontally centered in the banner, fixed near the bottom
-    ' (a rotator's pagination stays put across slides regardless of text height).
-    m.dotsY = 470
-    totalW = 0
-    if m.items.count() > 1 then totalW = 48 + 22 * (m.items.count() - 1)
-    m.dotsX = Int((1820 - totalW) / 2)
-    m.dotsGroup.translation = [m.dotsX, m.dotsY]
 end sub
 
 sub showItem(index as integer)
@@ -346,16 +284,7 @@ sub showItem(index as integer)
     end if
     m.heroOverview.text = overview
 
-    ' Rebuild dots for this index, center the text block + dots, then restart
-    ' the active-dot progress fill (reflow sets m.dotsX / m.dotsY for the fill).
-    buildDots(index)
     reflowHeroText()
-    if m.items.count() > 1 and index < m.dotPositions.count()
-        m.dotAnim.control = "stop"
-        m.dotFill.width = 0
-        m.dotFill.translation = [m.dotsX + m.dotPositions[index], m.dotsY]
-        m.dotAnim.control = "start"
-    end if
 end sub
 
 sub onAdvanceTimer()
