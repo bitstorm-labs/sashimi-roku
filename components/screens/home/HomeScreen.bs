@@ -816,6 +816,13 @@ sub showRows()
             itemSpacings.push([40, 0])
         end if
     end for
+    ' Per-row heights so a short row (circular YouTube avatars) doesn't inherit
+    ' the tall poster row height and leave a big gap under it. +70 covers the
+    ' row label + padding (matches the poster row's old fixed 450 = 380 + 70).
+    rowHeights = []
+    for i = 0 to itemSizes.count() - 1
+        rowHeights.push(itemSizes[i][1] + 70)
+    end for
     ' Force a clean re-layout on reload: nil the content, then set it back on
     ' the NEXT tick (relayoutTimer). Setting it synchronously right after nil
     ' doesn't give the RowList a render pass to discard recycled item
@@ -829,6 +836,7 @@ sub showRows()
     m.pendingRowContent = m.rowContent
     m.pendingRowItemSizes = itemSizes
     m.pendingRowSpacings = itemSpacings
+    m.pendingRowHeights = rowHeights
     m.relayoutTimer.control = "start"
 end sub
 
@@ -839,6 +847,7 @@ sub onRelayoutFire()
     ' sizes, resizing any recycled cells to their new row's width.
     m.rowList.rowItemSize = m.pendingRowItemSizes
     m.rowList.rowItemSpacing = m.pendingRowSpacings
+    m.rowList.rowHeights = m.pendingRowHeights
     m.pendingRowContent = invalid
     m.rowList.visible = true
     ' Take focus only if home already owns it (background refreshes must

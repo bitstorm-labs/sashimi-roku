@@ -464,6 +464,20 @@ end sub
 '    rendered bottom — NOT the hidden title's box at y296, which left a ~90px
 '    void. Runs from onLogoStatus once bitmap dims are known.
 '  - Episode: the title stays visible below the logo — anchor to it.
+' Park the purple "Ends at" label immediately after the meta line, on the same
+' baseline. Must run after both the meta text and the meta label's final
+' translation are set — reflowHeader/reflowMovieHeader move the meta label per
+' layout, so this is called again from there, not just from setHeader.
+sub positionEndsAt()
+    if m.endsAtLabel.text = ""
+        m.endsAtLabel.visible = false
+        return
+    end if
+    r = m.metaLabel.boundingRect()
+    m.endsAtLabel.translation = [m.metaLabel.translation[0] + r.width + 8, m.metaLabel.translation[1]]
+    m.endsAtLabel.visible = true
+end sub
+
 sub reflowHeader()
     if m.itemType = "Movie"
         reflowMovieHeader()
@@ -479,7 +493,7 @@ sub reflowHeader()
 
     metaY = topY
     m.metaLabel.translation = [60, metaY]
-    m.endsAtLabel.translation = [m.endsAtLabel.translation[0], metaY]
+    positionEndsAt()
     y = metaY + 38
     ' The ratings/badges row takes space only when something renders in it: a
     ' rating visible now, or media badges once getPlaybackInfo lands (of the
@@ -505,6 +519,7 @@ sub reflowMovieHeader()
     titleH = Int(m.titleLabel.boundingRect().height)
     y = titleY + titleH + 8
     m.metaLabel.translation = [360, y]
+    positionEndsAt()
     y += 40
     m.ratingsGroup.translation = [360, y]
     m.badgesGroup.translation = [m.badgesGroup.translation[0], y]
@@ -679,17 +694,12 @@ sub setHeader(item as object)
         if i > 0 then metaStr += " " + Chr(8226) + " "
         metaStr += meta[i]
     end for
+    ' Trailing separator so the purple "Ends at" reads as one more item on the
+    ' same line as year/runtime — a dot in front of it, matching the others.
+    if m.endsAtText <> "" and metaStr <> "" then metaStr += " " + Chr(8226)
     m.metaLabel.text = metaStr
     m.endsAtLabel.text = m.endsAtText
-    if m.endsAtText <> ""
-        r = m.metaLabel.boundingRect()
-        pad = 0
-        if metaStr <> "" then pad = 14
-        m.endsAtLabel.translation = [m.metaLabel.translation[0] + r.width + pad, m.metaLabel.translation[1]]
-        m.endsAtLabel.visible = true
-    else
-        m.endsAtLabel.visible = false
-    end if
+    positionEndsAt()
 
     if m.itemType = "Movie"
         m.moviePosterMask.visible = true
