@@ -9,12 +9,19 @@
         <field id="autoAdvance" type="boolean" value="true" onChange="applyAutoAdvance" />
     </interface>
     <children>
-        <!-- Rounded banner (tvOS: 32:9 card, corner radius 24) -->
-        <MaskGroup id="bannerMask" maskUri="pkg:/images/hero_mask_soft.png" maskSize="[1820, 512]">
-            <!-- Banner background -->
-            <Rectangle id="heroBg" width="1820" height="512" color="#121217" />
+        <!-- Full-bleed banner (no rounded card mask): flush to the top/right
+             screen edges, blended into the page by the bottom fade and the
+             scroll dim scrim. A rounded mask here read as an off-centre card. -->
+        <Group id="bannerMask">
+            <!-- No solid background: the page gradient shows through the text
+                 area (tvOS parity), so there is no black rectangle whose edges
+                 would show as hard lines against the slightly-lighter page. -->
 
-            <!-- Backdrop image — right 70%, fitted (tvOS HeroSection) -->
+            <!-- Backdrop shown WHOLE (scaleToFit, no crop — never zooms in and
+                 chops heads off the top/bottom), flush-right to the banner's
+                 right edge (which now = the screen edge). onHeroImageStatus
+                 right-aligns it per image and parks the left feather at its
+                 actual left edge. -->
             <Poster
                 id="heroImage"
                 width="1274"
@@ -25,21 +32,10 @@
                 translation="[546, 0]"
             />
 
-            <!-- Left fade over the image's left edge (tvOS gradient mask).
-                 Repositioned in onHeroImageStatus: scaleToFit CENTERS the
-                 fitted image in the 1274-wide region, so a 16:9 image's left
-                 edge sits ~182px right of the region start — a fade anchored
-                 at the region start is already ~64% spent by the edge and a
-                 harsh vertical line shows. -->
-            <Poster
-                id="heroFadeLeft"
-                uri="pkg:/images/hero_fade_left.png"
-                width="500"
-                height="512"
-                translation="[546, 0]"
-            />
-            <!-- Text-area solid backing on the far left -->
-            <Rectangle width="546" height="512" color="#121217" />
+            <!-- Feather the image's left edge into the page so there is no hard
+                 vertical photo edge (the page shows through, tvOS parity). Repositioned to the image's
+                 actual left edge in onHeroImageStatus. -->
+            <Poster id="heroFadeLeft" uri="pkg:/images/hero_fade_left.png" width="340" height="512" translation="[546, 0]" />
 
             <!-- Bottom fade -->
             <Poster
@@ -48,7 +44,7 @@
                 height="140"
                 translation="[0, 372]"
             />
-        </MaskGroup>
+        </Group>
 
         <!-- Text overlay — left, tvOS type scale -->
         <Label
@@ -59,17 +55,17 @@
             maxLines="2"
             translation="[80, 140]"
         >
-            <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="64" />
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="54" />
         </Label>
         <Label
             id="heroSubtitle"
             text=""
             color="#E6E6E6"
-            width="920"
+            width="820"
             maxLines="1"
             translation="[80, 292]"
         >
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="28" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
         </Label>
         <!-- TMDB logo before rating (tvOS: height 24 row). Logo drawn at h=20,
              y+2, so its optical center sits on the meta row's centerline; the
@@ -81,7 +77,7 @@
             height="20"
             uri="pkg:/images/tmdb_logo_tv.png"
             loadDisplayMode="scaleToFit"
-            translation="[80, 340]"
+            translation="[40, 340]"
             visible="false"
         />
         <!-- YouTube badge replacing the TMDB/critic segments for YouTube
@@ -93,7 +89,7 @@
             height="24"
             uri="pkg:/images/youtube_icon.png"
             loadDisplayMode="scaleToFit"
-            translation="[80, 338]"
+            translation="[40, 338]"
             visible="false"
         />
         <Label
@@ -102,10 +98,10 @@
             color="#E62117"
             height="24"
             vertAlign="center"
-            translation="[126, 338]"
+            translation="[86, 338]"
             visible="false"
         >
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="24" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
         <Label
             id="heroMeta"
@@ -115,27 +111,21 @@
             maxLines="1"
             height="24"
             vertAlign="center"
-            translation="[126, 338]"
+            translation="[86, 338]"
         >
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="24" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
         <Label
             id="heroOverview"
             text=""
             color="#BFBFBF"
-            width="800"
+            width="820"
             maxLines="3"
             wrap="true"
             translation="[80, 386]"
         >
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
+            <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="20" />
         </Label>
-
-        <!-- Focus border (tvOS: accent stroke 4 @ 60%) -->
-        <Rectangle id="focusTop" width="1820" height="4" color="#FFFFFF" opacity="0.0" />
-        <Rectangle id="focusBottom" width="1820" height="4" color="#FFFFFF" opacity="0.0" translation="[0, 508]" />
-        <Rectangle id="focusLeft" width="4" height="512" color="#FFFFFF" opacity="0.0" />
-        <Rectangle id="focusRight" width="4" height="512" color="#FFFFFF" opacity="0.0" translation="[1816, 0]" />
 
         <!-- Auto-advance timer (tvOS: 6s) -->
         <Timer id="advanceTimer" repeat="true" duration="6" />

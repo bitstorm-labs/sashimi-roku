@@ -31,7 +31,7 @@
             <!-- CW overlay: play glyph + time remaining (tvOS: play.fill accent + "Xh Ym left") -->
             <Poster id="playGlyph" uri="pkg:/images/play_triangle.png" width="18" height="18" visible="false" />
             <Label id="remainingLabel" text="" color="#BFBFBF" visible="false">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="18" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="18" />
             </Label>
             <!-- Circular poster (YouTube channels) -->
             <MaskGroup id="circularMask" maskUri="pkg:/images/circle_mask.png" maskSize="[200, 200]" visible="false"
@@ -60,7 +60,7 @@
             </MaskGroup>
             <Label id="qualityLabel" text="" color="#FFFFFFFF" horizAlign="center" vertAlign="center"
                    width="52" height="32" translation="[160, 290]" visible="false">
-                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
             </Label>
             <!-- Review rating badge (bottom-left; TMDb logo + community rating).
                  Position is set dynamically in applyRatingBadge (mirrors the
@@ -73,7 +73,7 @@
                     translation="[16, 294]" visible="false" />
             <Label id="ratingLabel" text="" color="#FFFFFFFF" horizAlign="left" vertAlign="center"
                    width="40" height="32" translation="[56, 290]" visible="false">
-                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
             </Label>
             <!-- YouTube badge (top-left; shown for YouTube video cards so a
                  resumed YouTube video is identifiable, like the home hero) -->
@@ -87,7 +87,7 @@
                     translation="[172, 6]" visible="false" />
             <Label id="newBadgeLabel" text="" color="#FFFFFF" horizAlign="center" vertAlign="center"
                    width="42" height="28" translation="[172, 6]" visible="false">
-                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="19" />
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="19" />
             </Label>
             <!-- Progress bar (tvOS: track #404040, fill accent) -->
             <Rectangle id="progressBg" translation="[0, 325]" width="220" height="5" color="#404040" visible="false" />
@@ -104,7 +104,7 @@
             horizAlign="center"
             translation="[0, 340]"
         >
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
         <!-- Subtitle (Continue Watching cards only: "S1:E5 - Name" / year) -->
         <Label
@@ -117,7 +117,7 @@
             translation="[0, 372]"
             visible="false"
         >
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="20" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="20" />
         </Label>
     </children>
 </component>

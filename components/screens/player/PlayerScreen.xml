@@ -11,7 +11,7 @@
 
         <Label id="statusLabel" text="Loading..." color="#FFFFFF" horizAlign="center"
                vertAlign="center" width="1920" height="1080">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="32" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="32" />
         </Label>
 
         <!-- ============ OSD overlay ============
@@ -24,21 +24,21 @@
                     translation="[80,30]" visible="false" />
             <Poster id="osdChannelCircle" width="80" height="80" translation="[80,30]" visible="false" />
             <Label id="osdChannelName" text="" color="#E6FFFFFF" width="1400" maxLines="1" translation="[180,52]" visible="false">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="30" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="30" />
             </Label>
             <Label id="osdTitle" text="" color="#FFFFFF" width="1500" maxLines="1" translation="[80,44]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="42" />
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="42" />
             </Label>
             <Label id="osdSubtitle" text="" color="#99FFFFFF" width="1500" maxLines="1" translation="[80,104]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
             </Label>
             <Label id="osdClock" text="" color="#FFFFFF" width="240" horizAlign="right"
                    translation="[1600,44]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="34" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="34" />
             </Label>
             <Label id="osdFinishes" text="" color="#80FFFFFF" width="400" horizAlign="right"
                    translation="[1440,96]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="24" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
             </Label>
             <Group id="osdChips" translation="[80,146]" />
 
@@ -54,10 +54,10 @@
             <Group id="osdChapterTicks" translation="[80,997]" />
             <Rectangle id="osdScrubKnob" width="8" height="22" color="#8C5CC7" translation="[76,992]" />
             <Label id="osdElapsed" text="0:00" color="#FFFFFF" width="200" translation="[80,1022]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
             </Label>
             <Label id="osdRemaining" text="0:00" color="#FFFFFF" width="200" horizAlign="right" translation="[1640,1022]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
             </Label>
             <Poster id="osdPlayPause" width="44" height="44" translation="[938,930]" uri="pkg:/images/osd_pause.png" visible="false" />
         </Group>
@@ -67,7 +67,7 @@
             <Poster uri="pkg:/images/btn_dark.9.png" width="300" height="56" translation="[1540,980]" />
             <Label id="skipPillLabel" text="" color="#FFFFFF" width="300" height="56"
                    horizAlign="center" vertAlign="center" translation="[1540,980]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="25" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="25" />
             </Label>
         </Group>
 
@@ -75,7 +75,7 @@
         <Group id="osdMenu" visible="false">
             <Poster id="osdMenuBg" uri="pkg:/images/card_r16.9.png" width="560" height="400" translation="[80,400]" />
             <Label id="osdMenuTitle" text="" color="#FFFFFF" width="480" translation="[116,430]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="30" />
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
             </Label>
             <Group id="osdMenuRows" translation="[104,486]" />
         </Group>
@@ -93,7 +93,7 @@
         </Group>
         <Label id="trickplayTime" text="" color="#FFFFFF" horizAlign="center"
                visible="false">
-            <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="22" />
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="22" />
         </Label>
 
         <Timer id="progressTimer" repeat="true" duration="5" />

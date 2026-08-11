@@ -14,7 +14,7 @@
             <Poster id="pillBg" uri="pkg:/images/btn_dark.9.png" width="200" height="52" />
             <Label id="pillLabel" text="" color="#FFFFFF" width="200" height="52"
                    horizAlign="center" vertAlign="center">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="24" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
             </Label>
         </Group>
 
@@ -37,11 +37,11 @@
                     width="240" height="135" opacity="0.0" />
             <Label id="epName" text="" color="#FFFFFF" width="240" maxLines="1"
                    ellipsizeOnBoundary="true" translation="[0, 145]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
             </Label>
             <Label id="epSub" text="" color="#8C8C8C" width="240" maxLines="1"
                    ellipsizeOnBoundary="true" translation="[0, 175]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="20" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="20" />
             </Label>
             <!-- soft breathing (tvOS): slow, gentle opacity swell -->
             <Animation id="epPulseAnim" duration="2.6" repeat="true" easeFunction="inOutQuad">
@@ -58,18 +58,18 @@
             </MaskGroup>
             <Label id="castInitial" text="" color="#8C8C8C" width="100" height="100"
                    horizAlign="center" vertAlign="center" translation="[34, 8]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="40" />
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="40" />
             </Label>
             <!-- focus ring sized LARGER than the circle so it never clips -->
             <Poster id="castRing" uri="pkg:/images/circle_ring.png" width="116" height="116"
                     translation="[26, 0]" opacity="0.0" />
             <Label id="castName" text="" color="#FFFFFF" width="168" maxLines="2"
                    wrap="true" ellipsizeOnBoundary="true" horizAlign="center" translation="[0, 116]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="20" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="20" />
             </Label>
             <Label id="castRole" text="" color="#8C8C8C" width="168" maxLines="1"
                    ellipsizeOnBoundary="true" horizAlign="center" translation="[0, 144]">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="18" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="18" />
             </Label>
         </Group>
     </children>
