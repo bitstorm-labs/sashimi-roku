@@ -31,7 +31,7 @@
         <Group id="shuffleBtn" translation="[1490, 20]">
             <Rectangle id="shuffleBg" width="220" height="50" color="#2A2A33FF" />
             <Label text="Shuffle" color="#FFFFFF" width="220" height="50" horizAlign="center" vertAlign="center">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
             </Label>
         </Group>
 
@@ -75,7 +75,7 @@
         <Group id="retryBtn" translation="[860, 560]" visible="false">
             <Rectangle width="200" height="56" color="#8C5CC7FF" />
             <Label text="Retry" color="#FFFFFF" width="200" height="56" horizAlign="center" vertAlign="center">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
             </Label>
         </Group>
 

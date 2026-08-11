@@ -45,29 +45,29 @@
              centered on the 120px avatar (y 60-180): height 48 at y=96. -->
         <Label id="channelLabel" text="" color="#BFBFBF" width="1100" maxLines="1"
                height="48" vertAlign="center" translation="[210, 96]" visible="false">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="32" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="32" />
         </Label>
 
         <Label id="titleLabel" text="" color="#FFFFFF" width="1000" maxLines="2" translation="[60, 250]">
-            <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="38" />
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="38" />
         </Label>
         <Label id="endsAtLabel" text="" color="#8C5CC7" maxLines="1" translation="[60, 312]">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
         <Label id="metaLabel" text="" color="#BFBFBF" maxLines="1" translation="[60, 312]">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="22" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
 
         <Group id="ratingsGroup" translation="[60, 352]">
             <Poster id="tmdbLogo" uri="pkg:/images/tmdb_logo_tv.png" width="34" height="24"
                     loadDisplayMode="scaleToFit" visible="false" />
             <Label id="tmdbScore" text="" color="#FFFFFF" height="24" vertAlign="center" translation="[44, 0]" visible="false">
-                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
             </Label>
             <Poster id="tomatoIcon" uri="pkg:/images/tomato.png" width="24" height="24"
                     translation="[140, 0]" visible="false" />
             <Label id="tomatoScore" text="" color="#FFFFFF" height="24" vertAlign="center" translation="[172, 0]" visible="false">
-                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="20" />
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
             </Label>
         </Group>
 
@@ -76,7 +76,7 @@
 
         <Label id="overviewLabel" text="" color="#BFBFBF" width="940" maxLines="2"
                wrap="true" translation="[60, 596]">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="24" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
         </Label>
 
         <!-- Action buttons (focusable component) -->
@@ -101,7 +101,7 @@
 
         <Label id="loadingLabel" text="Loading..." color="#8C8C8C"
                horizAlign="center" width="1920" translation="[0, 500]" visible="false">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="28" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="28" />
         </Label>
 
         <!-- Failed item load. m.item stays invalid, so nothing else on this
@@ -109,12 +109,12 @@
              node so the screen is not a dead blank rectangle. -->
         <Label id="errorLabel" text="" color="#888888"
                horizAlign="center" width="1920" translation="[0, 470]" visible="false">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="28" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="28" />
         </Label>
         <Group id="errorRetry" translation="[860, 560]" visible="false">
             <Rectangle width="200" height="56" color="#8C5CC7FF" />
             <Label text="Retry" color="#FFFFFF" width="200" height="56" horizAlign="center" vertAlign="center">
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
             </Label>
         </Group>
 

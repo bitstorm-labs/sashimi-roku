@@ -36,7 +36,7 @@ sub onDefsChanged()
         lbl.horizAlign = "center"
         lbl.vertAlign = "center"
         f = CreateObject("roSGNode", "Font")
-        f.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f.uri = "pkg:/fonts/Inter-Medium.ttf"
         f.size = 24
         lbl.font = f
         cell.appendChild(lbl)

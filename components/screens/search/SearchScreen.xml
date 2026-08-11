@@ -13,7 +13,7 @@
         <Poster id="searchIcon" uri="pkg:/images/nav_search.png" width="34" height="34" translation="[80, 86]" />
         <Label id="queryLabel" text="Search movies, shows..." color="#666666" width="400"
                height="78" vertAlign="center" translation="[130, 64]" maxLines="1">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="28" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="28" />
         </Label>
 
         <!-- On-screen keyboard (left column) -->
@@ -23,7 +23,7 @@
         <!-- Results (right column) -->
         <Label id="statusLabel" text="Search your library — find movies and TV shows"
                color="#888888" width="1040" horizAlign="left" translation="[660, 80]">
-            <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
         </Label>
         <MarkupGrid
             id="resultsGrid"
@@ -39,7 +39,7 @@
 
         <!-- Recent searches (right column, when query empty) -->
         <Label id="recentTitle" text="Recent Searches" color="#FFFFFF" translation="[660, 158]" visible="false">
-            <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="30" />
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
         </Label>
         <LabelList id="recentList" translation="[660, 220]" itemSize="[560, 56]" numRows="10" visible="false" />
 

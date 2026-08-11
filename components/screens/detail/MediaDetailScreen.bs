@@ -33,10 +33,10 @@ sub init()
     m.badgesGroup = m.top.findNode("badgesGroup")
     m.tagsGroup = m.top.findNode("tagsGroup")
     m.titleFontBig = CreateObject("roSGNode", "Font")
-    m.titleFontBig.uri = "pkg:/fonts/Roboto-Bold.ttf"
+    m.titleFontBig.uri = "pkg:/fonts/Inter-Bold.ttf"
     m.titleFontBig.size = 52
     m.titleFontStd = CreateObject("roSGNode", "Font")
-    m.titleFontStd.uri = "pkg:/fonts/Roboto-Bold.ttf"
+    m.titleFontStd.uri = "pkg:/fonts/Inter-Bold.ttf"
     m.titleFontStd.size = 38
     m.overviewLabel = m.top.findNode("overviewLabel")
     m.detailButtons = m.top.findNode("detailButtons")
@@ -47,7 +47,7 @@ sub init()
     m.apiTask = m.top.findNode("apiTask")
 
     rowFont = CreateObject("roSGNode", "Font")
-    rowFont.uri = "pkg:/fonts/Roboto-Bold.ttf"
+    rowFont.uri = "pkg:/fonts/Inter-Bold.ttf"
     rowFont.size = 28
     m.rowList.rowLabelFont = rowFont
 
@@ -837,7 +837,7 @@ sub buildTags(item as object)
         lbl.vertAlign = "center"
         lbl.color = "#D9D9D9"
         f = CreateObject("roSGNode", "Font")
-        f.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f.uri = "pkg:/fonts/Inter-Medium.ttf"
         f.size = 17
         lbl.font = f
         lbl.translation = [tx, 0]
@@ -910,7 +910,7 @@ sub buildBadges(src as object)
         lbl.vertAlign = "center"
         lbl.color = "#FFFFFF"
         f = CreateObject("roSGNode", "Font")
-        f.uri = "pkg:/fonts/Roboto-Bold.ttf"
+        f.uri = "pkg:/fonts/Inter-Bold.ttf"
         f.size = 15
         lbl.font = f
         lbl.translation = [x, 0]
