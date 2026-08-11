@@ -113,7 +113,7 @@
                 width="900"
                 translation="[510, 316]"
             >
-                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="38" />
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="38" />
             </Label>
             <Label
                 text="On your phone or computer, sign in to Jellyfin, open Quick Connect from the user menu, and enter this code:"
@@ -123,7 +123,7 @@
                 wrap="true"
                 translation="[570, 378]"
             >
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
             </Label>
             <Label
                 id="qcCodeLabel"
@@ -133,7 +133,7 @@
                 width="900"
                 translation="[510, 496]"
             >
-                <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="80" />
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="80" />
             </Label>
             <Label
                 id="qcStatusLabel"
@@ -143,7 +143,7 @@
                 width="900"
                 translation="[510, 622]"
             >
-                <Font role="font" uri="pkg:/fonts/Roboto-Medium.ttf" size="26" />
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
             </Label>
             <Label
                 text="Press Back to cancel"

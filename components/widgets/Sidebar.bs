@@ -24,7 +24,7 @@ sub init()
 
     m.railCollapsed = 136
     m.railExpanded = 470
-    m.iconSize = 56
+    m.iconSize = 48
     m.rowPitch = 88
     m.iconX = 40           ' fixed so icons don't jump when expanding
     m.labelX = 118
@@ -36,19 +36,19 @@ sub init()
     m.selectedIndex = 0
     m.expanded = false
 
-    m.wordmark.font = font("pkg:/fonts/Roboto-Bold.ttf", 40)
+    m.wordmark.font = font("pkg:/fonts/Inter-Bold.ttf", 40)
     m.wordmark.color = "#FFFFFF"
 
-    m.avatarLabel.font = font("pkg:/fonts/Roboto-Bold.ttf", 26)
+    m.avatarLabel.font = font("pkg:/fonts/Inter-Bold.ttf", 26)
     m.avatarLabel.color = "#FFFFFF"
     m.avatarLabel.horizAlign = "center"
     m.avatarLabel.vertAlign = "center"
 
-    m.accountLabel.font = font("pkg:/fonts/Roboto-Bold.ttf", 26)
+    m.accountLabel.font = font("pkg:/fonts/Inter-Bold.ttf", 26)
     m.accountLabel.color = "#FFFFFF"
-    m.accountSub.font = font("pkg:/fonts/Roboto-Medium.ttf", 20)
+    m.accountSub.font = font("pkg:/fonts/Inter-Medium.ttf", 20)
     m.accountSub.color = "#8C8C8C"
-    m.versionLabel.font = font("pkg:/fonts/Roboto-Medium.ttf", 18)
+    m.versionLabel.font = font("pkg:/fonts/Inter-Medium.ttf", 18)
     m.versionLabel.color = "#6A6A72"
     m.versionLabel.vertAlign = "center"
     m.versionLabel.text = "v" + CreateObject("roAppInfo").GetVersion()
@@ -168,7 +168,7 @@ sub buildRows()
     end while
     m.rows = []
 
-    lf = font("pkg:/fonts/Roboto-Medium.ttf", 30)
+    lf = font("pkg:/fonts/Inter-Medium.ttf", 30)
 
     for i = 0 to m.items.count() - 1
         it = m.items[i]

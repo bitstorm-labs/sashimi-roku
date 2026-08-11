@@ -13,7 +13,7 @@
             color="#FFFFFF"
             translation="[560, 124]"
         >
-            <Font role="font" uri="pkg:/fonts/Roboto-Bold.ttf" size="40" />
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="40" />
         </Label>
 
         <!-- Rows built in code (tvOS SettingsView: maxWidth 800 cards) -->

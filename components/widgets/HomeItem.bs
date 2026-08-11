@@ -97,7 +97,7 @@ sub applyLayout()
         m.progressBar.translation = [16, m.posterHeight - 19]
         ' Title 28 semibold left-aligned + subtitle 20 (tvOS ContinueWatchingCard)
         m.titleLabel.horizAlign = "left"
-        setLabelFont(m.titleLabel, "pkg:/fonts/Roboto-Bold.ttf", 28)
+        setLabelFont(m.titleLabel, "pkg:/fonts/Inter-Bold.ttf", 28)
         m.titleLabel.translation = [0, m.posterHeight + 12]
         m.subtitleLabel.translation = [0, m.posterHeight + 52]
     else
@@ -108,7 +108,7 @@ sub applyLayout()
         m.progressBar.translation = [0, m.posterHeight - 5]
         ' Centered single caption (tvOS MediaPosterButton: 22 medium centered)
         m.titleLabel.horizAlign = "center"
-        setLabelFont(m.titleLabel, "pkg:/fonts/Roboto-Medium.ttf", 22)
+        setLabelFont(m.titleLabel, "pkg:/fonts/Inter-Medium.ttf", 22)
         m.titleLabel.translation = [0, m.posterHeight + 12]
         m.subtitleLabel.translation = [0, m.posterHeight + 44]
     end if
@@ -242,7 +242,7 @@ sub onItemContentChanged()
         end if
         ' tvOS circular caption: 20 medium centered
         m.titleLabel.horizAlign = "center"
-        setLabelFont(m.titleLabel, "pkg:/fonts/Roboto-Medium.ttf", 20)
+        setLabelFont(m.titleLabel, "pkg:/fonts/Inter-Medium.ttf", 20)
         m.titleLabel.translation = [0, 212]
         m.titleLabel.width = 200
         m.subtitleLabel.visible = false

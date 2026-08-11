@@ -5,8 +5,8 @@ sub init()
     m.tmdbLogo = m.top.findNode("tmdbLogo")
     m.heroImage = m.top.findNode("heroImage")
     m.heroFadeLeft = m.top.findNode("heroFadeLeft")
-    ' Snap the left fade to the fitted image's actual left edge per image —
-    ' the decoded bitmap size is only known once the poster loads.
+    ' Flush-right the whole (scaleToFit) backdrop and park the left-edge feather
+    ' at its actual left edge once the decoded bitmap size is known.
     m.heroImage.observeFieldScoped("loadStatus", "onHeroImageStatus")
     m.heroTitle = m.top.findNode("heroTitle")
     m.heroSubtitle = m.top.findNode("heroSubtitle")
@@ -14,22 +14,17 @@ sub init()
     m.ytIcon = m.top.findNode("ytIcon")
     m.ytLabel = m.top.findNode("ytLabel")
     m.heroOverview = m.top.findNode("heroOverview")
-    m.focusTop = m.top.findNode("focusTop")
-    m.focusBottom = m.top.findNode("focusBottom")
-    m.focusLeft = m.top.findNode("focusLeft")
-    m.focusRight = m.top.findNode("focusRight")
     m.advanceTimer = m.top.findNode("advanceTimer")
 
     m.items = []
     m.currentIndex = 0
-    m.hasFocus = false
 
-    ' Hero rendered at 92%, anchored top-CENTER so it stays horizontally
-    ' centered: scaleRotateCenter x=910 is the banner's midline, so changing the
-    ' scale widens it symmetrically without moving it. Top edge stays put; the
-    ' focus pop multiplies on top of this base.
-    m.baseScale = 0.92
-    m.top.scaleRotateCenter = [910, 0]
+    ' Fit the 1820-wide banner into the content area right of the 136px rail
+    ' (1920 - 136 = 1784 wide). Anchor to the top-LEFT (scaleRotateCenter [0,0])
+    ' and scale 1784/1820 = 0.98 so the left edge butts the rail (HomeScreen
+    ' translates us by railWidth) and the right edge lands on the screen edge.
+    m.baseScale = 0.98
+    m.top.scaleRotateCenter = [0, 0]
     m.top.scale = [m.baseScale, m.baseScale]
 
     m.advanceTimer.observeFieldScoped("fire", "onAdvanceTimer")
@@ -39,23 +34,14 @@ sub init()
     ' the banner is off screen — otherwise it keeps pulling a 1280px backdrop
     ' every 6s through an entire movie.
     m.top.observeField("visible", "applyAutoAdvance")
-
-    m.top.observeField("focusedChild", "onFocusChanged")
 end sub
 
-' Right-align the fitted image and snap the left fade to its left edge (tvOS
-' parity: the backdrop hugs the banner's right edge). The Poster decodes at
-' loadWidth/loadHeight preserving aspect, so bitmapWidth after "ready" is the
-' fitted width — but scaleToFit CENTERS that image in the 1274-wide region,
-' leaving ~182px of dead space on BOTH sides of a 16:9 backdrop. Translate
-' the Poster so the fitted image's right edge lands at the banner's right
-' edge (1820): tx = 1820 - (1274 + fittedW)/2 (546 for full-region art), and
-' put the fade at the image's resulting left edge (1820 - fittedW), 2px
-' overlap for decode rounding.
+' Show the backdrop WHOLE (scaleToFit, no crop) and flush-right to the banner's
+' right edge (= the screen edge). scaleToFit CENTERS the fitted image in the
+' 1274-wide region, so offset by the pillarbox to land the image's right edge on
+' 1820, and put the left-edge feather at the image's actual left edge (1820-bw).
 sub onHeroImageStatus()
     if m.heroImage.loadStatus <> "ready"
-        ' New image loading: park both at the region defaults so stale
-        ' positions from the previous slide can't sit mid-image.
         m.heroImage.translation = [546, 0]
         m.heroFadeLeft.translation = [546, 0]
         return
@@ -63,9 +49,7 @@ sub onHeroImageStatus()
     bw = m.heroImage.bitmapWidth
     if bw = invalid or bw <= 0 or bw > 1274 then bw = 1274
     m.heroImage.translation = [1820 - Int((1274 + bw) / 2), 0]
-    fadeX = 1820 - bw - 2
-    if fadeX < 546 then fadeX = 546
-    m.heroFadeLeft.translation = [fadeX, 0]
+    m.heroFadeLeft.translation = [1820 - bw, 0]
 end sub
 
 sub onContentChanged()
@@ -112,7 +96,7 @@ end sub
 ' and center the group.
 sub reflowHeroText()
     bannerH = 512
-    leftX = 80
+    leftX = 40
 
     h1 = Int(m.heroTitle.boundingRect().height)
     if h1 <= 0 then h1 = 76
@@ -129,7 +113,7 @@ sub reflowHeroText()
     metaGap = 16 : metaH = 24
     ovGap = 0 : ovH = 0
     if hasOverview
-        ovGap = 16
+        ovGap = 44
         ovH = Int(m.heroOverview.boundingRect().height)
         if ovH <= 0 then ovH = 58
     end if
@@ -263,18 +247,18 @@ sub showItem(index as integer)
         m.tmdbLogo.visible = false
         m.ytIcon.visible = true
         m.ytLabel.visible = true
-        m.heroMeta.translation = [126 + Int(m.ytLabel.boundingRect().width) + 16, 338]
+        m.heroMeta.translation = [86 + Int(m.ytLabel.boundingRect().width) + 16, 338]
     else if item.CommunityRating <> invalid
         ' Show TMDB logo when we have a community rating (tvOS: logo before number)
         m.ytIcon.visible = false
         m.ytLabel.visible = false
         m.tmdbLogo.visible = true
-        m.heroMeta.translation = [126, 338]
+        m.heroMeta.translation = [86, 338]
     else
         m.ytIcon.visible = false
         m.ytLabel.visible = false
         m.tmdbLogo.visible = false
-        m.heroMeta.translation = [80, 338]
+        m.heroMeta.translation = [40, 338]
     end if
 
     ' Overview (tvOS: 22pt @75% white, 2 lines)
@@ -293,49 +277,6 @@ sub onAdvanceTimer()
     showItem(m.currentIndex)
 end sub
 
-sub onFocusChanged()
-    m.hasFocus = m.top.isInFocusChain()
-    if m.hasFocus
-        ' tvOS: accent stroke @60% + scale 1.01
-        m.focusTop.opacity = 0.6
-        m.focusBottom.opacity = 0.6
-        m.focusLeft.opacity = 0.6
-        m.focusRight.opacity = 0.6
-        ' Focus pop multiplies the 70% base — assigning 1.01 outright would
-        ' silently undo the scale-down (the hero is focused on load).
-        m.top.scale = [m.baseScale * 1.01, m.baseScale * 1.01]
-    else
-        m.focusTop.opacity = 0.0
-        m.focusBottom.opacity = 0.0
-        m.focusLeft.opacity = 0.0
-        m.focusRight.opacity = 0.0
-        m.top.scale = [m.baseScale, m.baseScale]
-    end if
-end sub
-
-function onKeyEvent(key as string, press as boolean) as boolean
-    if press
-        if key = "right"
-            if m.items.count() > 0
-                m.currentIndex = (m.currentIndex + 1) mod m.items.count()
-                showItem(m.currentIndex)
-                applyAutoAdvance()
-            end if
-            return true
-        else if key = "left"
-            if m.items.count() > 0
-                m.currentIndex = m.currentIndex - 1
-                if m.currentIndex < 0 then m.currentIndex = m.items.count() - 1
-                showItem(m.currentIndex)
-                applyAutoAdvance()
-            end if
-            return true
-        else if key = "OK"
-            if m.currentIndex >= 0 and m.currentIndex < m.items.count()
-                m.top.selectedItem = m.items[m.currentIndex]
-            end if
-            return true
-        end if
-    end if
-    return false
-end function
+' The hero is an ambient, non-focusable backdrop: it never enters the focus
+' chain, so there is no focus-border/scale-pop handler and no key handler here.
+' It rotates on the auto-advance timer only.

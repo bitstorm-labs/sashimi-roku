@@ -763,7 +763,7 @@ sub buildButtons()
         lbl.horizAlign = "center"
         lbl.vertAlign = "center"
         f = CreateObject("roSGNode", "Font")
-        f.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f.uri = "pkg:/fonts/Inter-Medium.ttf"
         f.size = 24
         lbl.font = f
         cell.appendChild(lbl)
@@ -917,7 +917,7 @@ sub buildMenuRows()
         lbl.translation = [16, 0]
         lbl.vertAlign = "center"
         f = CreateObject("roSGNode", "Font")
-        f.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f.uri = "pkg:/fonts/Inter-Medium.ttf"
         f.size = 25
         lbl.font = f
         cell.appendChild(lbl)
@@ -1319,7 +1319,7 @@ sub buildChips(chips as object)
         lbl.vertAlign = "center"
         lbl.color = "#E6FFFFFF"
         f = CreateObject("roSGNode", "Font")
-        f.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f.uri = "pkg:/fonts/Inter-Medium.ttf"
         f.size = 20
         lbl.font = f
         lbl.translation = [x, 0]

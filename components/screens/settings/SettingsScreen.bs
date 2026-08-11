@@ -119,7 +119,7 @@ sub buildRows()
             title.color = "#FFFFFF"
         end if
         tf = CreateObject("roSGNode", "Font")
-        tf.uri = "pkg:/fonts/Roboto-Bold.ttf"
+        tf.uri = "pkg:/fonts/Inter-Bold.ttf"
         tf.size = 26
         title.font = tf
         row.appendChild(title)
@@ -133,7 +133,7 @@ sub buildRows()
         value.horizAlign = "right"
         value.color = "#BFBFBF"
         vf = CreateObject("roSGNode", "Font")
-        vf.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        vf.uri = "pkg:/fonts/Inter-Medium.ttf"
         vf.size = 24
         value.font = vf
         row.appendChild(value)
@@ -303,7 +303,7 @@ sub renderHomeRows()
         title.text = "Home Screen Rows"
         title.color = "#FFFFFF"
         f = CreateObject("roSGNode", "Font")
-        f.uri = "pkg:/fonts/Roboto-Bold.ttf"
+        f.uri = "pkg:/fonts/Inter-Bold.ttf"
         f.size = 40
         title.font = f
         title.translation = [560, 90]
@@ -312,7 +312,7 @@ sub renderHomeRows()
         hint.text = "Up/Down select" + Chr(8226) + " Left/Right move " + Chr(8226) + " OK show/hide " + Chr(8226) + " Back done"
         hint.color = "#888888"
         f2 = CreateObject("roSGNode", "Font")
-        f2.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f2.uri = "pkg:/fonts/Inter-Medium.ttf"
         f2.size = 24
         hint.font = f2
         hint.translation = [560, 150]
@@ -356,7 +356,7 @@ sub renderHomeRows()
             lbl.color = "#FFFFFF"
         end if
         f3 = CreateObject("roSGNode", "Font")
-        f3.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f3.uri = "pkg:/fonts/Inter-Medium.ttf"
         f3.size = 26
         lbl.font = f3
         cell.appendChild(lbl)
@@ -433,7 +433,7 @@ sub renderServers()
         t.text = "Servers"
         t.color = "#FFFFFF"
         f = CreateObject("roSGNode", "Font")
-        f.uri = "pkg:/fonts/Roboto-Bold.ttf"
+        f.uri = "pkg:/fonts/Inter-Bold.ttf"
         f.size = 40
         t.font = f
         t.translation = [560, 90]
@@ -442,7 +442,7 @@ sub renderServers()
         h.text = "OK switch " + Chr(8226) + " * remove " + Chr(8226) + " Back done"
         h.color = "#888888"
         f2 = CreateObject("roSGNode", "Font")
-        f2.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f2.uri = "pkg:/fonts/Inter-Medium.ttf"
         f2.size = 24
         h.font = f2
         h.translation = [560, 150]
@@ -489,7 +489,7 @@ sub renderServers()
             lbl.color = "#FFFFFF"
         end if
         f3 = CreateObject("roSGNode", "Font")
-        f3.uri = "pkg:/fonts/Roboto-Medium.ttf"
+        f3.uri = "pkg:/fonts/Inter-Medium.ttf"
         f3.size = 26
         lbl.font = f3
         cell.appendChild(lbl)

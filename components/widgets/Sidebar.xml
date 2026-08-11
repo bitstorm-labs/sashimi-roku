@@ -23,8 +23,8 @@
         <Group id="railContent">
             <!-- 88x66 at [24,44]: bottom edge 110 clears the nav block's
                  topBound of 150; horizontal center 68 matches the avatar's. -->
-            <Poster id="logo" uri="pkg:/images/logo.png" width="88" height="66"
-                loadDisplayMode="scaleToFit" translation="[24,44]" />
+            <Poster id="logo" uri="pkg:/images/logo.png" width="74" height="56"
+                loadDisplayMode="scaleToFit" translation="[31,44]" />
             <Label id="wordmark" text="Sashimi" visible="false" translation="[128,58]" />
 
             <Group id="navGroup" />
