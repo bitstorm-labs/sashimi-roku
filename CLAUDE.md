@@ -19,6 +19,16 @@ placeholder — if you add tests, make them real.
 
 Always run `npm run lint` before committing. It must be clean.
 
+## Claude Code helpers
+
+`.claude/` holds this repo's automation (committed; `settings.local.json` is
+personal and gitignored):
+
+- **`/sideload`** — lint, package, push to the dev Roku, screenshot the result
+- **`/ship`** — bump `build_version`, tag, and sign a store-ready `.pkg`
+- A `PostToolUse` hook runs `npm run lint` after every `.bs`/`.xml` edit, so a
+  syntax error surfaces at the edit instead of at commit time.
+
 ## Dev device
 
 The dev Roku is at `192.168.86.30`. Password is in the login keychain
