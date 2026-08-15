@@ -297,6 +297,27 @@ sub applyHomeRowConfig()
     m.libraries = ordered
 end sub
 
+' Epoch seconds of an item's last play, or 0 when it has never been played.
+' Jellyfin stamps 7-digit fractional seconds ("...T04:48:25.0000000Z") which
+' FromISO8601String won't parse, so the timestamp is trimmed to whole seconds.
+function playedSeconds(item as object) as integer
+    if item = invalid or item.UserData = invalid then return 0
+    raw = item.UserData.LastPlayedDate
+    if raw = invalid or raw = "" or Len(raw) < 19 then return 0
+    dt = CreateObject("roDateTime")
+    dt.FromISO8601String(Left(raw, 19) + "Z")
+    return dt.AsSeconds()
+end function
+
+' Sortable key: zero-padded seconds so string order matches time order, plus a
+' trailing digit so Resume outranks NextUp at an identical timestamp.
+function activityKey(secs as integer, isResume as boolean) as string
+    if secs <= 0 then return "00000000000"
+    padded = Right("0000000000" + str(secs).Trim(), 10)
+    if isResume then return padded + "1"
+    return padded + "0"
+end function
+
 sub onResumeItemsLoaded(response as object)
     if response.success and response.items <> invalid
         ' Dedup resume items by series — keep only the most recent per series
@@ -326,24 +347,61 @@ sub onNextUpLoaded(response as object)
         #if DEBUG
             print "[Home] Loaded " + str(response.items.count()) + " next up items"
         #end if
-        ' tvOS merge order: NextUp first (a just-finished episode surfaces its
-        ' successor at the FRONT of the row), then Resume, deduped by series.
+        ' Order the row by real activity, newest first.
+        '
+        ' Resume items carry their own LastPlayedDate. NextUp items usually do
+        ' too (Jellyfin returns the in-progress episode); a genuinely unstarted
+        ' next episode has none, so carry the previous item's timestamp forward.
+        ' NextUp is already ordered by series activity, so that keeps an undated
+        ' item beside its neighbours.
+        '
+        ' This used to emit ALL of NextUp and then ALL of Resume. Episodes looked
+        ' right (most reach the row via NextUp), but a movie — resume-only, with
+        ' no SeriesId to dedupe against — always landed at the very back of the
+        ' row no matter how recently it was played.
+        candidates = []
+        for each item in m.continueWatchingItems
+            candidates.push({ item: item, sortKey: activityKey(playedSeconds(item), true) })
+        end for
+
+        carried = 0
+        isFirst = true
+        for each item in response.items
+            secs = playedSeconds(item)
+            if secs > 0
+                carried = secs
+            else if isFirst
+                carried = CreateObject("roDateTime").AsSeconds()
+            else
+                carried = carried - 1
+            end if
+            isFirst = false
+            candidates.push({ item: item, sortKey: activityKey(carried, false) })
+        end for
+
+        ' Fixed-width zero-padded keys sort lexicographically in timestamp order,
+        ' which sidesteps 32-bit overflow on epoch-seconds arithmetic. The
+        ' trailing digit breaks ties toward Resume, so a part-watched episode is
+        ' offered for resuming rather than skipped past to the next one.
+        candidates.SortBy("sortKey", "r")
+
         merged = []
         seenSeries = {}
-        for each item in response.items
+        seenIds = {}
+        for each candidate in candidates
+            item = candidate.item
+            itemId = ""
+            if item.Id <> invalid then itemId = item.Id
             seriesId = ""
             if item.SeriesId <> invalid then seriesId = item.SeriesId
-            if seriesId = "" or not seenSeries.DoesExist(seriesId)
-                merged.push(item)
+
+            isDupe = (itemId <> "" and seenIds.DoesExist(itemId))
+            if not isDupe and seriesId <> "" and seenSeries.DoesExist(seriesId) then isDupe = true
+
+            if not isDupe
+                if itemId <> "" then seenIds[itemId] = true
                 if seriesId <> "" then seenSeries[seriesId] = true
-            end if
-        end for
-        for each item in m.continueWatchingItems
-            seriesId = ""
-            if item.SeriesId <> invalid then seriesId = item.SeriesId
-            if seriesId = "" or not seenSeries.DoesExist(seriesId)
                 merged.push(item)
-                if seriesId <> "" then seenSeries[seriesId] = true
             end if
         end for
         m.continueWatchingItems = merged
