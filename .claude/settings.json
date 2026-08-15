@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run lint:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run package:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r \".tool_input.file_path // .tool_response.filePath // empty\" | { read -r f || exit 0; case \"$f\" in *.bs|*.xml) ;; *) exit 0 ;; esac; cd \"${CLAUDE_PROJECT_DIR:-.}\" || exit 0; out=$(npm run --silent lint 2>&1) || { printf \"%s\\n\" \"$out\" | grep -iE \"error\" | head -20; exit 2; }; }",
+            "timeout": 60,
+            "statusMessage": "Linting BrightScript..."
+          }
+        ]
+      }
+    ]
+  }
+}

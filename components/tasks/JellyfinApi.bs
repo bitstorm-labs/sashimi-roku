@@ -665,12 +665,14 @@ sub doGetLatestMedia(request as object)
     #end if
 
     if isYouTube
-        ' tvOS: YouTube rows fetch EPISODES (videos) newest-first by
-        ' DateCreated; the home screen dedupes to one video per channel.
+        ' Fetch CHANNELS (series) ordered by when each last gained a video.
+        ' Fetching Episodes and deduping to one per channel looks the same most
+        ' days, but a channel that uploads a burst then fills the whole limit and
+        ' the row collapses to one or two avatars until someone else posts.
         url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
         url += "?ParentId=" + parentId
-        url += "&IncludeItemTypes=Episode&Recursive=true"
-        url += "&SortBy=DateCreated,SortName&SortOrder=Descending"
+        url += "&IncludeItemTypes=Series&Recursive=true"
+        url += "&SortBy=DateLastContentAdded,SortName&SortOrder=Descending"
         url += "&Limit=" + str(limit).Trim()
         url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path,ParentBackdropImageTags,MediaStreams"
         url += "&EnableImageTypes=Primary,Backdrop,Thumb"

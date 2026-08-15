@@ -4,3 +4,6 @@ out/
 .roku-deploy-staging/
 .env
 .DS_Store
+
+# Claude Code personal settings (project settings.json IS committed)
+.claude/settings.local.json
