@@ -3,8 +3,10 @@
     <!-- App-level service, owned by MainScene. Non-visual: it only exists to
          hold the Audio node, the start timer and its own API task. Every entry
          point is a callFunc rather than a field, because a single tick can
-         carry several visit transitions (clearAllScreens pops a whole stack)
-         and field writes coalesce. Each takes exactly one argument. -->
+         carry several visit transitions -- the `while m.navStack.count() > 0 :
+         popScreen()` loops in processDeepLink/failDeepLink fire one exitSeries
+         per pop -- and field writes coalesce. Each takes exactly one
+         argument. -->
     <interface>
         <function name="enterSeries" />
         <function name="exitSeries" />
@@ -16,6 +18,9 @@
         <!-- Grace period before the first note, so flicking into a title and
              straight back out never blips a fragment of audio. -->
         <Timer id="startTimer" repeat="false" duration="0.75" />
-        <JellyfinApi id="apiTask" />
+        <!-- NOT "apiTask": this is the only one parented directly under
+             MainScene, so a findNode("apiTask") from up there would reach it
+             instead of a screen's. -->
+        <JellyfinApi id="themeApiTask" />
     </children>
 </component>

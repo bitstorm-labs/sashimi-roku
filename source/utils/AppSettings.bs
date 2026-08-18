@@ -47,8 +47,4 @@ namespace AppSettings
         return read("use24HourTime", "false") = "true"
     end function
 
-    function playThemeSongs() as boolean
-        return read("playThemeSongs", "true") = "true"
-    end function
-
 end namespace

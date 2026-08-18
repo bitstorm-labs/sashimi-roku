@@ -1,5 +1,3 @@
-import "pkg:/source/utils/AppSettings.bs"
-
 ' Theme songs (companion Jellyfin plugin drops theme.mp3 beside each series).
 ' tvOS/iOS parity in behaviour, with one platform limit called out below.
 '
@@ -22,19 +20,28 @@ import "pkg:/source/utils/AppSettings.bs"
 ' EVERY FAILURE PATH IS SILENCE. Roughly 41% of a typical library has no theme
 ' at all, so "this show has no theme" is the ordinary answer, not an error.
 ' Nothing here raises a dialog or a toast.
+'
+' STARTING takes two independent things, tracked separately on purpose: the
+' grace period must have elapsed AND the url must be known. Whichever lands
+' second calls maybeStart(), and m.started makes sure only one of them ever
+' actually starts the audio. Collapsing those into a single "armed" flag is
+' what allowed an in-flight lookup from an ABANDONED visit to start playback
+' the moment it returned, skipping the grace, and then have the timer start it
+' a second time -- an audible restart from a plain flick in, out, in.
 
 sub init()
     m.audio = m.top.findNode("audio")
     m.startTimer = m.top.findNode("startTimer")
-    m.apiTask = m.top.findNode("apiTask")
+    m.apiTask = m.top.findNode("themeApiTask")
 
     m.startTimer.observeFieldScoped("fire", "onStartTimer")
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
 
-    m.depth = {}        ' seriesId -> how many detail screens are visiting it
-    m.activeKey = ""    ' the series whose visit currently owns the player
-    m.wantPlay = false  ' a start is armed or in flight for m.activeKey
+    m.depth = {}           ' seriesId -> how many detail screens are visiting it
+    m.activeKey = ""       ' the series whose visit currently owns the player
+    m.graceElapsed = false ' the 0.75s timer has fired for THIS visit
+    m.started = false      ' audio has been started for THIS visit
     ' seriesId -> stream url for the session. A MISS is cached too (as ""), so
     ' a themeless show is asked about once and never again.
     m.cache = {}
@@ -96,51 +103,57 @@ end function
 
 sub beginVisit(key as string)
     stopAndDisarm()
-    if not themesEnabled() then return
+    ' No invalid-guard needed: MainScene adds this global before it creates
+    ' this component, so it is always a real boolean by the time anyone visits.
+    if not m.global.playThemeSongs then return
     m.activeKey = key
-    m.wantPlay = true
     ' A non-repeating timer that already fired needs the explicit stop before
     ' start to re-arm.
     m.startTimer.control = "stop"
     m.startTimer.control = "start"
+    ' Look the url up NOW rather than when the timer fires, so the round trip
+    ' overlaps the grace period instead of following it. This costs no extra
+    ' requests: the lookup already only happens on a committed visit, and the
+    ' answer -- hit or miss -- is cached for the session either way.
+    if not m.cache.DoesExist(key) then enqueue({ action: "getThemeMedia", itemId: key })
 end sub
 
 sub onStartTimer()
-    if not m.wantPlay then return
-    key = m.activeKey
-    if key = "" then return
-    if m.cache.DoesExist(key)
-        playStream(m.cache[key])
-        return
-    end if
-    enqueue({ action: "getThemeMedia", itemId: key })
+    if m.activeKey = "" then return
+    m.graceElapsed = true
+    maybeStart()
 end sub
 
-sub playStream(url as dynamic)
+' Start the theme once BOTH preconditions hold: the grace period has elapsed
+' and this show's url is known. Called from whichever of the two arrives last.
+sub maybeStart()
+    if m.started then return
+    if not m.graceElapsed then return
+    key = m.activeKey
+    if key = "" then return
+    ' Not cached means the lookup has not come back, or came back unresolved
+    ' (timeout / non-2xx) -- either way there is nothing to play.
+    if not m.cache.DoesExist(key) then return
+    url = m.cache[key]
     ' "" is a cached miss: this show simply has no theme.
-    if url = invalid or url = "" then return
+    if url = "" then return
+
     content = CreateObject("roSGNode", "ContentNode")
     content.url = url
     ' The Audio node does not sniff the body; the format has to be declared.
     content.streamFormat = "mp3"
+    m.started = true
     m.audio.content = content
     m.audio.control = "play"
 end sub
 
 sub stopAndDisarm()
-    m.wantPlay = false
     m.activeKey = ""
+    m.graceElapsed = false
+    m.started = false
     m.startTimer.control = "stop"
     m.audio.control = "stop"
 end sub
-
-function themesEnabled() as boolean
-    enabled = m.global.playThemeSongs
-    ' The global is mirrored by MainScene at startup; fall back to the stored
-    ' value so this is still correct if it is ever asked before that runs.
-    if enabled = invalid then return AppSettings.playThemeSongs()
-    return enabled = true
-end function
 
 ' ---------- API ----------
 ' Same serialized queue as the screens: the task reads only the latest request
@@ -168,9 +181,11 @@ sub onApiResponse()
         ' answered: caching a dropped request would convince the session that a
         ' show has no theme for as long as the channel stays open.
         if response.resolved = true then m.cache[response.itemId] = response.streamUrl
-        ' The visit may have ended (or moved to another show) while this was in
-        ' flight -- in which case the answer is cached and nothing else happens.
-        if m.wantPlay and m.activeKey = response.itemId then playStream(response.streamUrl)
+        ' The visit may have ended, or moved to another show, while this was in
+        ' flight -- in which case the answer is simply cached for next time.
+        ' maybeStart() still has to see the grace period elapsed, so an answer
+        ' arriving early waits for the timer rather than jumping the queue.
+        if m.activeKey = response.itemId then maybeStart()
     end if
 
     pumpQueue()
