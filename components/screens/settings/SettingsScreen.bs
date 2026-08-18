@@ -63,6 +63,7 @@ sub init()
         { key: "showQualityBadges", title: "Show Quality Badges", kind: "toggle", default: "true" },
         { key: "showReviewRatings", title: "Show Review Ratings", kind: "toggle", default: "true" },
         { key: "useEpisodeRatings", title: "Use Episode Ratings", kind: "toggle", default: "false" },
+        { key: "playThemeSongs", title: "Play Theme Songs", kind: "toggle", default: "true" },
         { key: "", title: "Version", kind: "info", value: m.versionText },
         { key: "", title: "Sign Out", kind: "signout" }
     ]
@@ -192,6 +193,10 @@ sub activateRow(index as integer)
             m.global.showReviewRatings = (AppSettings.read("showReviewRatings", "true") = "true")
         else if item.key = "useEpisodeRatings"
             m.global.useEpisodeRatings = (AppSettings.read("useEpisodeRatings", "false") = "true")
+        else if item.key = "playThemeSongs"
+            ' MainScene's theme service reads the global, so a toggle here takes
+            ' effect on the very next detail screen without a restart.
+            m.global.playThemeSongs = (AppSettings.read("playThemeSongs", "true") = "true")
         end if
         m.rows[index].value.text = currentValueLabel(item)
     else if item.kind = "picker"
