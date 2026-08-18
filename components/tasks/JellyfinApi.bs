@@ -75,6 +75,8 @@ sub processRequest()
         doGetAncestors(request)
     else if action = "getLocalTrailers"
         doGetLocalTrailers(request)
+    else if action = "getThemeMedia"
+        doGetThemeMedia(request)
     else if action = "getSeasons"
         doGetSeasons(request)
     else if action = "getEpisodes"
@@ -846,6 +848,54 @@ sub doGetLocalTrailers(request as object)
     if result <> invalid and GetInterface(result, "ifArray") <> invalid then trailers = result
     m.top.response = { success: true, action: "getLocalTrailers", items: trailers }
 end sub
+
+' Theme song for a series (companion Theme Songs plugin writes theme.mp3 into
+' the series folder). /Items/{id}/ThemeMedia answers with ThemeSongsResult /
+' ThemeVideosResult / SoundtrackSongsResult; only the first matters here.
+'
+' A show with no theme is the normal case, not a failure -- so this always
+' reports success and simply hands back an empty streamUrl. `resolved` says
+' whether the SERVER actually answered: only then may the caller cache the
+' empty result, otherwise a dropped request would look like "no theme" for the
+' rest of the session.
+sub doGetThemeMedia(request as object)
+    itemId = request.itemId
+    url = Http.apiUrl("/Items/" + itemId + "/ThemeMedia")
+    url += "?UserId=" + m.global.userId
+    ' The theme belongs to the series folder and the caller always asks about a
+    ' series, so a season/episode must never borrow one from further up.
+    url += "&InheritFromParent=false"
+    meta = {}
+    result = Http.getJson(url, meta)
+
+    streamUrl = ""
+    if result <> invalid and result.ThemeSongsResult <> invalid and result.ThemeSongsResult.Items <> invalid
+        items = result.ThemeSongsResult.Items
+        if items.count() > 0 and items[0].Id <> invalid
+            streamUrl = themeStreamUrl(items[0].Id)
+        end if
+    end if
+
+    code = 0
+    if meta.statusCode <> invalid then code = meta.statusCode
+    m.top.response = {
+        success: true
+        action: "getThemeMedia"
+        itemId: itemId
+        streamUrl: streamUrl
+        resolved: (code >= 200 and code < 300)
+    }
+end sub
+
+' Audio stream for a theme item. The api_key rides the query string for the
+' same reason the Direct Play video URL above does: the Roku node fetches the
+' stream itself and has no way to attach an Authorization header.
+function themeStreamUrl(themeItemId as string) as string
+    ' No Static=true: the server then guarantees an mp3 body, which is what the
+    ' Audio node is told to expect. A direct-play source already in mp3 is
+    ' still remuxed rather than re-encoded, so this costs nothing.
+    return Http.apiUrl("/Audio/" + themeItemId + "/stream.mp3") + "?api_key=" + m.global.authToken + "&DeviceId=" + m.global.deviceId
+end function
 
 ' Media source details for the detail screen's codec/resolution badges
 sub doGetPlaybackInfo(request as object)

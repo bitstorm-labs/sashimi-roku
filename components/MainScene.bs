@@ -23,6 +23,7 @@ sub init()
         showQualityBadges: (AppSettings.read("showQualityBadges", "true") = "true")
         showReviewRatings: (AppSettings.read("showReviewRatings", "true") = "true")
         useEpisodeRatings: (AppSettings.read("useEpisodeRatings", "false") = "true")
+        playThemeSongs: (AppSettings.read("playThemeSongs", "true") = "true")
     })
 
     initDeviceId()
@@ -37,6 +38,13 @@ sub init()
     ' Global toast overlay (always on top)
     m.toast = createObject("roSGNode", "ToastOverlay")
     m.global.observeFieldScoped("toastMessage", "onGlobalToast")
+
+    ' Theme songs. The player and the per-show visit state live here, at the one
+    ' place that already knows what is current, so screens only ever report
+    ' intent -- no screen starts or stops audio itself. Non-visual, so its
+    ' position among the scene's children does not matter.
+    m.themePlayer = createObject("roSGNode", "ThemeSongPlayer")
+    m.top.appendChild(m.themePlayer)
 
     ' Multi-server: migrate legacy single auth, observe switch requests
     Servers.migrate()
@@ -477,8 +485,52 @@ sub showDetailScreen(itemData as object)
     screen.observeFieldScoped("selectedItem", "onItemSelected")
     screen.observeFieldScoped("playItem", "onPlayItem")
 
+    ' Remember which show this screen counts towards, so popScreen can close the
+    ' visit without re-deriving it from an item the screen may have replaced by
+    ' then. addField keeps the bookkeeping here rather than putting a
+    ' MainScene-only field on MediaDetailScreen's public interface.
+    key = themeKeyFor(itemData)
+    screen.addField("themeKey", "string", false)
+    screen.themeKey = key
+
     pushScreen(screen)
     screen.itemData = itemData
+    enterTheme(key)
+end sub
+
+' ---------- Theme songs ----------
+' See ThemeSongPlayer for the visit model (and for why Roku cannot fade).
+
+' The show a detail screen belongs to. A series is its own key; a season or an
+' episode uses its parent series, which is what makes drilling down inside one
+' show a continuation of the same visit instead of a new one. Everything else
+' -- movies, and deep links that arrive as a bare id with no Type -- has no key
+' and never plays.
+function themeKeyFor(item as object) as string
+    if item = invalid then return ""
+    itemType = ""
+    if item.Type <> invalid then itemType = item.Type
+    if itemType = "Series"
+        if item.Id <> invalid then return item.Id
+    else if itemType = "Season" or itemType = "Episode"
+        if item.SeriesId <> invalid then return item.SeriesId
+    end if
+    return ""
+end function
+
+sub enterTheme(key as string)
+    if key = "" then return
+    m.themePlayer.callFunc("enterSeries", key)
+end sub
+
+' Screens that never carried a key (library grids, the player, deep-link
+' springboards) have no themeKey field at all, hence the hasField guard.
+sub exitTheme(screen as object)
+    if screen = invalid then return
+    if not screen.hasField("themeKey") then return
+    key = screen.themeKey
+    if key = "" then return
+    m.themePlayer.callFunc("exitSeries", key)
 end sub
 
 sub onPlayItem(event as object)
@@ -487,6 +539,12 @@ sub onPlayItem(event as object)
     #if DEBUG
         print "[Nav] Play requested: " + playData.action
     #end if
+
+    ' Every path that starts video or a trailer -- Play, Resume, Shuffle, the
+    ' resolved series/season target, the local trailer, the library grid's
+    ' direct play and both deep-link paths -- funnels through here, so this is
+    ' the one place the theme has to be stopped.
+    m.themePlayer.callFunc("stopPlayback", "playback")
 
     screen = createObject("roSGNode", "PlayerScreen")
     if screen = invalid then return
@@ -505,6 +563,7 @@ sub popScreen()
     if m.navStack.count() = 0 then return
 
     screen = m.navStack.pop()
+    exitTheme(screen)
     m.top.removeChild(screen)
     retireScreen(screen)
 
@@ -521,6 +580,9 @@ sub popScreen()
 end sub
 
 sub clearAllScreens()
+    ' Sign-out and server switch both land here. Cached theme URLs carry the
+    ' outgoing server's token, so the whole session's state goes with them.
+    m.themePlayer.callFunc("resetSession", "session")
     while m.navStack.count() > 0
         screen = m.navStack.pop()
         m.top.removeChild(screen)
