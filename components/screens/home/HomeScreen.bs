@@ -25,7 +25,6 @@ sub init()
     m.rowsInterp = m.top.findNode("rowsInterp")
     m.heroFadeInterp = m.top.findNode("heroFadeInterp")
     m.heroCollapsed = false
-    m.heroBanner.observeFieldScoped("selectedItem", "onHeroItemSelected")
 
     ' State
     m.libraries = []
@@ -1122,13 +1121,6 @@ sub onRelayoutFire()
     end if
 end sub
 
-sub onHeroItemSelected()
-    item = m.heroBanner.selectedItem
-    if item <> invalid
-        m.top.selectedItem = item
-    end if
-end sub
-
 sub onRowItemSelected()
     selectedIndex = m.rowList.rowItemSelected
     if selectedIndex = invalid or selectedIndex.count() < 2 then return
@@ -1169,10 +1161,6 @@ function onKeyEvent(key as string, press as boolean) as boolean
         if key = "options"
             showOptionsDialog()
             return true
-        else if key = "down" and m.heroBanner.isInFocusChain()
-            collapseHero()
-            m.rowList.setFocus(true)
-            return true
         else if key = "up" and m.rowList.isInFocusChain()
             if m.rowList.rowItemFocused <> invalid and m.rowList.rowItemFocused[0] = 0 and m.heroBanner.visible and m.heroCollapsed
                 expandHero()
@@ -1192,8 +1180,7 @@ end function
 ' Navigation now lives in the top tab bar (tvOS parity); options = refresh only.
 sub showOptionsDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
-    dialog.title = "Menu"
-    dialog.message = [""]
+    dialog.title = "Home Options"
     dialog.buttons = ["Refresh", "Cancel"]
     dialog.observeFieldScoped("buttonSelected", "onOptionsButton")
     m.top.getScene().dialog = dialog
@@ -1215,8 +1202,6 @@ sub onOptionsButton()
         if m.startOnRows and m.rowList.visible
             ' Default landing: first Continue Watching card (hero via Up)
             collapseHero()
-            m.rowList.setFocus(true)
-        else if m.heroBanner.visible and m.heroBanner.isInFocusChain()
             m.rowList.setFocus(true)
         else
             m.rowList.setFocus(true)

@@ -169,6 +169,12 @@ sub showKeyboard(title as string, hintText as string, currentText as string, isS
     dialog = createObject("roSGNode", "StandardKeyboardDialog")
     dialog.title = title
     dialog.buttons = ["OK", "Cancel"]
+    ' The address format is the one thing a first-time user has no way to guess,
+    ' and the hint is only visible while the box is empty — so it has to be set
+    ' before the text, not after.
+    if hintText <> ""
+        dialog.textEditBox.hintText = hintText
+    end if
     if currentText <> ""
         dialog.text = currentText
     end if

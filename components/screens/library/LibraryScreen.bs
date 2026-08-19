@@ -230,7 +230,7 @@ sub onShuffleResult(response as object)
     if response.success
         m.global.toastMessage = { message: "Nothing to shuffle in this library" }
     else
-        m.global.toastMessage = { message: "Shuffle failed - check your connection" }
+        m.global.toastMessage = { message: "Shuffle failed. Check your connection." }
     end if
 end sub
 
@@ -311,7 +311,7 @@ sub onLoadFailed(isRefresh as boolean)
         ' A background refresh failing changed nothing the user asked for; a
         ' letter jump, filter change or page-in failing did.
         if not isRefresh
-            m.global.toastMessage = { message: "Couldn't reach the server - try again" }
+            m.global.toastMessage = { message: "Couldn't reach the server. Try again." }
         end if
     else
         showStatus("Couldn't load this library.", true)
@@ -386,18 +386,21 @@ sub updateFilterLabel()
         sortLabel = "Runtime"
     end if
 
-    orderLabel = " (Asc)"
-    if m.sortOrder = "Descending" then orderLabel = " (Desc)"
+    if m.sortOrder = "Descending" then sortLabel += " (descending)"
 
-    filterLabel = ""
+    ' Pipe-delimited "Sort: X (Asc) | Unwatched | Press * for options" read as
+    ' debug output. Same information, written as a sentence, with the bullet
+    ' separator used everywhere else in the app.
+    sep = "   " + Chr(8226) + "   "
+    text = "Sorted by " + sortLabel
     if m.filterPlayed = true
-        filterLabel = " | Watched"
+        text += sep + "Watched"
     else if m.filterPlayed = false
-        filterLabel = " | Unwatched"
+        text += sep + "Unwatched"
     end if
-    if m.filterFavorite = true then filterLabel += " | Favorites"
+    if m.filterFavorite = true then text += sep + "Favorites"
 
-    m.filterLabel.text = "Sort: " + sortLabel + orderLabel + filterLabel + " | Press * for options"
+    m.filterLabel.text = text + sep + "Press * for options"
 end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
@@ -469,7 +472,6 @@ end sub
 sub showSortFilterDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Sort & Filter"
-    dialog.message = [""]
     dialog.buttons = ["Sort...", "Filter...", "Cancel"]
     dialog.observeFieldScoped("buttonSelected", "onSortFilterButton")
     m.top.getScene().dialog = dialog
@@ -492,7 +494,6 @@ end sub
 sub showSortDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Sort"
-    dialog.message = [""]
     orderBtn = "Order: Ascending"
     if m.sortOrder = "Descending" then orderBtn = "Order: Descending"
     dialog.buttons = [
@@ -552,7 +553,6 @@ end sub
 sub showFilterDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Filter"
-    dialog.message = [""]
     dialog.buttons = ["All", "Unwatched", "Watched", "Favorites", "Cancel"]
     dialog.observeFieldScoped("buttonSelected", "onFilterButton")
     m.top.getScene().dialog = dialog

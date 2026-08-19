@@ -13,13 +13,6 @@ namespace Registry
         sec.Flush()
     end sub
 
-    sub delete(section as string, key as string)
-        sec = CreateObject("roRegistrySection", section)
-        if sec = invalid then return
-        sec.Delete(key)
-        sec.Flush()
-    end sub
-
     sub deleteSection(section as string)
         sec = CreateObject("roRegistrySection", section)
         if sec = invalid then return

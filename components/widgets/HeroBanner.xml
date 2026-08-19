@@ -2,7 +2,6 @@
 <component name="HeroBanner" extends="Group">
     <interface>
         <field id="content" type="node" onChange="onContentChanged" />
-        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
         <!-- Owning screen's shutter for the rotator: this node's own `visible`
              stays true when the *screen* is hidden (SceneGraph doesn't
              propagate it), so the screen has to say so explicitly. -->

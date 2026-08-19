@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <component name="HomeScreen" extends="Group">
     <interface>
-        <field id="signOut" type="boolean" value="false" alwaysNotify="true" />
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
-        <field id="openSearch" type="boolean" value="false" alwaysNotify="true" />
-        <field id="selectedLibrary" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
         <!-- Background (tvOS: vertical gradient background -> black) -->

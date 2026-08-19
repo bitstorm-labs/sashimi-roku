@@ -67,6 +67,7 @@ sub init()
     m.tpTime = m.top.findNode("trickplayTime")
     m.tp = invalid       ' trick-play geometry for the current item (cert 4.7)
     m.tpSheet = -1       ' sheet already loaded, so scrubbing doesn't refetch it
+    m.tpDeferred = invalid ' metadata held back until a real duration is known
     m.bufferTimer.observeFieldScoped("fire", "onBufferTimer")
     ' Cert 4.8: honour the Roku-level caption setting. Subtitles here are burned
     ' in server-side, so there is no native caption track for Roku to toggle --
@@ -168,6 +169,9 @@ sub onItemDataChanged()
     m.statusLabel.text = "Loading..."
     m.startedReported = false
     m.stoppedReported = false
+    ' Per-item, like the flags above: a stale lastPosition from the previous item
+    ' would be reported as this one's stop position.
+    m.lastPosition = 0
     m.stepDownIdx = -1        ' fresh item starts at full quality
     m.stepDownBps = 0
     setChapters(data)
@@ -295,8 +299,21 @@ end sub
 
 sub exitPlayer()
     m.bufferTimer.control = "stop"
+    m.progressTimer.control = "stop"
     m.video.control = "stop"
-    reportStopped(currentTicks())
+    ' Report a stop ONLY if a start was reported. currentTicks() reads
+    ' m.video.position, which is 0 until the stream actually begins, so Back
+    ' during "Loading..." used to POST PositionTicks 0 to
+    ' /Sessions/Playing/Stopped and reset the Jellyfin bookmark to zero — a
+    ' viewer resuming at 32:00 who backed out mid-negotiation lost their place.
+    ' Nothing opened a session on that path either (reportStart is sent from the
+    ' "playing" state), so there is nothing to close. Same m.startedReported
+    ' guard the retry paths above use, for the same reason.
+    '
+    ' Position comes from m.lastPosition, not m.video.position: the Video node
+    ' has already been stopped by the line above, and this path is also reached
+    ' from the playback-error dialog where the node has errored out.
+    if m.startedReported then reportStopped(Int(m.lastPosition) * 10000000&)
     m.top.done = true
 end sub
 
@@ -346,18 +363,30 @@ sub onStreamReady(r as object)
         m.subPrefApplied = true
         want = m.global.sessionSubtitleTitle
         pick = -1
+
+        ' WHICH track: the one remembered this session, if this file has it.
+        remembered = -1
         if want <> invalid and want <> "" and want <> "OFF"
             for each t in m.subTracks
-                if t.title = want and pick = -1 then pick = t.index
+                if t.title = want and remembered = -1 then remembered = t.index
             end for
-        else if (want = invalid or want = "") and m.subTracks.count() > 0
-            ' Precedence: an explicit choice this session wins (handled above),
-            ' then the Roku global caption setting, then the app's own
-            ' Subtitles-On-By-Default preference.
-            if captionsMode() = "On" or AppSettings.subtitlesDefaultOn()
-                pick = m.subTracks[0].index
-            end if
         end if
+
+        ' WHETHER subtitles are on. Precedence, cert 4.8: the Roku global caption
+        ' setting wins at the start of every playback. An in-app "Subtitles Off"
+        ' applies to the playback it was made in — it used to write "OFF" here and
+        ' suppress captions for the whole app session, silently overriding a
+        ' system setting the user had turned on. Below the global: an explicit
+        ' in-session track choice, then Subtitles-On-By-Default.
+        if captionsMode() = "On" and m.subTracks.count() > 0
+            pick = remembered
+            if pick = -1 then pick = m.subTracks[0].index
+        else if remembered >= 0
+            pick = remembered
+        else if (want = invalid or want = "") and m.subTracks.count() > 0 and AppSettings.subtitlesDefaultOn()
+            pick = m.subTracks[0].index
+        end if
+
         if pick >= 0
             m.curSubIdx = pick
             requestStream(m.item)
@@ -476,7 +505,9 @@ sub onVideoState()
         ' mark-played or auto-advance. The error branch handles recovery;
         ' a genuine end-of-episode lands within 30s of the runtime.
         nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
-        print "[Player] finished pos="; Int(m.video.position); " dur="; m.durationSecs; " started="; m.startedReported; " nearEnd="; nearEnd; " method="; m.playMethod
+        #if DEBUG
+            print "[Player] finished pos="; Int(m.video.position); " dur="; m.durationSecs; " started="; m.startedReported; " nearEnd="; nearEnd; " method="; m.playMethod
+        #end if
         if m.startedReported and nearEnd
             onPlaybackEnded()
         else if m.startedReported and not m.errorDialogUp and m.pendingStartSecs < 0
@@ -486,7 +517,9 @@ sub onVideoState()
             ' dialog), exit cleanly instead. Deliberately NOT mark-played and
             ' NOT auto-advance: the near-end gate above exists to block Roku's
             ' spurious finished-after-error, and this branch keeps that.
-            print "[Player] finished early - exiting cleanly"
+            #if DEBUG
+                print "[Player] finished early - exiting cleanly"
+            #end if
             exitPlayer()
         end if
     else if state = "error"
@@ -496,7 +529,9 @@ sub onVideoState()
         ' A finish/error genuinely near the end is not a stall (also gates the
         ' step-down below).
         nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
-        print "[Player] VIDEO ERROR code="; m.video.errorCode; " method="; m.playMethod; " started="; m.startedReported; " nearEnd="; nearEnd; " stepDownIdx="; m.stepDownIdx
+        #if DEBUG
+            print "[Player] VIDEO ERROR code="; m.video.errorCode; " method="; m.playMethod; " started="; m.startedReported; " nearEnd="; nearEnd; " stepDownIdx="; m.stepDownIdx
+        #end if
         ' errorMsg/errorInfo can embed the stream URL, which carries
         ' api_key=<token> — DEBUG builds only
         #if DEBUG
@@ -587,6 +622,13 @@ end sub
 
 sub onDuration()
     if m.video.duration <> invalid and m.video.duration > 0 then m.durationSecs = m.video.duration
+    ' Trick-play held back because the duration was still 0 when the stream
+    ' metadata arrived (see setTrickplay). The Video node now knows the real
+    ' length, so the 15-minute gate can finally be judged on a true number.
+    if m.tpDeferred <> invalid and m.durationSecs > 900
+        deferred = m.tpDeferred
+        setTrickplay(deferred.info, deferred.itemId)
+    end if
 end sub
 
 sub onPosition()
@@ -620,7 +662,9 @@ sub checkSegment(posSecs as dynamic)
         if autoSkip and not m.skippedSegments.DoesExist(segKey)
             m.skippedSegments[segKey] = true
             m.seeking = false
-            print "[Player] skip seek -> "; Int(active.endSec); " dur="; m.durationSecs
+            #if DEBUG
+                print "[Player] skip seek -> "; Int(active.endSec); " dur="; m.durationSecs
+            #end if
             m.video.seek = active.endSec
             m.curSegment = invalid
             hideSkipPill()
@@ -648,7 +692,9 @@ end sub
 sub skipCurrentSegment()
     if m.curSegment = invalid then return
     m.seeking = false
-    print "[Player] skip seek -> "; Int(m.curSegment.endSec); " dur="; m.durationSecs
+    #if DEBUG
+        print "[Player] skip seek -> "; Int(m.curSegment.endSec); " dur="; m.durationSecs
+    #end if
     m.video.seek = m.curSegment.endSec
     m.curSegment = invalid
     hideSkipPill()
@@ -1025,16 +1071,19 @@ sub onCaptionTimer()
     applyCaptionsMode(mode)
 end sub
 
-' "On instant replay" and "When mute" are dynamic modes that a burned-in
-' subtitle track cannot follow (the burn-in is baked into the transcode), so
-' they are deliberately left alone rather than half-honoured.
+' "On instant replay" and "When mute" are dynamic modes: subtitles here are
+' burned into the transcode, so they cannot appear and disappear on cue. They
+' are treated as "not always on" and burn-in is cleared, rather than ignored —
+' onCaptionTimer advances m.lastCaptionsMode before dispatching, so an ignored
+' mode consumed the change and left subtitles burned in permanently, with no way
+' for the OS setting to clear them short of cycling back through "Off".
 sub applyCaptionsMode(mode as string)
     if mode = "On"
         if m.curSubIdx <> -1 or m.subTracks.count() = 0 then return
         m.curSubIdx = m.subTracks[0].index
         m.global.sessionSubtitleTitle = m.subTracks[0].title
         restartStream()
-    else if mode = "Off"
+    else
         if m.curSubIdx = -1 then return
         m.curSubIdx = -1
         m.global.sessionSubtitleTitle = "OFF"
@@ -1094,11 +1143,21 @@ end sub
 sub setTrickplay(info as object, itemId as dynamic)
     m.tp = invalid
     m.tpSheet = -1
+    m.tpDeferred = invalid
     hideTrickplay()
     if info = invalid or itemId = invalid or itemId = "" then return
     ' Cert 4.7 only asks for thumbnails above 15 minutes, and a short clip
     ' yields too few tiles to be worth the fetch.
-    if m.durationSecs <= 900 then return
+    if m.durationSecs <= 900
+        ' A zero duration is NOT a short clip: a server that omits
+        ' MediaSources[0].RunTimeTicks (and the autoplay-next reset) leaves it
+        ' at 0, which trips the same gate and used to disable trick-play for
+        ' the whole item -- onDuration learns the real runtime from the Video
+        ' node seconds later but never came back here. Hold the metadata so it
+        ' can re-run this once the length is actually known.
+        if m.durationSecs <= 0 then m.tpDeferred = { info: info, itemId: itemId }
+        return
+    end if
 
     best = invalid
     for each srcId in info
@@ -1167,7 +1226,11 @@ sub showTrickplay(position as dynamic)
     x = knobX - Int(m.tp.width / 2)
     if x < 80 then x = 80
     if x > 1840 - m.tp.width then x = 1840 - m.tp.width
-    y = 1003 - m.tp.height - 46
+    ' Sit the whole assembly (frame + timestamp) ABOVE the OSD button row,
+    ' whose top edge is 876 -- it used to be anchored off the scrubber and so
+    ' covered Play and Start Over for the entire scrub. 34 = the 6px gap under
+    ' the frame plus the timestamp line; 16 keeps a gap above the buttons.
+    y = 876 - 16 - 34 - m.tp.height
 
     m.tpGroup.translation = [x, y]
     m.tpTime.translation = [x, y + m.tp.height + 6]
@@ -1426,7 +1489,9 @@ sub onPlaybackEnded()
     autoplay = AppSettings.autoPlayNextEpisode()
     itemType = ""
     if m.item.Type <> invalid then itemType = m.item.Type
-    print "[Player] ended autoplay="; autoplay; " type="; itemType; " hasSeasonId="; (m.item.SeasonId <> invalid)
+    #if DEBUG
+        print "[Player] ended autoplay="; autoplay; " type="; itemType; " hasSeasonId="; (m.item.SeasonId <> invalid)
+    #end if
     if autoplay and itemType = "Episode" and m.item.SeasonId <> invalid
         m.statusLabel.visible = true
         m.statusLabel.text = "Up next..."
@@ -1450,12 +1515,16 @@ sub onSiblingsLoaded(r as object)
     if not r.success
         if not m.siblingsRetried
             m.siblingsRetried = true
-            print "[Player] siblings fetch failed - retrying once"
+            #if DEBUG
+                print "[Player] siblings fetch failed - retrying once"
+            #end if
             enqueue({ action: "getSiblingEpisodes", parentId: m.item.SeasonId })
             armStallWatchdog()
             return
         end if
-        print "[Player] autoplay giving up: siblings fetch failed twice"
+        #if DEBUG
+            print "[Player] autoplay giving up: siblings fetch failed twice"
+        #end if
         m.bufferTimer.control = "stop"
         m.top.done = true
         return
@@ -1485,11 +1554,14 @@ sub onSiblingsLoaded(r as object)
     if r.items <> invalid then n = r.items.count()
     nextIdx = -1
     if nextEp <> invalid and nextEp.IndexNumber <> invalid then nextIdx = nextEp.IndexNumber
-    print "[Player] siblings n="; n; " curIdx="; curIdx; " next="; nextIdx
+    #if DEBUG
+        print "[Player] siblings n="; n; " curIdx="; curIdx; " next="; nextIdx
+    #end if
 
     if nextEp <> invalid
         m.stoppedReported = false
         m.startedReported = false
+        m.lastPosition = 0
         m.top.playAction = "play"
         m.item = nextEp
         ' Everything per-ITEM has to reset here, not just the track indexes —
@@ -1516,7 +1588,9 @@ sub onSiblingsLoaded(r as object)
     else
         ' Season genuinely over (or this item carries no IndexNumber to
         ' advance from) — a normal end, same behavior as before.
-        print "[Player] autoplay done: no next episode in season"
+        #if DEBUG
+            print "[Player] autoplay done: no next episode in season"
+        #end if
         m.bufferTimer.control = "stop"
         m.top.done = true
     end if

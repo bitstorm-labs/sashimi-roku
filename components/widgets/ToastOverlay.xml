@@ -9,17 +9,21 @@
             visible="false"
             color="#333333"
             opacity="0.9"
-            width="600"
+            width="900"
             height="80"
-            translation="[660, 50]"
+            translation="[510, 50]"
 
         >
+            <!-- 560 clipped every toast past ~34 characters mid-word, e.g.
+                 "Couldn't update. Check your connec...". Widened (and kept
+                 centred: (1920-900)/2 = 510) so the copy that ships is the
+                 copy that is read. -->
             <Label
                 id="toastLabel"
                 text=""
                 font="font:SmallSystemFont"
                 color="#FFFFFF"
-                width="560"
+                width="860"
                 height="80"
                 horizAlign="center"
                 vertAlign="center"
