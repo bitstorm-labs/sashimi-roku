@@ -129,6 +129,16 @@ sub onApiResponse()
             ' the just-toggled show otherwise lingers in Continue Watching.
             m.global.watchStateDirty = true
             enqueue({ action: "getItem", itemId: m.item.Id })
+        else if not response.success
+            ' These writes used to report success unconditionally, so "Updated"
+            ' appeared over a row the server had never changed. Say so instead.
+            m.global.toastMessage = { message: watchStateFailureMessage() }
+        end if
+    else if action = "markFavorite" or action = "removeFavorite"
+        ' The re-fetch that repaints the row is already queued by the caller;
+        ' only the failure needs saying out loud.
+        if not response.success
+            m.global.toastMessage = { message: watchStateFailureMessage() }
         end if
     else if action = "getItems"
         if response.context <> invalid and response.context = "playTargetUnwatched"
@@ -149,6 +159,31 @@ sub onApiResponse()
     end if
     pumpQueue()
 end sub
+
+function watchStateFailureMessage() as string
+    return "Couldn't update. Check your connection."
+end function
+
+' What a deep link is allowed to resolve to: something this screen can play, or
+' one of the two container types it can draw a springboard for. Anything else
+' (a library, the Media Folders root, a playlist) is treated as an invalid
+' contentId. Roku's eight deep-link mediaTypes all land on one of these.
+function isDeepLinkableType(itemType as string) as boolean
+    allowed = {
+        Movie: true,
+        Episode: true,
+        Video: true,
+        MusicVideo: true,
+        Trailer: true,
+        Program: true,
+        Recording: true,
+        TvChannel: true,
+        LiveTvChannel: true,
+        Series: true,
+        Season: true
+    }
+    return (allowed[itemType] = true)
+end function
 
 sub onFocusDelegate()
     if not m.top.hasFocus() then return
@@ -229,7 +264,7 @@ sub onItemLoaded(response as object)
         else if m.item <> invalid
             ' A re-fetch after a watched-state toggle failing changes nothing
             ' that is already on screen — keep the detail and just say so.
-            m.global.toastMessage = { message: "Couldn't reach the server - try again" }
+            m.global.toastMessage = { message: "Couldn't reach the server. Try again." }
         else
             ' In-app navigation has a screen to go back to, so stay put and
             ' offer a retry instead of popping the user home.
@@ -243,6 +278,19 @@ sub onItemLoaded(response as object)
     item = m.item
     m.itemType = ""
     if item.Type <> invalid then m.itemType = item.Type
+
+    ' Cert 5.2: an invalid contentId must show an error and land on home. A
+    ' nonexistent id normally 404s and the failure branch above handles it --
+    ' but a WELL-FORMED one need not. Jellyfin answers an all-zeros GUID with
+    ' HTTP 200 and the Media Folders root (Type "UserRootFolder"), which used
+    ' to be handed straight to the player and produced the player's own
+    ' "Can't play this item" dialog instead of the home screen a reviewer
+    ' inventing a fake id is entitled to see.
+    if m.isDeepLink and not isDeepLinkableType(m.itemType)
+        m.top.autoPlay = false
+        m.top.deepLinkFailed = true
+        return
+    end if
 
     m.isYouTube = YT.isItem(item, m.forceYouTube)
 
@@ -1074,11 +1122,9 @@ sub showMoreDialog()
     if m.item.Overview <> invalid then overview = m.item.Overview
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = m.item.Name
-    if overview <> ""
-        dialog.message = [overview]
-    else
-        dialog.message = [""]
-    end if
+    ' Leave message unset when there is no overview -- [""] renders as a blank
+    ' line above the buttons, which looks like a label that failed to load.
+    if overview <> "" then dialog.message = [overview]
     dialog.buttons = [favLabel, "Cancel"]
     dialog.observeFieldScoped("buttonSelected", "onMoreDialogButton")
     m.top.getScene().dialog = dialog

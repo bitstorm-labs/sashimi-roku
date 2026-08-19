@@ -1180,8 +1180,7 @@ end function
 ' Navigation now lives in the top tab bar (tvOS parity); options = refresh only.
 sub showOptionsDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
-    dialog.title = "Menu"
-    dialog.message = [""]
+    dialog.title = "Home Options"
     dialog.buttons = ["Refresh", "Cancel"]
     dialog.observeFieldScoped("buttonSelected", "onOptionsButton")
     m.top.getScene().dialog = dialog

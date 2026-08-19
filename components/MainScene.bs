@@ -220,7 +220,6 @@ sub showServerSwitchDialog()
     m.svChoices = Servers.getAll()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Switch Server"
-    dialog.message = [""]
     buttons = []
     activeId = Servers.getActiveId()
     for each s in m.svChoices
@@ -295,7 +294,7 @@ sub onSessionExpired()
     m.global.serverUrl = ""
     m.global.authToken = ""
     m.global.userId = ""
-    m.global.toastMessage = { message: "Session expired - please sign in again" }
+    m.global.toastMessage = { message: "Session expired. Please sign in again." }
     showAuthScreen()
 end sub
 
