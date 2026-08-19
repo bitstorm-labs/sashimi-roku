@@ -760,7 +760,7 @@ sub doGetHeroMedia(request as object)
     #if DEBUG
         print "[API] Getting hero media (parentId=" + parentId + ", limit=" + str(limit) + ")"
     #end if
-    m.top.response = { success: true, action: "getHeroMedia", items: fetchLatestItems(parentId, limit), parentId: parentId }
+    m.top.response = { success: true, action: "getHeroMedia", items: fetchLatestItems(parentId, limit, false), parentId: parentId }
 end sub
 
 ' /Users/{id}/Items/Latest for one library (all libraries when parentId is
@@ -768,11 +768,17 @@ end sub
 ' new episodes is grouped into its Series, so the answer is a mix of Episode,
 ' Movie and Series. Returns [] on any failure, which every caller renders as an
 ' empty row / no hero slides.
-function fetchLatestItems(parentId as string, limit as integer) as object
+function fetchLatestItems(parentId as string, limit as integer, groupItems = true as boolean) as object
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items/Latest")
     url += "?Limit=" + str(limit).Trim()
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    ' Grouping is ON by default (the row wants it: a channel's burst of new
+    ' videos should be one card, not five). The hero asks for it OFF — grouped,
+    ' a channel that posted several videos collapses into its Series and the
+    ' hero shows the CHANNEL instead of a video. Verified against the server:
+    ' grouped returns a Series/Episode mix, ungrouped returns 10/10 Episodes.
+    if not groupItems then url += "&GroupItems=false"
     if parentId <> "" then url += "&ParentId=" + parentId
     result = Http.getJson(url)
     if result = invalid then return []
