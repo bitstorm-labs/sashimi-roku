@@ -214,7 +214,30 @@ sub activateRow(index as integer)
         openHomeRowsEditor()
     else if item.kind = "signout"
         showSignOutDialog()
+    else if item.kind = "info"
+        ' The Version row is display-only, but swallowing OK with no feedback
+        ' at all reads as a broken control. Show the same information properly
+        ' rather than pretending the row is interactive.
+        showAboutDialog()
     end if
+end sub
+
+sub showAboutDialog()
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "About Sashimi"
+    dialog.message = [
+        "Sashimi for Roku " + m.versionText,
+        "A client for your own Jellyfin media server."
+    ]
+    dialog.buttons = ["Close"]
+    dialog.observeFieldScoped("buttonSelected", "onAboutButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onAboutButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    dialog.close = true
 end sub
 
 sub showSignOutDialog()
@@ -302,7 +325,9 @@ sub renderHomeRows()
         bg.width = 1920
         bg.height = 1080
         bg.color = "#121215"
-        bg.opacity = 0.97
+        ' Same reason as the Servers panel above -- this overlay sat over the
+        ' "Settings" heading too.
+        bg.opacity = 1.0
         m.hrPanel.appendChild(bg)
         title = CreateObject("roSGNode", "Label")
         title.text = "Home Screen Rows"
@@ -432,7 +457,11 @@ sub renderServers()
         bg.width = 1920
         bg.height = 1080
         bg.color = "#121215"
-        bg.opacity = 0.97
+        ' Fully opaque: at 0.97 the screen's own "Settings" heading showed
+        ' through directly under this panel's "Servers" title, and the whole
+        ' settings list ghosted behind the rows. Two headings stacked on one
+        ' another is the most obviously unfinished thing on the screen.
+        bg.opacity = 1.0
         m.svPanel.appendChild(bg)
         t = CreateObject("roSGNode", "Label")
         t.text = "Servers"

@@ -39,6 +39,36 @@ sub init()
     m.toast = createObject("roSGNode", "ToastOverlay")
     m.global.observeFieldScoped("toastMessage", "onGlobalToast")
 
+    ' Deep-link cover. A direct-play deep link keeps its detail screen hidden
+    ' until it hands off to the player (see processDeepLink), and pushScreen
+    ' hides the previous screen and the sidebar — so against an unreachable
+    ' server NOTHING was drawn until the request expired. Up to 30s of pure
+    ' black is the dead-end shape cert 3.4 is written against, on the exact path
+    ' reviewers test. Painted in the manifest's splash colour so the handover
+    ' from the OS splash is seamless.
+    m.deepLinkCover = createObject("roSGNode", "Group")
+    m.deepLinkCover.visible = false
+    coverBg = m.deepLinkCover.createChild("Rectangle")
+    coverBg.width = 1920
+    coverBg.height = 1080
+    coverBg.color = "#1a1a2e"
+    coverLabel = m.deepLinkCover.createChild("Label")
+    coverLabel.text = "Loading..."
+    coverLabel.color = "#8C8C8C"
+    coverLabel.horizAlign = "center"
+    coverLabel.width = 1920
+    coverLabel.translation = [0, 520]
+    m.top.appendChild(m.deepLinkCover)
+
+    ' ...and don't sit behind it for the full HTTP timeout either. 15s matches
+    ' cert 3.2's own "something on screen by now" number and still leaves ample
+    ' room for a single getItem against a slow remote server.
+    m.deepLinkTimer = CreateObject("roSGNode", "Timer")
+    m.deepLinkTimer.repeat = false
+    m.deepLinkTimer.duration = 15
+    m.deepLinkTimer.observeFieldScoped("fire", "onDeepLinkTimeout")
+    m.top.appendChild(m.deepLinkTimer)
+
     ' Theme songs. The player and the per-show visit state live here, at the one
     ' place that already knows what is current, so screens only ever report
     ' intent -- no screen starts or stops audio itself. Non-visual, so its
@@ -149,7 +179,25 @@ sub processDeepLink()
         screen.visible = false
     end if
     pushScreen(screen)
+    if isDirectPlayType(dl.mediaType)
+        ' Only the hidden path needs covering; a season springboard is visible
+        ' and draws its own "Loading..." while it resolves. pushScreen has
+        ' already lifted the cover above the new screen.
+        m.deepLinkCover.visible = true
+        m.deepLinkTimer.control = "start"
+    end if
     screen.itemData = item
+end sub
+
+' The link resolved (or failed) — take the cover down and disarm the watchdog.
+sub endDeepLinkWait()
+    m.deepLinkTimer.control = "stop"
+    m.deepLinkCover.visible = false
+end sub
+
+sub onDeepLinkTimeout()
+    ' Reached only while the cover is still up, i.e. the item never resolved.
+    failDeepLink()
 end sub
 
 ' Invalid contentId / unavailable content: the spec requires an error message
@@ -160,6 +208,7 @@ sub onDeepLinkFailed(event as object)
 end sub
 
 sub failDeepLink()
+    endDeepLinkWait()
     while m.navStack.count() > 0
         popScreen()
     end while
@@ -171,7 +220,6 @@ sub showServerSwitchDialog()
     m.svChoices = Servers.getAll()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Switch Server"
-    dialog.message = [""]
     buttons = []
     activeId = Servers.getActiveId()
     for each s in m.svChoices
@@ -246,7 +294,7 @@ sub onSessionExpired()
     m.global.serverUrl = ""
     m.global.authToken = ""
     m.global.userId = ""
-    m.global.toastMessage = { message: "Session expired - please sign in again" }
+    m.global.toastMessage = { message: "Session expired. Please sign in again." }
     showAuthScreen()
 end sub
 
@@ -368,10 +416,7 @@ function getOrCreateRootScreen(choice as object) as object
     kind = choice.kind
     if kind = "home"
         screen = createObject("roSGNode", "HomeScreen")
-        screen.observeFieldScoped("signOut", "onSignOut")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
-        screen.observeFieldScoped("openSearch", "onOpenSearchTab")
-        screen.observeFieldScoped("selectedLibrary", "onLibrarySelected")
     else if kind = "search"
         screen = createObject("roSGNode", "SearchScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
@@ -408,10 +453,13 @@ sub switchSelection(choice as object)
     end if
 end sub
 
-' Keep sidebar + toast as the topmost scene children.
+' Keep the deep-link cover, sidebar and toast as the topmost scene children, in
+' that order.
 ' Re-parenting a focused node orphans remote focus — preserve and restore it.
 sub liftOverlays()
     hadFocus = m.sidebar.isInFocusChain()
+    m.top.removeChild(m.deepLinkCover)
+    m.top.appendChild(m.deepLinkCover)
     m.top.removeChild(m.sidebar)
     m.top.appendChild(m.sidebar)
     m.top.removeChild(m.toast)
@@ -436,24 +484,7 @@ sub onSidebarSwitchServer()
     showServerSwitchDialog()
 end sub
 
-sub onOpenSearchTab()
-    switchSelection({ kind: "search" })
-    screen = m.rootScreens["search"]
-    if screen <> invalid then screen.setFocus(true)
-end sub
-
 ' ---------- Push stack (grid + detail) ----------
-
-sub onLibrarySelected(event as object)
-    lib = event.getData()
-    if lib = invalid then return
-
-    screen = createObject("roSGNode", "LibraryScreen")
-    screen.observeFieldScoped("selectedItem", "onItemSelected")
-    screen.observeFieldScoped("playItem", "onPlayItem")
-    pushScreen(screen)
-    screen.libraryData = lib
-end sub
 
 sub onItemSelected(event as object)
     item = event.getData()
@@ -536,6 +567,15 @@ end sub
 sub onPlayItem(event as object)
     playData = event.getData()
     if playData = invalid or playData.item = invalid then return
+    ' A screen that has already been discarded — a deep link the watchdog gave
+    ' up on, say — can still land a late response and ask for playback. Its
+    ' observers outlive its parenting, so the parent is the reliable test: a
+    ' retired screen has been removeChild'd and must not open a player behind
+    ' the home screen the viewer was just returned to.
+    src = event.getRoSGNode()
+    if src <> invalid and src.getParent() = invalid then return
+    ' Whatever it was waiting on has arrived — including a deep link handing off.
+    endDeepLinkWait()
     #if DEBUG
         print "[Nav] Play requested: " + playData.action
     #end if
@@ -561,6 +601,9 @@ end sub
 
 sub popScreen()
     if m.navStack.count() = 0 then return
+    ' Backing out of a still-resolving deep link must take its cover with it,
+    ' or the app is left staring at an unattached "Loading...".
+    endDeepLinkWait()
 
     screen = m.navStack.pop()
     exitTheme(screen)
@@ -583,6 +626,7 @@ sub clearAllScreens()
     ' Sign-out and server switch both land here. Cached theme URLs carry the
     ' outgoing server's token, so the whole session's state goes with them.
     m.themePlayer.callFunc("resetSession", "session")
+    endDeepLinkWait()
     while m.navStack.count() > 0
         screen = m.navStack.pop()
         m.top.removeChild(screen)

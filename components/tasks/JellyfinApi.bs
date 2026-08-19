@@ -29,7 +29,10 @@ sub processRequest()
 
     action = request.action
     if action = invalid or action = ""
-        m.top.response = { success: false, error: "No action specified", action: "" }
+        #if DEBUG
+            print "[API] Request with no action"
+        #end if
+        m.top.response = { success: false, error: genericFailureMessage(), action: "" }
         return
     end if
 
@@ -110,7 +113,10 @@ sub processRequest()
     else if action = "removeFavorite"
         doRemoveFavorite(request)
     else
-        m.top.response = { success: false, error: "Unknown action: " + action, action: action }
+        #if DEBUG
+            print "[API] Unknown action: " + action
+        #end if
+        m.top.response = { success: false, error: genericFailureMessage(), action: action }
     end if
 end sub
 
@@ -208,7 +214,7 @@ function probePublicInfo(serverUrl as string) as object
         #if DEBUG
             print "[API] AsyncGetToString failed to start"
         #end if
-        return { ok: false, info: invalid, statusCode: -1, error: "Failed to start request." }
+        return { ok: false, info: invalid, statusCode: -1, error: "Could not reach the server. Check the address and that the server is running." }
     end if
 
     msg = wait(10000, port)
@@ -224,7 +230,7 @@ function probePublicInfo(serverUrl as string) as object
         #if DEBUG
             print "[API] Unexpected message type: " + type(msg)
         #end if
-        return { ok: false, info: invalid, statusCode: -1, error: "Unexpected response." }
+        return { ok: false, info: invalid, statusCode: -1, error: "That address answered, but not as a Jellyfin server." }
     end if
 
     code = msg.GetResponseCode()
@@ -236,7 +242,7 @@ function probePublicInfo(serverUrl as string) as object
         #if DEBUG
             print "[API] Connection error: " + msg.GetFailureReason()
         #end if
-        return { ok: false, info: invalid, statusCode: code, error: "Could not reach the server: " + msg.GetFailureReason() }
+        return { ok: false, info: invalid, statusCode: code, error: "Could not reach the server. Check the address and that the server is running." }
     end if
 
     if code >= 300 and code < 400
@@ -256,7 +262,27 @@ function probePublicInfo(serverUrl as string) as object
         return { ok: false, info: invalid, statusCode: code, error: "That address answered, but not as a Jellyfin server." }
     end if
 
-    return { ok: false, info: invalid, statusCode: code, error: "Server returned error code " + str(code).Trim() + "." }
+    return { ok: false, info: invalid, statusCode: code, error: probeFailureMessage(code) }
+end function
+
+' User-facing copy for a probe that reached something but did not get a Jellyfin
+' server back. The status code itself is a diagnostic, not a sentence anyone can
+' act on, so it stays behind the #if DEBUG above and never reaches the screen.
+function probeFailureMessage(code as integer) as string
+    if code = 401 or code = 403
+        return "That server would not accept the connection. Check the address."
+    else if code = 404
+        return "Nothing answered as a Jellyfin server at that address. Check the address and the port."
+    else if code >= 500
+        return "The server is there but not answering properly right now. Try again in a moment."
+    end if
+    return "That address answered, but not as a Jellyfin server."
+end function
+
+' Anything the user cannot act on and must never see the internals of. Callers
+' log the specifics behind #if DEBUG.
+function genericFailureMessage() as string
+    return "Something went wrong. Try again."
 end function
 
 sub doAuthenticate(request as object)
@@ -331,10 +357,12 @@ function authFailureMessage(code as integer) as string
         return "The server redirected sign-in to another address. Check the server address."
     else if code = 0
         return "The server did not respond in time."
+    else if code >= 500
+        return "The server could not sign you in right now. Try again in a moment."
     else if code > 0
-        return "Sign-in failed: server returned error code " + str(code).Trim() + "."
+        return "The server would not accept the sign-in. Check the server address, username and password."
     end if
-    return "Could not reach server."
+    return "Could not reach the server. Check the address and that the server is running."
 end function
 
 ' ---------- Quick Connect ----------
@@ -1048,6 +1076,11 @@ sub doSearch(request as object)
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
         m.top.response = { success: true, action: "search", items: result.Items, query: query }
+    else if result = invalid
+        ' A request that never came back is not an empty library. Reporting it as
+        ' one told the user "No results found for ..." about content they have --
+        ' the screen already has the right message for this, it just never ran.
+        m.top.response = { success: false, action: "search", items: [], query: query, error: "Couldn't search right now. Check your connection and try again." }
     else
         m.top.response = { success: true, action: "search", items: [], query: query }
     end if
@@ -1358,17 +1391,26 @@ sub doGetSiblingEpisodes(request as object)
     meta = {}
     result = Http.getJson(url, meta)
     if result <> invalid and result.Items <> invalid
-        print "[API] siblings http="; meta.statusCode; " n="; result.Items.count()
+        #if DEBUG
+            print "[API] siblings http="; meta.statusCode; " n="; result.Items.count()
+        #end if
         m.top.response = { success: true, action: "getSiblingEpisodes", items: result.Items }
     else
         ' A failed fetch (timeout / non-2xx / bad JSON) is NOT an empty season.
         ' success=false lets the player retry instead of concluding "no next
         ' episode" off a dropped request — that misread was the top suspect for
         ' intermittent "autoplay didn't fire" reports.
-        print "[API] siblings http="; meta.statusCode; " n=-1"
+        #if DEBUG
+            print "[API] siblings http="; meta.statusCode; " n=-1"
+        #end if
         m.top.response = { success: false, action: "getSiblingEpisodes", items: [] }
     end if
 end sub
+
+' The four watch-state writes below used to report success: true no matter what
+' the server said, so a dead server still toasted "Updated" over a row that had
+' not moved. postJson returns invalid on any non-2xx or timeout; deleteRequest
+' returns the HTTP code (or -1 when the request never left).
 
 sub doMarkPlayed(request as object)
     itemId = request.itemId
@@ -1376,8 +1418,8 @@ sub doMarkPlayed(request as object)
         print "[API] Marking played: " + itemId
     #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
-    Http.postJson(url, invalid)
-    m.top.response = { success: true, action: "markPlayed", itemId: itemId }
+    ok = (Http.postJson(url, invalid) <> invalid)
+    m.top.response = { success: ok, action: "markPlayed", itemId: itemId }
 end sub
 
 sub doMarkUnplayed(request as object)
@@ -1386,8 +1428,8 @@ sub doMarkUnplayed(request as object)
         print "[API] Marking unplayed: " + itemId
     #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
-    Http.deleteRequest(url)
-    m.top.response = { success: true, action: "markUnplayed", itemId: itemId }
+    ok = isOkStatus(Http.deleteRequest(url))
+    m.top.response = { success: ok, action: "markUnplayed", itemId: itemId }
 end sub
 
 sub doMarkFavorite(request as object)
@@ -1396,8 +1438,8 @@ sub doMarkFavorite(request as object)
         print "[API] Marking favorite: " + itemId
     #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/FavoriteItems/" + itemId)
-    Http.postJson(url, invalid)
-    m.top.response = { success: true, action: "markFavorite", itemId: itemId }
+    ok = (Http.postJson(url, invalid) <> invalid)
+    m.top.response = { success: ok, action: "markFavorite", itemId: itemId }
 end sub
 
 sub doRemoveFavorite(request as object)
@@ -1406,6 +1448,10 @@ sub doRemoveFavorite(request as object)
         print "[API] Removing favorite: " + itemId
     #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/FavoriteItems/" + itemId)
-    Http.deleteRequest(url)
-    m.top.response = { success: true, action: "removeFavorite", itemId: itemId }
+    ok = isOkStatus(Http.deleteRequest(url))
+    m.top.response = { success: ok, action: "removeFavorite", itemId: itemId }
 end sub
+
+function isOkStatus(code as integer) as boolean
+    return (code >= 200 and code < 300)
+end function
