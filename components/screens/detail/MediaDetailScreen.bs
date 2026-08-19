@@ -1,5 +1,4 @@
 import "pkg:/source/utils/ImageUrl.bs"
-import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/TimeFormat.bs"
 
@@ -284,6 +283,18 @@ sub onItemLoaded(response as object)
         enqueue({ action: "getNextUp", seriesId: item.Id, limit: 1, context: "playTargetNextUp" })
     else if m.itemType = "Season"
         enqueue({ action: "getItems", parentId: item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, context: "playTargetUnwatched" })
+        ' Cert 5.2 allows mediaType=season to show a springboard instead of
+        ' playing, but only one "highlighting the season's episodes" — and this
+        ' branch used to resolve the Play target and stop, leaving a title, a
+        ' backdrop and three buttons over nothing. A Season is only ever reached
+        ' by deep link (in-app browsing swaps episodes into the Series screen's
+        ' inline Seasons row), so this is the sole path that builds one.
+        if item.SeriesId <> invalid and item.SeriesId <> ""
+            enqueue({ action: "getEpisodes", seriesId: item.SeriesId, seasonId: item.Id })
+        else
+            buildCastRow(item)
+            commitRows()
+        end if
     else if m.itemType = "Movie"
         enqueue({ action: "getPlaybackInfo", itemId: item.Id })
         buildCastRow(item)

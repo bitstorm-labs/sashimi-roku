@@ -40,7 +40,10 @@ curl --digest -u "rokudev:$PW" -F mysubmit=Replace -F archive=@out/sashimi-roku.
      http://192.168.86.30/plugin_install
 
 # screenshot (graphics plane only — never captures video)
-curl --digest -u "rokudev:$PW" -F mysubmit=Screenshot -F archive= -F passwd= \
+# passwd MUST carry the dev password: an empty field returns a 35-byte 404
+# body that saves as a "blank screenshot", which reads as a black screen
+# rather than a failed command — the same false-negative class as the nc note.
+curl --digest -u "rokudev:$PW" -F mysubmit=Screenshot -F archive= -F passwd="$PW" \
      http://192.168.86.30/plugin_inspect >/dev/null
 curl --digest -u "rokudev:$PW" http://192.168.86.30/pkgs/dev.jpg -o shot.jpg
 
@@ -48,6 +51,10 @@ curl --digest -u "rokudev:$PW" http://192.168.86.30/pkgs/dev.jpg -o shot.jpg
 # drops the connection
 nc 192.168.86.30 8085
 ```
+
+**ECP names the Options key `Info`.** `POST /keypress/Options` returns 200 and
+does nothing, which looks exactly like the app ignoring the key. Use
+`/keypress/Info` when driving the OSD remotely.
 
 **ECP keypress works again** (it used to 403 on this device; re-verified
 2026-07-31 with `POST /keypress/Down` → 200 and a visible focus move). You can
