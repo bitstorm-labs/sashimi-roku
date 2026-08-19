@@ -31,6 +31,9 @@ sub init()
     m.libraries = []
     m.continueWatchingItems = []
     m.heroPool = []
+    ' Deliberately NOT reset by loadHomeData() — the hero order is shuffled once
+    ' per session and stays put across refreshes (see buildHeroContent).
+    m.heroShuffled = false
     m.rowContent = invalid
     m.pendingRow = invalid
     m.heroEnabled = true
@@ -445,6 +448,13 @@ sub onLatestMediaLoaded(response as object)
         heroCount = 0
         for each item in response.items
             if heroCount >= 5 then exit for
+            ' The library-name YouTube signal is only known HERE. Ride it on the
+            ' item AA (survives FormatJSON/ParseJSON) so buildHeroContent can
+            ' ask for the video's own thumbnail — a Pinchflat episode's Path and
+            ' SeriesName often say nothing about YouTube, so YT.isItem alone
+            ' would miss it and the hero would request a backdrop that does not
+            ' exist.
+            if isYouTube then item._forceYouTube = true
             m.heroPool.push(item)
             heroCount = heroCount + 1
         end for
@@ -796,6 +806,83 @@ sub expandHero()
     m.heroSlideAnim.control = "start"
 end sub
 
+' Ordered hero artwork candidates, mirroring tvOS SmartPosterImage: it walks
+' ids in order and, for each id, tries every image TYPE before moving on
+' (id-major, types inner — Views/Components/AsyncItemImage.swift).
+'
+'   YouTube    own id            x Primary, Thumb, Backdrop
+'   episode    series, season,
+'              own id            x Backdrop, Art, Thumb
+'   everything else: own id      x Backdrop, Art, Thumb
+'
+' YouTube videos carry a Primary thumbnail and no backdrop of their own, so
+' asking for a Backdrop first lands on the channel's art — or, for a channel
+' that has none, on nothing at all.
+function heroImageCandidates(item as object) as object
+    itemId = ""
+    if item.Id <> invalid then itemId = item.Id
+
+    ids = []
+    seen = {}
+    isYouTube = YT.isItem(item, false, m.global.youtubePaths)
+    if not isYouTube
+        ' Series backdrop first: it is the high-res one, and an episode's own
+        ' backdrop is usually just a frame grab.
+        pushHeroId(ids, seen, item.SeriesId)
+        pushHeroId(ids, seen, item.SeasonId)
+    end if
+    pushHeroId(ids, seen, itemId)
+    ' Not a tvOS id, but it is what this screen used to try first, and it is
+    ' the only pointer for an item whose backdrop lives on a parent that is
+    ' neither its series nor its season. Kept as a tail fallback.
+    if not isYouTube then pushHeroId(ids, seen, item.ParentBackdropItemId)
+
+    if isYouTube
+        types = ["Primary", "Thumb", "Backdrop"]
+    else
+        types = ["Backdrop", "Art", "Thumb"]
+    end if
+
+    uris = []
+    for each id in ids
+        for each t in types
+            ' The item's own tags are authoritative, so a guaranteed 404 never
+            ' gets queued. A parent id carries no tags here and has to be probed.
+            if id = itemId and not heroHasImage(item, t) then continue for
+            uris.push(heroImageUrl(id, t))
+        end for
+    end for
+    return uris
+end function
+
+' Does the item itself have this image type? A missing tag FIELD means the
+' server did not tell us, not that the image is absent — so it stays a
+' candidate and the Poster settles it.
+function heroHasImage(item as object, imageType as string) as boolean
+    if imageType = "Backdrop"
+        if type(item.BackdropImageTags) <> "roArray" then return true
+        return item.BackdropImageTags.count() > 0
+    end if
+    if type(item.ImageTags) <> "roAssociativeArray" then return true
+    return item.ImageTags.DoesExist(imageType)
+end function
+
+function heroImageUrl(itemId as string, imageType as string) as string
+    if imageType = "Primary" then return ImageUrl.primary(itemId, 1280)
+    if imageType = "Art" then return ImageUrl.art(itemId, 1280)
+    if imageType = "Thumb" then return ImageUrl.thumb(itemId, 1280)
+    return ImageUrl.backdrop(itemId, 1280)
+end function
+
+' Append an id if it is usable and not already queued — ParentBackdropItemId is
+' normally the series id, and a duplicate costs three dead round trips.
+sub pushHeroId(ids as object, seen as object, id as dynamic)
+    if id = invalid or id = "" then return
+    if seen.DoesExist(id) then return
+    seen[id] = true
+    ids.push(id)
+end sub
+
 sub buildHeroContent()
     ' Hidden via Settings > Home Screen Rows
     if not m.heroEnabled
@@ -805,7 +892,15 @@ sub buildHeroContent()
     end if
     if m.heroPool.count() = 0 then return
 
-    shuffleArray(m.heroPool)
+    ' Shuffled on the FIRST build only. tvOS reshuffled on every refresh and
+    ' paid for it: the reordered pool was republished while the banner's index
+    ' stayed put, so the hero cut to an unrelated title every refresh —
+    ' off-cadence from its own 6s rotation — and re-downloaded the backdrop
+    ' each time (Shared/ViewModels/HomeViewModel.swift).
+    if not m.heroShuffled
+        shuffleArray(m.heroPool)
+        m.heroShuffled = true
+    end if
 
     heroContent = CreateObject("roSGNode", "ContentNode")
     maxHero = 15
@@ -818,19 +913,17 @@ sub buildHeroContent()
         child.description = ""
         if item.SeriesName <> invalid then child.description = item.SeriesName
 
-        itemId = ""
-        if item.Id <> invalid then itemId = item.Id
-        if item.ParentBackdropItemId <> invalid
-            child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 1280)
-        else if item.SeriesId <> invalid and item.SeriesId <> ""
-            child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 1280)
-        else if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
-            child.HDPosterUrl = ImageUrl.backdrop(itemId, 1280)
-        end if
+        ' A Roku Poster takes one uri and has no fallback of its own, so the
+        ' whole ordered candidate list rides the ContentNode and HeroBanner
+        ' walks it on loadStatus = "failed".
+        uris = heroImageCandidates(item)
+        if uris.count() > 0 then child.HDPosterUrl = uris[0]
 
         child.addFields({ itemJson: "" })
+        child.addFields({ heroUris: "" })
         child.addFields({ quality: Quality.badge(item) })
         child.itemJson = FormatJSON(item)
+        child.heroUris = FormatJSON(uris)
     end for
     m.heroBanner.content = heroContent
     m.heroBanner.visible = true

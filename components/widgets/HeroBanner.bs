@@ -1,4 +1,3 @@
-import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/YouTube.bs"
 
 sub init()
@@ -18,6 +17,12 @@ sub init()
 
     m.items = []
     m.currentIndex = 0
+
+    ' Ordered artwork candidates for the slide on screen, walked on load failure
+    ' (see showItem / tryNextHeroUri).
+    m.heroUris = []
+    m.heroUriIndex = 0
+    m.heroUrisDone = true
 
     ' Fit the 1820-wide banner into the content area right of the 136px rail
     ' (1920 - 136 = 1784 wide). Anchor to the top-LEFT (scaleRotateCenter [0,0])
@@ -44,12 +49,48 @@ sub onHeroImageStatus()
     if m.heroImage.loadStatus <> "ready"
         m.heroImage.translation = [546, 0]
         m.heroFadeLeft.translation = [546, 0]
+        ' Jellyfin 404s an image type an item does not have, which is the normal
+        ' way this chain advances — not an error worth surfacing.
+        if m.heroImage.loadStatus = "failed" then tryNextHeroUri()
         return
     end if
     bw = m.heroImage.bitmapWidth
     if bw = invalid or bw <= 0 or bw > 1274 then bw = 1274
     m.heroImage.translation = [1820 - Int((1274 + bw) / 2), 0]
     m.heroFadeLeft.translation = [1820 - bw, 0]
+end sub
+
+' Advance to the next artwork candidate for the current slide. Terminates two
+' ways and only two ways: the index runs off the end of a fixed-length list, or
+' m.heroUrisDone latches. The latch matters because clearing the uri can itself
+' report "failed", which would otherwise re-enter here forever.
+sub tryNextHeroUri()
+    if m.heroUrisDone then return
+
+    m.heroUriIndex = m.heroUriIndex + 1
+    if m.heroUriIndex < m.heroUris.count()
+        m.heroImage.uri = m.heroUris[m.heroUriIndex]
+        return
+    end if
+
+    ' Exhausted. No image is the correct end state — a broken or placeholder
+    ' one would read as a bug, and the title block stands on its own.
+    m.heroUrisDone = true
+    m.heroImage.uri = ""
+end sub
+
+' Point the Poster at the first candidate for a slide and arm the fallback.
+sub startHeroImage(uris as object)
+    m.heroUris = uris
+    m.heroUriIndex = 0
+    m.heroUrisDone = (uris.count() = 0)
+    if m.heroUrisDone
+        ' The Poster is reused across slides — without this the previous item's
+        ' artwork sits behind the new title.
+        m.heroImage.uri = ""
+    else
+        m.heroImage.uri = uris[0]
+    end if
 end sub
 
 sub onContentChanged()
@@ -69,6 +110,12 @@ sub onContentChanged()
         item.title = child.title
         item.description = child.description
         item.HDPosterUrl = child.HDPosterUrl
+        ' Ordered artwork candidates built by HomeScreen.heroImageCandidates.
+        item.heroUris = []
+        if child.heroUris <> invalid and child.heroUris <> ""
+            uris = ParseJSON(child.heroUris)
+            if type(uris) = "roArray" then item.heroUris = uris
+        end if
         m.items.push(item)
     end for
 
@@ -152,26 +199,15 @@ sub showItem(index as integer)
 
     item = m.items[index]
 
-    ' Set backdrop image (tvOS requests large, fits right 70%)
-    itemId = ""
-    if item.Id <> invalid then itemId = item.Id
-    if YT.isItem(item, false, m.global.youtubePaths) and itemId <> ""
-        ' tvOS YouTube hero: the video's own Primary thumbnail first
-        m.heroImage.uri = ImageUrl.primary(itemId, 1280)
-    else if item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
-        m.heroImage.uri = ImageUrl.backdrop(itemId, 1280)
-    else if item.ParentBackdropItemId <> invalid
-        m.heroImage.uri = ImageUrl.backdrop(item.ParentBackdropItemId, 1280)
-    else if item.SeriesId <> invalid and item.SeriesId <> ""
-        m.heroImage.uri = ImageUrl.backdrop(item.SeriesId, 1280)
-    else if item.HDPosterUrl <> invalid and item.HDPosterUrl <> ""
-        m.heroImage.uri = item.HDPosterUrl
-    else
-        ' Every source above is optional, and the Poster is reused across
-        ' slides — without this the previous item's artwork sits behind the
-        ' new title.
-        m.heroImage.uri = ""
+    ' Backdrop (tvOS requests large, fits right 70%). The ordered candidate
+    ' list comes from the content node; the Poster walks it on load failure.
+    uris = []
+    if item.heroUris <> invalid and type(item.heroUris) = "roArray" then uris = item.heroUris
+    if uris.count() = 0 and item.HDPosterUrl <> invalid and item.HDPosterUrl <> ""
+        ' Content assembled by something other than HomeScreen.
+        uris = [item.HDPosterUrl]
     end if
+    startHeroImage(uris)
 
     ' Detect YouTube content (unified helper; library-membership aware)
     isYouTube = YT.isItem(item, false, m.global.youtubePaths)
