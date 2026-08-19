@@ -31,6 +31,9 @@ sub init()
     m.libraries = []
     m.continueWatchingItems = []
     m.heroPool = []
+    ' Deliberately NOT reset by loadHomeData() — the hero order is shuffled once
+    ' per session and stays put across refreshes (see buildHeroContent).
+    m.heroShuffled = false
     m.rowContent = invalid
     m.pendingRow = invalid
     m.heroEnabled = true
@@ -40,6 +43,13 @@ sub init()
     m.reloadPending = false
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
+    ' channelId -> that channel's newest video, so a YouTube card opens the
+    ' video instead of the channel page (tvOS parity). Empty until the
+    ' post-render prefetch lands; a press before then opens the channel.
+    m.ytNewestByChannel = {}
+    m.ytPendingNewest = {}
+    m.ytPrefetchLibs = []
+    m.ytPrefetchIndex = -1
 
     ' Logo + avatar moved to the pullout Sidebar (removed from Home header)
 
@@ -136,6 +146,12 @@ sub loadHomeData()
     m.emptyLabel.visible = false
     m.wideRowIndices = {}
     m.heroPool = []
+    ' Cancel any newest-video prefetch still in flight: index -1 makes its
+    ' response a no-op. m.ytNewestByChannel is deliberately NOT cleared — the
+    ' 30s auto-refresh would otherwise blank it on every cycle and taps during
+    ' the reload would silently regress to opening the channel.
+    m.ytPrefetchLibs = []
+    m.ytPrefetchIndex = -1
     m.heroBanner.visible = false
     m.apiTask.request = { action: "getLibraryViews" }
 end sub
@@ -156,8 +172,12 @@ sub onApiResponse()
         onNextUpLoaded(response)
     else if action = "getLatestMedia"
         onLatestMediaLoaded(response)
+    else if action = "getHeroMedia"
+        onHeroMediaLoaded(response)
     else if action = "getItemsByIds"
         onItemsByIdsLoaded(response)
+    else if action = "getNewestChannelVideos"
+        onNewestChannelVideosLoaded(response)
     end if
 end sub
 
@@ -437,17 +457,18 @@ sub onLatestMediaLoaded(response as object)
         ' Detect YouTube libraries by name (unified helper)
         isYouTube = YT.isLibraryName(libName)
 
+        ' Remember the library so its channels' newest videos can be resolved
+        ' AFTER the rows are on screen (see startNewestVideoPrefetch).
+        if isYouTube and response.parentId <> invalid and response.parentId <> ""
+            m.ytPrefetchLibs.push(response.parentId)
+        end if
+
         ' Clean YouTube library names for row titles (strip " - Videos")
         displayName = libName
         if isYouTube then displayName = YT.cleanTitle(displayName)
 
-        ' tvOS hero pool: first 5 latest items per library, shuffled later
-        heroCount = 0
-        for each item in response.items
-            if heroCount >= 5 then exit for
-            m.heroPool.push(item)
-            heroCount = heroCount + 1
-        end for
+        ' The hero pool is NOT built from these items any more — it has its own
+        ' query per library (see finishLibrary / doGetHeroMedia).
 
         ' "X new" badges live on the SERIES (episodes lack UnplayedItemCount).
         ' Fetch all series for this row in ONE batched call, then add the row.
@@ -472,6 +493,51 @@ sub onLatestMediaLoaded(response as object)
         addRow("Recently Added " + displayName, response.items, isYouTube)
     end if
 
+    finishLibrary()
+end sub
+
+' First 5 of a library's latest items join the hero rotation (tvOS
+' HomeViewModel.loadHeroItems takes .prefix(5) per library).
+sub addHeroItems(items as object, isYouTube as boolean)
+    added = 0
+    for each item in items
+        if added >= 5 then exit for
+        ' The library-name YouTube signal is only known HERE. Ride it on the
+        ' item AA (survives FormatJSON/ParseJSON) so heroImageCandidates can ask
+        ' for the video's own thumbnail — a Pinchflat episode's Path and
+        ' SeriesName often say nothing about YouTube, so YT.isItem alone would
+        ' miss it and the hero would request a backdrop that does not exist.
+        if isYouTube then item._forceYouTube = true
+        m.heroPool.push(item)
+        added = added + 1
+    end for
+end sub
+
+' A library is done only once the hero has its own items too. The row's answer
+' cannot stand in for the hero's — for a YouTube library the row deliberately
+' lists CHANNELS, and even where both hit /Items/Latest the row asks for 30 and
+' the hero for 10, which that endpoint answers differently (see doGetHeroMedia).
+' So this is one extra request per library, on purpose.
+sub finishLibrary()
+    if m.currentLibraryIndex < m.libraries.count()
+        lib = m.libraries[m.currentLibraryIndex]
+        m.apiTask.request = { action: "getHeroMedia", parentId: lib.Id, limit: 10 }
+        return
+    end if
+    advanceLatest()
+end sub
+
+sub onHeroMediaLoaded(response as object)
+    if response.success and response.items <> invalid
+        libName = ""
+        for each lib in m.libraries
+            if lib.Id = response.parentId
+                libName = lib.Name
+                exit for
+            end if
+        end for
+        addHeroItems(response.items, YT.isLibraryName(libName))
+    end if
     advanceLatest()
 end sub
 
@@ -504,7 +570,7 @@ sub onItemsByIdsLoaded(response as object)
         addRow(m.pendingRow.title, m.pendingRow.items, m.pendingRow.isYouTube, badges, ratings)
         m.pendingRow = invalid
     end if
-    advanceLatest()
+    finishLibrary()
 end sub
 
 ' Format remaining playback time like tvOS: "1h 23m left" / "23m left"
@@ -796,6 +862,83 @@ sub expandHero()
     m.heroSlideAnim.control = "start"
 end sub
 
+' Ordered hero artwork candidates, mirroring tvOS SmartPosterImage: it walks
+' ids in order and, for each id, tries every image TYPE before moving on
+' (id-major, types inner — Views/Components/AsyncItemImage.swift).
+'
+'   YouTube    own id            x Primary, Thumb, Backdrop
+'   episode    series, season,
+'              own id            x Backdrop, Art, Thumb
+'   everything else: own id      x Backdrop, Art, Thumb
+'
+' YouTube videos carry a Primary thumbnail and no backdrop of their own, so
+' asking for a Backdrop first lands on the channel's art — or, for a channel
+' that has none, on nothing at all.
+function heroImageCandidates(item as object) as object
+    itemId = ""
+    if item.Id <> invalid then itemId = item.Id
+
+    ids = []
+    seen = {}
+    isYouTube = YT.isItem(item, false, m.global.youtubePaths)
+    if not isYouTube
+        ' Series backdrop first: it is the high-res one, and an episode's own
+        ' backdrop is usually just a frame grab.
+        pushHeroId(ids, seen, item.SeriesId)
+        pushHeroId(ids, seen, item.SeasonId)
+    end if
+    pushHeroId(ids, seen, itemId)
+    ' Not a tvOS id, but it is what this screen used to try first, and it is
+    ' the only pointer for an item whose backdrop lives on a parent that is
+    ' neither its series nor its season. Kept as a tail fallback.
+    if not isYouTube then pushHeroId(ids, seen, item.ParentBackdropItemId)
+
+    if isYouTube
+        types = ["Primary", "Thumb", "Backdrop"]
+    else
+        types = ["Backdrop", "Art", "Thumb"]
+    end if
+
+    uris = []
+    for each id in ids
+        for each t in types
+            ' The item's own tags are authoritative, so a guaranteed 404 never
+            ' gets queued. A parent id carries no tags here and has to be probed.
+            if id = itemId and not heroHasImage(item, t) then continue for
+            uris.push(heroImageUrl(id, t))
+        end for
+    end for
+    return uris
+end function
+
+' Does the item itself have this image type? A missing tag FIELD means the
+' server did not tell us, not that the image is absent — so it stays a
+' candidate and the Poster settles it.
+function heroHasImage(item as object, imageType as string) as boolean
+    if imageType = "Backdrop"
+        if type(item.BackdropImageTags) <> "roArray" then return true
+        return item.BackdropImageTags.count() > 0
+    end if
+    if type(item.ImageTags) <> "roAssociativeArray" then return true
+    return item.ImageTags.DoesExist(imageType)
+end function
+
+function heroImageUrl(itemId as string, imageType as string) as string
+    if imageType = "Primary" then return ImageUrl.primary(itemId, 1280)
+    if imageType = "Art" then return ImageUrl.art(itemId, 1280)
+    if imageType = "Thumb" then return ImageUrl.thumb(itemId, 1280)
+    return ImageUrl.backdrop(itemId, 1280)
+end function
+
+' Append an id if it is usable and not already queued — ParentBackdropItemId is
+' normally the series id, and a duplicate costs three dead round trips.
+sub pushHeroId(ids as object, seen as object, id as dynamic)
+    if id = invalid or id = "" then return
+    if seen.DoesExist(id) then return
+    seen[id] = true
+    ids.push(id)
+end sub
+
 sub buildHeroContent()
     ' Hidden via Settings > Home Screen Rows
     if not m.heroEnabled
@@ -805,7 +948,15 @@ sub buildHeroContent()
     end if
     if m.heroPool.count() = 0 then return
 
-    shuffleArray(m.heroPool)
+    ' Shuffled on the FIRST build only. tvOS reshuffled on every refresh and
+    ' paid for it: the reordered pool was republished while the banner's index
+    ' stayed put, so the hero cut to an unrelated title every refresh —
+    ' off-cadence from its own 6s rotation — and re-downloaded the backdrop
+    ' each time (Shared/ViewModels/HomeViewModel.swift).
+    if not m.heroShuffled
+        shuffleArray(m.heroPool)
+        m.heroShuffled = true
+    end if
 
     heroContent = CreateObject("roSGNode", "ContentNode")
     maxHero = 15
@@ -813,24 +964,30 @@ sub buildHeroContent()
     for i = 0 to maxHero - 1
         item = m.heroPool[i]
         child = heroContent.createChild("ContentNode")
+        ' Standard ContentNode text, kept in step with what the banner actually
+        ' draws: tvOS headlines an episode with its SERIES (the channel, for
+        ' YouTube) and puts the episode/video title underneath
+        ' (Sashimi/Views/Home/HomeView.swift displayTitle). HeroBanner recomputes
+        ' both from itemJson, so these are the metadata copy, not the source.
         child.title = ""
         if item.Name <> invalid then child.title = item.Name
         child.description = ""
-        if item.SeriesName <> invalid then child.description = item.SeriesName
-
-        itemId = ""
-        if item.Id <> invalid then itemId = item.Id
-        if item.ParentBackdropItemId <> invalid
-            child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 1280)
-        else if item.SeriesId <> invalid and item.SeriesId <> ""
-            child.HDPosterUrl = ImageUrl.backdrop(item.SeriesId, 1280)
-        else if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
-            child.HDPosterUrl = ImageUrl.backdrop(itemId, 1280)
+        if item.SeriesName <> invalid and item.SeriesName <> ""
+            child.title = YT.cleanTitle(item.SeriesName)
+            if item.Name <> invalid then child.description = item.Name
         end if
 
+        ' A Roku Poster takes one uri and has no fallback of its own, so the
+        ' whole ordered candidate list rides the ContentNode and HeroBanner
+        ' walks it on loadStatus = "failed".
+        uris = heroImageCandidates(item)
+        if uris.count() > 0 then child.HDPosterUrl = uris[0]
+
         child.addFields({ itemJson: "" })
+        child.addFields({ heroUris: "" })
         child.addFields({ quality: Quality.badge(item) })
         child.itemJson = FormatJSON(item)
+        child.heroUris = FormatJSON(uris)
     end for
     m.heroBanner.content = heroContent
     m.heroBanner.visible = true
@@ -896,6 +1053,55 @@ sub showRows()
     m.pendingRowSpacings = itemSpacings
     m.pendingRowHeights = rowHeights
     m.relayoutTimer.control = "start"
+
+    ' Last thing, deliberately: the load chain is done and the rows are on their
+    ' way to the screen, so this extra request delays nothing the user can see.
+    startNewestVideoPrefetch()
+end sub
+
+' YouTube rows list channels, but a press should open that channel's newest
+' video (tvOS parity). Resolve them only AFTER the rows are built — the API task
+' runs one request at a time, so doing this inside the load chain would hold
+' every remaining row behind it. Until the answer lands, onRowItemSelected falls
+' back to opening the channel.
+sub startNewestVideoPrefetch()
+    if m.ytPrefetchLibs.count() = 0 then return
+    m.ytPrefetchIndex = 0
+    m.ytPendingNewest = {}
+    m.apiTask.request = { action: "getNewestChannelVideos", parentId: m.ytPrefetchLibs[0] }
+end sub
+
+sub onNewestChannelVideosLoaded(response as object)
+    ' A reload sets the index to -1; the parentId check drops a response that
+    ' belongs to a pass which has since been restarted.
+    if m.ytPrefetchIndex < 0 or m.ytPrefetchIndex >= m.ytPrefetchLibs.count() then return
+    if response.parentId <> m.ytPrefetchLibs[m.ytPrefetchIndex] then return
+
+    if response.success and response.items <> invalid
+        ' Newest-first, so the FIRST video seen for a channel is its newest.
+        for each video in response.items
+            sid = ""
+            if video.SeriesId <> invalid then sid = video.SeriesId
+            if sid <> "" and not m.ytPendingNewest.DoesExist(sid)
+                m.ytPendingNewest[sid] = video
+            end if
+        end for
+    end if
+
+    m.ytPrefetchIndex = m.ytPrefetchIndex + 1
+    if m.ytPrefetchIndex < m.ytPrefetchLibs.count()
+        m.apiTask.request = { action: "getNewestChannelVideos", parentId: m.ytPrefetchLibs[m.ytPrefetchIndex] }
+        return
+    end if
+
+    ' Swap the whole map in at once, so a card never resolves against a
+    ' half-built one and a channel that has gone away drops out.
+    m.ytNewestByChannel = m.ytPendingNewest
+    m.ytPendingNewest = {}
+    m.ytPrefetchIndex = -1
+    #if DEBUG
+        print "[Home] Resolved newest video for " + str(m.ytNewestByChannel.count()).Trim() + " channels"
+    #end if
 end sub
 
 sub onRelayoutFire()
@@ -938,6 +1144,21 @@ sub onRowItemSelected()
     if item.itemJson <> invalid and item.itemJson <> ""
         itemData = ParseJSON(item.itemJson)
         if itemData <> invalid
+            ' A YouTube row card is a CHANNEL, but tvOS opens that channel's
+            ' newest video. Only this row: a real TV series card still opens the
+            ' series. If the prefetch has not landed yet, or the channel fell
+            ' outside its window, itemData stays the channel — the old
+            ' behaviour, never a dead card.
+            if m.wideRowIndices.DoesExist(str(rowIndex).Trim()) and itemData.Type <> invalid and itemData.Type = "Series" and itemData.Id <> invalid
+                newest = m.ytNewestByChannel[itemData.Id]
+                if newest <> invalid
+                    ' The channel card carried the library's YouTube flag; the
+                    ' video has to carry it too or the detail screen renders it
+                    ' as a plain episode (Pinchflat paths say nothing).
+                    newest._forceYouTube = true
+                    itemData = newest
+                end if
+            end if
             m.top.selectedItem = itemData
         end if
     end if
