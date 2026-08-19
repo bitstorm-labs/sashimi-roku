@@ -63,6 +63,8 @@ sub processRequest()
         doGetNextUp(request)
     else if action = "getLatestMedia"
         doGetLatestMedia(request)
+    else if action = "getHeroMedia"
+        doGetHeroMedia(request)
     else if action = "getItemsByIds"
         doGetItemsByIds(request)
     else if action = "getNewestChannelVideos"
@@ -729,26 +731,61 @@ sub doGetLatestMedia(request as object)
         return
     end if
 
+    m.top.response = { success: true, action: "getLatestMedia", items: fetchLatestItems(parentId, limit), parentId: parentId }
+end sub
+
+' The hero's own source, mirroring tvOS.
+'
+' tvOS feeds the Recently Added ROW and the HERO from two different queries: the
+' row asks /Users/{id}/Items for Series (channels, so one prolific uploader
+' cannot fill the row), while the hero asks /Users/{id}/Items/Latest
+' (HomeViewModel.loadHeroItems -> getLatestMedia(parentId:limit:), whose
+' includeWatched defaults to false). That second query answers with Episodes and
+' Movies, which is why a YouTube hero on tvOS shows the video and not the
+' channel. Roku used to build the hero out of the row's items and inherited the
+' channels.
+'
+' Deliberately has no YouTube branch: every library type goes through the same
+' endpoint, exactly as tvOS does. It is also a separate request even for a
+' library whose ROW already hit /Items/Latest, because the row asks for 30 and
+' the hero for 10, and this endpoint applies Limit BEFORE it groups a run of new
+' episodes into their Series — measured against the family server, the TV
+' library answers Limit=10 with Episodes and Limit=30 with Series. So the row's
+' answer is genuinely a different one, not a superset.
+sub doGetHeroMedia(request as object)
+    limit = 10
+    if request.limit <> invalid then limit = request.limit
+    parentId = ""
+    if request.parentId <> invalid then parentId = request.parentId
+    #if DEBUG
+        print "[API] Getting hero media (parentId=" + parentId + ", limit=" + str(limit) + ")"
+    #end if
+    m.top.response = { success: true, action: "getHeroMedia", items: fetchLatestItems(parentId, limit), parentId: parentId }
+end sub
+
+' /Users/{id}/Items/Latest for one library (all libraries when parentId is
+' empty). Watched items are filtered out by the endpoint itself, and a run of
+' new episodes is grouped into its Series, so the answer is a mix of Episode,
+' Movie and Series. Returns [] on any failure, which every caller renders as an
+' empty row / no hero slides.
+function fetchLatestItems(parentId as string, limit as integer) as object
     url = Http.apiUrl("/Users/" + m.global.userId + "/Items/Latest")
     url += "?Limit=" + str(limit).Trim()
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     if parentId <> "" then url += "&ParentId=" + parentId
     result = Http.getJson(url)
-    if result <> invalid
-        ' /Items/Latest returns an array directly, not wrapped in Items
-        items = result
-        if type(result) = "roAssociativeArray" and result.Items <> invalid
-            items = result.Items
-        end if
-        #if DEBUG
-            print "[API] Found " + str(items.count()) + " latest items"
-        #end if
-        m.top.response = { success: true, action: "getLatestMedia", items: items, parentId: parentId }
-    else
-        m.top.response = { success: true, action: "getLatestMedia", items: [], parentId: parentId }
+    if result = invalid then return []
+    ' /Items/Latest returns an array directly, not wrapped in Items
+    items = result
+    if type(result) = "roAssociativeArray" and result.Items <> invalid
+        items = result.Items
     end if
-end sub
+    #if DEBUG
+        print "[API] Found " + str(items.count()) + " latest items"
+    #end if
+    return items
+end function
 
 sub doGetItems(request as object)
     parentId = ""

@@ -172,6 +172,8 @@ sub onApiResponse()
         onNextUpLoaded(response)
     else if action = "getLatestMedia"
         onLatestMediaLoaded(response)
+    else if action = "getHeroMedia"
+        onHeroMediaLoaded(response)
     else if action = "getItemsByIds"
         onItemsByIdsLoaded(response)
     else if action = "getNewestChannelVideos"
@@ -465,20 +467,8 @@ sub onLatestMediaLoaded(response as object)
         displayName = libName
         if isYouTube then displayName = YT.cleanTitle(displayName)
 
-        ' tvOS hero pool: first 5 latest items per library, shuffled later
-        heroCount = 0
-        for each item in response.items
-            if heroCount >= 5 then exit for
-            ' The library-name YouTube signal is only known HERE. Ride it on the
-            ' item AA (survives FormatJSON/ParseJSON) so buildHeroContent can
-            ' ask for the video's own thumbnail — a Pinchflat episode's Path and
-            ' SeriesName often say nothing about YouTube, so YT.isItem alone
-            ' would miss it and the hero would request a backdrop that does not
-            ' exist.
-            if isYouTube then item._forceYouTube = true
-            m.heroPool.push(item)
-            heroCount = heroCount + 1
-        end for
+        ' The hero pool is NOT built from these items any more — it has its own
+        ' query per library (see finishLibrary / doGetHeroMedia).
 
         ' "X new" badges live on the SERIES (episodes lack UnplayedItemCount).
         ' Fetch all series for this row in ONE batched call, then add the row.
@@ -503,6 +493,51 @@ sub onLatestMediaLoaded(response as object)
         addRow("Recently Added " + displayName, response.items, isYouTube)
     end if
 
+    finishLibrary()
+end sub
+
+' First 5 of a library's latest items join the hero rotation (tvOS
+' HomeViewModel.loadHeroItems takes .prefix(5) per library).
+sub addHeroItems(items as object, isYouTube as boolean)
+    added = 0
+    for each item in items
+        if added >= 5 then exit for
+        ' The library-name YouTube signal is only known HERE. Ride it on the
+        ' item AA (survives FormatJSON/ParseJSON) so heroImageCandidates can ask
+        ' for the video's own thumbnail — a Pinchflat episode's Path and
+        ' SeriesName often say nothing about YouTube, so YT.isItem alone would
+        ' miss it and the hero would request a backdrop that does not exist.
+        if isYouTube then item._forceYouTube = true
+        m.heroPool.push(item)
+        added = added + 1
+    end for
+end sub
+
+' A library is done only once the hero has its own items too. The row's answer
+' cannot stand in for the hero's — for a YouTube library the row deliberately
+' lists CHANNELS, and even where both hit /Items/Latest the row asks for 30 and
+' the hero for 10, which that endpoint answers differently (see doGetHeroMedia).
+' So this is one extra request per library, on purpose.
+sub finishLibrary()
+    if m.currentLibraryIndex < m.libraries.count()
+        lib = m.libraries[m.currentLibraryIndex]
+        m.apiTask.request = { action: "getHeroMedia", parentId: lib.Id, limit: 10 }
+        return
+    end if
+    advanceLatest()
+end sub
+
+sub onHeroMediaLoaded(response as object)
+    if response.success and response.items <> invalid
+        libName = ""
+        for each lib in m.libraries
+            if lib.Id = response.parentId
+                libName = lib.Name
+                exit for
+            end if
+        end for
+        addHeroItems(response.items, YT.isLibraryName(libName))
+    end if
     advanceLatest()
 end sub
 
@@ -535,7 +570,7 @@ sub onItemsByIdsLoaded(response as object)
         addRow(m.pendingRow.title, m.pendingRow.items, m.pendingRow.isYouTube, badges, ratings)
         m.pendingRow = invalid
     end if
-    advanceLatest()
+    finishLibrary()
 end sub
 
 ' Format remaining playback time like tvOS: "1h 23m left" / "23m left"
@@ -929,10 +964,18 @@ sub buildHeroContent()
     for i = 0 to maxHero - 1
         item = m.heroPool[i]
         child = heroContent.createChild("ContentNode")
+        ' Standard ContentNode text, kept in step with what the banner actually
+        ' draws: tvOS headlines an episode with its SERIES (the channel, for
+        ' YouTube) and puts the episode/video title underneath
+        ' (Sashimi/Views/Home/HomeView.swift displayTitle). HeroBanner recomputes
+        ' both from itemJson, so these are the metadata copy, not the source.
         child.title = ""
         if item.Name <> invalid then child.title = item.Name
         child.description = ""
-        if item.SeriesName <> invalid then child.description = item.SeriesName
+        if item.SeriesName <> invalid and item.SeriesName <> ""
+            child.title = YT.cleanTitle(item.SeriesName)
+            if item.Name <> invalid then child.description = item.Name
+        end if
 
         ' A Roku Poster takes one uri and has no fallback of its own, so the
         ' whole ordered candidate list rides the ContentNode and HeroBanner

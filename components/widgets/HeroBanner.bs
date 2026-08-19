@@ -219,15 +219,22 @@ sub showItem(index as integer)
         if isYouTube then title = YT.cleanTitle(title)
     else if item.Name <> invalid
         title = item.Name
+        ' A slide can BE a channel: /Items/Latest groups a run of new episodes
+        ' into their Series, so the Pinchflat " - Videos" suffix has to be
+        ' stripped here too, not only off an episode's SeriesName.
+        if isYouTube then title = YT.cleanTitle(title)
     end if
     m.heroTitle.text = title
 
-    ' Episode subline (tvOS: "S{n} E{n} • {name}" / YouTube: video title)
+    ' Episode subline (tvOS: "S{n} E{n} • {name}" / YouTube: video title). Only
+    ' an episode gets one — tvOS gates the whole subline on type == .episode.
+    ' Without the SeriesName gate a grouped channel printed its own name twice,
+    ' as the title AND the subline.
     subtitle = ""
-    if isYouTube
-        if item.Name <> invalid then subtitle = item.Name
-    else if item.SeriesName <> invalid and item.SeriesName <> ""
-        if item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+    if item.SeriesName <> invalid and item.SeriesName <> ""
+        if isYouTube
+            if item.Name <> invalid then subtitle = item.Name
+        else if item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
             subtitle = "S" + str(item.ParentIndexNumber).Trim() + " E" + str(item.IndexNumber).Trim()
             if item.Name <> invalid then subtitle += " " + Chr(8226) + " " + item.Name
         else if item.Name <> invalid
