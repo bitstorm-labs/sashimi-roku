@@ -80,6 +80,47 @@
             translation="[40, 340]"
             visible="false"
         />
+        <!-- The community rating's own label. It used to be the head of the
+             flat heroMeta string, but a Label cannot hold an inline image and
+             the tomato has to sit BETWEEN this value and the critic one, so
+             each icon/value pair is its own node now (tvOS HomeView pairs them
+             the same way). Deliberately no `width`: an explicit width makes
+             boundingRect() report the field width instead of the text's, and
+             layoutMetaRow measures this label to place the tomato. -->
+        <Label
+            id="heroRating"
+            text=""
+            color="#D9D9D9"
+            height="24"
+            vertAlign="center"
+            translation="[86, 338]"
+            visible="false"
+        >
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
+        </Label>
+        <!-- Rotten Tomatoes icon before the critic %. Drawn at 24 in the 24px
+             row, so unlike the TMDB logo it needs no y nudge to centre. -->
+        <Poster
+            id="tomatoIcon"
+            width="24"
+            height="24"
+            uri="pkg:/images/tomato.png"
+            translation="[172, 338]"
+            visible="false"
+        />
+        <!-- Critic %. Same no-`width` rule as heroRating — measured to place
+             the year/runtime run that follows it. -->
+        <Label
+            id="heroCritic"
+            text=""
+            color="#D9D9D9"
+            height="24"
+            vertAlign="center"
+            translation="[204, 338]"
+            visible="false"
+        >
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
+        </Label>
         <!-- YouTube badge replacing the TMDB/critic segments for YouTube
              items: play icon + the word "YouTube" in brand red. The date
              lives in heroMeta, repositioned after this label in showItem. -->
@@ -103,6 +144,11 @@
         >
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
+        <!-- Tail of the metadata row: year + runtime (or, for YouTube, the
+             publish date). The rating values moved out into heroRating /
+             heroCritic so the icons can sit between them; this label is the
+             only one that still carries a multi-segment string, and it is
+             always last, so its fixed `width` is a clip bound, not a measure. -->
         <Label
             id="heroMeta"
             text=""

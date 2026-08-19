@@ -10,6 +10,9 @@ sub init()
     m.heroTitle = m.top.findNode("heroTitle")
     m.heroSubtitle = m.top.findNode("heroSubtitle")
     m.heroMeta = m.top.findNode("heroMeta")
+    m.heroRating = m.top.findNode("heroRating")
+    m.tomatoIcon = m.top.findNode("tomatoIcon")
+    m.heroCritic = m.top.findNode("heroCritic")
     m.ytIcon = m.top.findNode("ytIcon")
     m.ytLabel = m.top.findNode("ytLabel")
     m.heroOverview = m.top.findNode("heroOverview")
@@ -180,10 +183,15 @@ sub reflowHeroText()
 
     y += metaGap
     metaY = y
-    ' Preserve each meta element's X (set by the rating/YouTube branch); move Y.
-    ' The TMDB logo sits +2 so its optical center lands on the meta centerline.
+    ' Preserve each meta element's X (set by layoutMetaRow); move Y. Icons are
+    ' centered in the 24px row by their own height: the TMDB logo is drawn at
+    ' h=20 so it sits +2, the tomato and the YouTube icon are drawn at 24 so
+    ' they sit flush.
     mt = m.heroMeta.translation : m.heroMeta.translation = [mt[0], metaY]
     lt = m.tmdbLogo.translation : m.tmdbLogo.translation = [lt[0], metaY + 2]
+    rt = m.heroRating.translation : m.heroRating.translation = [rt[0], metaY]
+    tt = m.tomatoIcon.translation : m.tomatoIcon.translation = [tt[0], metaY]
+    ct = m.heroCritic.translation : m.heroCritic.translation = [ct[0], metaY]
     it = m.ytIcon.translation : m.ytIcon.translation = [it[0], metaY]
     yl = m.ytLabel.translation : m.ytLabel.translation = [yl[0], metaY]
     y += metaH
@@ -192,6 +200,77 @@ sub reflowHeroText()
         y += ovGap
         m.heroOverview.translation = [leftX, y]
     end if
+end sub
+
+' Width of a Label's TEXT.
+'
+' boundingRect() reports 0 for a node the render thread has not laid out yet —
+' the same hazard reflowHeroText floors its heights against — and a 0 here would
+' stack the next segment of the meta row on top of this one. Fall back to a
+' rough advance-width estimate instead: all three labels measured by
+' layoutMetaRow are Inter-Medium 22, whose glyphs advance ~12px.
+'
+' Callers must not give these labels an explicit `width` in XML — a Label with
+' a width set reports the FIELD width here, not the text's.
+function labelWidth(label as object) as integer
+    w = Int(label.boundingRect().width)
+    if w > 0 then return w
+    ' ~13px is a digit's advance at this size, and digits are the widest glyphs
+    ' in "6.6" / "54%" — so the estimate errs high, leaving a small gap rather
+    ' than an overlap.
+    return Len(label.text) * 13
+end function
+
+' Lay the metadata row out left to right: [TMDB logo] [rating] [tomato]
+' [critic%] [year + runtime]. tvOS renders the two ratings as icon/value pairs
+' (HomeView: the tomato emoji then the percentage), and a SceneGraph Label
+' cannot hold an inline image, so they are separate nodes here.
+'
+' Every segment starts where the previous one actually ENDS, measured — the
+' value widths change per item ("6.6" vs "10", "54%" vs "100%"), so a fixed
+' offset either overlaps or leaves a hole. Only Y is nominal here; reflowHeroText
+' runs after this and moves the whole row onto the centered text block.
+sub layoutMetaRow(isYouTube as boolean, hasCommunity as boolean, hasCritic as boolean)
+    metaY = 338
+    leftX = 40
+    ' Icon column is 34 wide (TMDB logo, YouTube glyph) with a 12px gap.
+    iconRun = 46
+    ' The tomato is narrower: 24 wide, same 8px optical gap as the detail screen.
+    tomatoRun = 32
+    ' Gap between one icon/value pair and whatever follows it, matching the
+    ' four-space run the flat string used between segments.
+    segGap = 24
+
+    ' Ratings and the YouTube badge are mutually exclusive: a video never has a
+    ' TMDB or critic score, and a movie never wears the badge.
+    m.ytIcon.visible = isYouTube
+    m.ytLabel.visible = isYouTube
+    m.tmdbLogo.visible = hasCommunity and not isYouTube
+    m.heroRating.visible = m.tmdbLogo.visible
+    m.tomatoIcon.visible = hasCritic and not isYouTube
+    m.heroCritic.visible = m.tomatoIcon.visible
+
+    if isYouTube
+        ' Play icon + the red wordmark (its width depends on the font, so it is
+        ' measured too), then the publish date.
+        m.heroMeta.translation = [leftX + iconRun + labelWidth(m.ytLabel) + 16, metaY]
+        return
+    end if
+
+    x = leftX
+    if hasCommunity
+        m.tmdbLogo.translation = [x, metaY + 2]
+        m.heroRating.translation = [x + iconRun, metaY]
+        x += iconRun + labelWidth(m.heroRating) + segGap
+    end if
+    if hasCritic
+        m.tomatoIcon.translation = [x, metaY]
+        m.heroCritic.translation = [x + tomatoRun, metaY]
+        x += tomatoRun + labelWidth(m.heroCritic) + segGap
+    end if
+    ' With neither rating this lands back on leftX, which is where the year sat
+    ' before any of this existed.
+    m.heroMeta.translation = [x, metaY]
 end sub
 
 sub showItem(index as integer)
@@ -243,19 +322,31 @@ sub showItem(index as integer)
     end if
     m.heroSubtitle.text = subtitle
 
-    ' Metadata row (tvOS: TMDB logo + rating, critic %, year + runtime;
-    ' YouTube: red badge + date — TMDB/critic scores never apply to videos)
-    meta = ""
+    ' Metadata row (tvOS: TMDB logo + rating, tomato + critic %, year + runtime;
+    ' YouTube: red badge + date — TMDB/critic scores never apply to videos).
+    ' The two ratings are icon/value PAIRS and a SceneGraph Label cannot hold an
+    ' inline image, so each value gets its own label and layoutMetaRow places
+    ' them; only the trailing year/runtime run is still a single string.
+    community = invalid
+    critic = invalid
     if not isYouTube
-        if item.CommunityRating <> invalid
-            rating = Int(item.CommunityRating * 10) / 10.0
-            meta += str(rating).Trim()
-        end if
-        if item.CriticRating <> invalid
-            if meta <> "" then meta += "    "
-            meta += str(item.CriticRating).Trim() + "%"
-        end if
+        community = item.CommunityRating
+        critic = item.CriticRating
     end if
+    if community <> invalid
+        m.heroRating.text = str(Int(community * 10) / 10.0).Trim()
+    else
+        m.heroRating.text = ""
+    end if
+    if critic <> invalid
+        ' Int() like the detail screen — Jellyfin can hand back a float here and
+        ' the two screens must not disagree about the same score.
+        m.heroCritic.text = str(Int(critic)).Trim() + "%"
+    else
+        m.heroCritic.text = ""
+    end if
+
+    meta = ""
     if isYouTube
         ' "YouTube" itself is rendered by ytLabel (brand red); only the date
         ' goes through the shared meta label.
@@ -284,25 +375,7 @@ sub showItem(index as integer)
         end if
     end if
     m.heroMeta.text = meta
-    if isYouTube
-        ' YouTube badge: play icon + red "YouTube", then the date after it —
-        ' measured, since the wordmark width depends on the font.
-        m.tmdbLogo.visible = false
-        m.ytIcon.visible = true
-        m.ytLabel.visible = true
-        m.heroMeta.translation = [86 + Int(m.ytLabel.boundingRect().width) + 16, 338]
-    else if item.CommunityRating <> invalid
-        ' Show TMDB logo when we have a community rating (tvOS: logo before number)
-        m.ytIcon.visible = false
-        m.ytLabel.visible = false
-        m.tmdbLogo.visible = true
-        m.heroMeta.translation = [86, 338]
-    else
-        m.ytIcon.visible = false
-        m.ytLabel.visible = false
-        m.tmdbLogo.visible = false
-        m.heroMeta.translation = [40, 338]
-    end if
+    layoutMetaRow(isYouTube, community <> invalid, critic <> invalid)
 
     ' Overview (tvOS: 22pt @75% white, 2 lines)
     overview = ""
