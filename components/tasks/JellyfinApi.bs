@@ -65,6 +65,8 @@ sub processRequest()
         doGetLatestMedia(request)
     else if action = "getItemsByIds"
         doGetItemsByIds(request)
+    else if action = "getNewestChannelVideos"
+        doGetNewestChannelVideos(request)
     else if action = "getIntroSegments"
         doGetIntroSegments(request)
     else if action = "getItems"
@@ -653,6 +655,43 @@ sub doGetItemsByIds(request as object)
         m.top.response = { success: true, action: "getItemsByIds", items: result.Items }
     else
         m.top.response = { success: true, action: "getItemsByIds", items: [] }
+    end if
+end sub
+
+' Newest video per channel for a YouTube library, in ONE request.
+'
+' The Recently Added YouTube row lists CHANNELS (see doGetLatestMedia), but
+' selecting a card should open that channel's newest video. Asking per channel
+' would be N round-trips, and this task's queue is serial, so with ~15 channels
+' that is ~15 sequential requests before the first card resolves. Instead take
+' the library's most recent episodes in one call and let the caller keep the
+' first one seen per SeriesId — the list is DateCreated-descending, so the first
+' is the newest. Measured against the family server: Limit=250 resolved every
+' channel on the row and matched the per-channel answers exactly.
+'
+' Nothing but Id/Type/Name/SeriesId is needed downstream (the detail screen
+' re-fetches the item by Id), so images and user data are switched off to keep
+' the payload small.
+sub doGetNewestChannelVideos(request as object)
+    parentId = ""
+    if request.parentId <> invalid then parentId = request.parentId
+    limit = 250
+    if request.limit <> invalid then limit = request.limit
+
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url += "?ParentId=" + parentId
+    url += "&IncludeItemTypes=Episode&Recursive=true"
+    url += "&SortBy=DateCreated&SortOrder=Descending"
+    url += "&Limit=" + str(limit).Trim()
+    url += "&EnableImages=false&EnableUserData=false"
+    result = Http.getJson(url)
+    if result <> invalid and result.Items <> invalid
+        #if DEBUG
+            print "[API] Newest-video scan returned " + str(result.Items.count()).Trim() + " videos"
+        #end if
+        m.top.response = { success: true, action: "getNewestChannelVideos", items: result.Items, parentId: parentId }
+    else
+        m.top.response = { success: true, action: "getNewestChannelVideos", items: [], parentId: parentId }
     end if
 end sub
 

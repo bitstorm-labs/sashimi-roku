@@ -43,6 +43,13 @@ sub init()
     m.reloadPending = false
     m.currentLibraryIndex = 0
     m.wideRowIndices = {}  ' track which row indices should use landscape sizing
+    ' channelId -> that channel's newest video, so a YouTube card opens the
+    ' video instead of the channel page (tvOS parity). Empty until the
+    ' post-render prefetch lands; a press before then opens the channel.
+    m.ytNewestByChannel = {}
+    m.ytPendingNewest = {}
+    m.ytPrefetchLibs = []
+    m.ytPrefetchIndex = -1
 
     ' Logo + avatar moved to the pullout Sidebar (removed from Home header)
 
@@ -139,6 +146,12 @@ sub loadHomeData()
     m.emptyLabel.visible = false
     m.wideRowIndices = {}
     m.heroPool = []
+    ' Cancel any newest-video prefetch still in flight: index -1 makes its
+    ' response a no-op. m.ytNewestByChannel is deliberately NOT cleared — the
+    ' 30s auto-refresh would otherwise blank it on every cycle and taps during
+    ' the reload would silently regress to opening the channel.
+    m.ytPrefetchLibs = []
+    m.ytPrefetchIndex = -1
     m.heroBanner.visible = false
     m.apiTask.request = { action: "getLibraryViews" }
 end sub
@@ -161,6 +174,8 @@ sub onApiResponse()
         onLatestMediaLoaded(response)
     else if action = "getItemsByIds"
         onItemsByIdsLoaded(response)
+    else if action = "getNewestChannelVideos"
+        onNewestChannelVideosLoaded(response)
     end if
 end sub
 
@@ -439,6 +454,12 @@ sub onLatestMediaLoaded(response as object)
         end for
         ' Detect YouTube libraries by name (unified helper)
         isYouTube = YT.isLibraryName(libName)
+
+        ' Remember the library so its channels' newest videos can be resolved
+        ' AFTER the rows are on screen (see startNewestVideoPrefetch).
+        if isYouTube and response.parentId <> invalid and response.parentId <> ""
+            m.ytPrefetchLibs.push(response.parentId)
+        end if
 
         ' Clean YouTube library names for row titles (strip " - Videos")
         displayName = libName
@@ -989,6 +1010,55 @@ sub showRows()
     m.pendingRowSpacings = itemSpacings
     m.pendingRowHeights = rowHeights
     m.relayoutTimer.control = "start"
+
+    ' Last thing, deliberately: the load chain is done and the rows are on their
+    ' way to the screen, so this extra request delays nothing the user can see.
+    startNewestVideoPrefetch()
+end sub
+
+' YouTube rows list channels, but a press should open that channel's newest
+' video (tvOS parity). Resolve them only AFTER the rows are built — the API task
+' runs one request at a time, so doing this inside the load chain would hold
+' every remaining row behind it. Until the answer lands, onRowItemSelected falls
+' back to opening the channel.
+sub startNewestVideoPrefetch()
+    if m.ytPrefetchLibs.count() = 0 then return
+    m.ytPrefetchIndex = 0
+    m.ytPendingNewest = {}
+    m.apiTask.request = { action: "getNewestChannelVideos", parentId: m.ytPrefetchLibs[0] }
+end sub
+
+sub onNewestChannelVideosLoaded(response as object)
+    ' A reload sets the index to -1; the parentId check drops a response that
+    ' belongs to a pass which has since been restarted.
+    if m.ytPrefetchIndex < 0 or m.ytPrefetchIndex >= m.ytPrefetchLibs.count() then return
+    if response.parentId <> m.ytPrefetchLibs[m.ytPrefetchIndex] then return
+
+    if response.success and response.items <> invalid
+        ' Newest-first, so the FIRST video seen for a channel is its newest.
+        for each video in response.items
+            sid = ""
+            if video.SeriesId <> invalid then sid = video.SeriesId
+            if sid <> "" and not m.ytPendingNewest.DoesExist(sid)
+                m.ytPendingNewest[sid] = video
+            end if
+        end for
+    end if
+
+    m.ytPrefetchIndex = m.ytPrefetchIndex + 1
+    if m.ytPrefetchIndex < m.ytPrefetchLibs.count()
+        m.apiTask.request = { action: "getNewestChannelVideos", parentId: m.ytPrefetchLibs[m.ytPrefetchIndex] }
+        return
+    end if
+
+    ' Swap the whole map in at once, so a card never resolves against a
+    ' half-built one and a channel that has gone away drops out.
+    m.ytNewestByChannel = m.ytPendingNewest
+    m.ytPendingNewest = {}
+    m.ytPrefetchIndex = -1
+    #if DEBUG
+        print "[Home] Resolved newest video for " + str(m.ytNewestByChannel.count()).Trim() + " channels"
+    #end if
 end sub
 
 sub onRelayoutFire()
@@ -1031,6 +1101,21 @@ sub onRowItemSelected()
     if item.itemJson <> invalid and item.itemJson <> ""
         itemData = ParseJSON(item.itemJson)
         if itemData <> invalid
+            ' A YouTube row card is a CHANNEL, but tvOS opens that channel's
+            ' newest video. Only this row: a real TV series card still opens the
+            ' series. If the prefetch has not landed yet, or the channel fell
+            ' outside its window, itemData stays the channel — the old
+            ' behaviour, never a dead card.
+            if m.wideRowIndices.DoesExist(str(rowIndex).Trim()) and itemData.Type <> invalid and itemData.Type = "Series" and itemData.Id <> invalid
+                newest = m.ytNewestByChannel[itemData.Id]
+                if newest <> invalid
+                    ' The channel card carried the library's YouTube flag; the
+                    ' video has to carry it too or the detail screen renders it
+                    ' as a plain episode (Pinchflat paths say nothing).
+                    newest._forceYouTube = true
+                    itemData = newest
+                end if
+            end if
             m.top.selectedItem = itemData
         end if
     end if
