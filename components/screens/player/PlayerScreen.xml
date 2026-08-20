@@ -4,6 +4,9 @@
         <field id="itemData" type="assocarray" onChange="onItemDataChanged" />
         <field id="playAction" type="string" value="play" />
         <field id="done" type="boolean" alwaysNotify="true" />
+        <!-- Called by MainScene under memory pressure; drops the trickplay
+             sheet unless the viewer is actually scrubbing. -->
+        <function name="releaseArtwork" />
     </interface>
     <children>
         <Rectangle width="1920" height="1080" color="#000000" />

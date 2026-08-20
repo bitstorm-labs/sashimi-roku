@@ -17,13 +17,15 @@ sub main(args as dynamic)
     input = CreateObject("roInput")
     input.setMessagePort(m.port)
 
-    ' Memory monitoring (static-analysis advisories): subscribe to low-memory
-    ' signals so pressure is at least visible in the debug console.
+    ' Memory monitoring. SceneGraph components have no message loop, so this is
+    ' the only place the low-memory events can be received; the loop below
+    ' forwards them to the scene, which frees off-screen artwork (MainScene
+    ' onLowMemory). The launch-time budget is read in MainScene.readMemoryBudget.
     ' Guarded: roAppMemoryMonitor requires run_as_process=1 and is only
     ' supported on current models. Unguarded, an invalid here threw before the
     ' message loop below was ever reached -- no loop means no isScreenClosed()
-    ' and no roInput deep links, i.e. the channel exits at launch. This is
-    ' debug telemetry; it must never be able to take down startup.
+    ' and no roInput deep links, i.e. the channel exits at launch. Monitoring
+    ' must never be able to take down startup.
     di = CreateObject("roDeviceInfo")
     if di <> invalid
         di.setMessagePort(m.port)
@@ -33,9 +35,6 @@ sub main(args as dynamic)
     if appMem <> invalid
         appMem.setMessagePort(m.port)
         appMem.EnableMemoryWarningEvent(true)
-        #if DEBUG
-            print "[Mem] limit%: "; appMem.GetMemoryLimitPercent(); " availKB: "; appMem.GetChannelAvailableMemory(); " limits: "; appMem.GetChannelMemoryLimit()
-        #end if
     end if
 
     while true
@@ -46,16 +45,25 @@ sub main(args as dynamic)
                 return
             end if
         else if msgType = "roDeviceInfoEvent"
+            ' roDeviceInfoEvent carries several unrelated notifications, so the
+            ' payload is what identifies a memory one. isLowGeneralMemoryEvent()
+            ' is NOT a member on this firmware (verified: Roku OS 15.3.4 throws
+            ' "Member function not found" and takes the channel down with it) --
+            ' the presence of generalMemoryLevel is the portable test.
             info = msg.getInfo()
             if info <> invalid and info.doesExist("generalMemoryLevel")
+                level = info.generalMemoryLevel
                 #if DEBUG
-                    print "[Mem] generalMemoryLevel: " + info.generalMemoryLevel
+                    print "[Mem] generalMemoryLevel: " + level
                 #end if
+                ' The same event carries the all-clear on the way back down.
+                if level <> "normal" then scene.lowMemory = true
             end if
         else if msgType = "roAppMemoryNotificationEvent"
             #if DEBUG
-                print "[Mem] memory warning: "; msg.getInfo()
+                print "[Mem] memory warning"
             #end if
+            scene.lowMemory = true
         else if msgType = "roInputEvent"
             info = msg.getInfo()
             if info <> invalid and info.doesExist("contentId")

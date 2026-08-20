@@ -13,6 +13,7 @@ sub init()
     m.activeSelection = "home"
     m.railWidth = 136           ' collapsed rail; root screens sit to its right
 
+    budget = readMemoryBudget()
     m.global.addFields({
         serverUrl: ""
         authToken: ""
@@ -24,6 +25,8 @@ sub init()
         showReviewRatings: (AppSettings.read("showReviewRatings", "true") = "true")
         useEpisodeRatings: (AppSettings.read("useEpisodeRatings", "false") = "true")
         playThemeSongs: (AppSettings.read("playThemeSongs", "true") = "true")
+        memoryTier: budget.tier
+        memoryLimitKb: budget.limitKb
     })
 
     initDeviceId()
@@ -264,6 +267,71 @@ sub onSwitchServer()
     clearAllScreens()
     restoreSession()
     enterMainUI()
+end sub
+
+' ---------- Memory budget ----------
+' Roku gives a channel a fixed heap and this app is artwork-heavy: rows of
+' posters, 1280px hero backdrops, 1920x1080 trickplay sheets. Older models get a
+' markedly smaller budget than a current one, so read it once at launch and let
+' the screens decide from it how much artwork they may keep while it is off
+' screen (see HomeScreen.applyAutoRefresh). Guarded like the subscription in
+' Main.bs: an invalid here would take the whole channel down at launch.
+function readMemoryBudget() as object
+    appMem = CreateObject("roAppMemoryMonitor")
+    if appMem = invalid then return { tier: "normal", limitKb: 0 }
+    ' GetChannelMemoryLimit answers with an AA of KB budgets, NOT a scalar --
+    ' { maxForegroundMemory, maxBackgroundMemory, maxRokuManagedHeapMemory } --
+    ' so it has to be unpacked before it can be compared to anything. The dev
+    ' soundbar reports 331776 KB foreground / ~302000 KB available at launch.
+    limits = appMem.GetChannelMemoryLimit()
+    limitKb = 0
+    if type(limits) = "roAssociativeArray" and limits.maxForegroundMemory <> invalid
+        limitKb = limits.maxForegroundMemory
+    end if
+    availKb = appMem.GetChannelAvailableMemory()
+    #if DEBUG
+        print "[Mem] limitKB "; limitKb; " availKB "; availKb; " used% "; appMem.GetMemoryLimitPercent()
+    #end if
+    ' 192 MB splits the current 4K models (200 MB and up) from the older ones
+    ' this is really aimed at, and a launch that already starts with under
+    ' 128 MB of headroom counts as constrained whatever the nominal budget is.
+    tier = "normal"
+    if limitKb > 0 and limitKb <= 196608
+        tier = "low"
+    else if availKb > 0 and availKb <= 131072
+        tier = "low"
+    end if
+    return { tier: tier, limitKb: limitKb }
+end function
+
+' ---------- Memory pressure ----------
+' Main.bs raises m.top.lowMemory from the main thread's message loop. Hand it to
+' everything that holds bulk artwork; each screen frees only what the viewer
+' cannot currently see (a hidden root screen's whole grid, the player's
+' trickplay sheet) and restores itself when it comes back on screen, so this
+' never takes artwork off the screen being looked at.
+sub onLowMemory()
+    if not m.top.lowMemory then return
+    m.top.lowMemory = false
+    #if DEBUG
+        print "[Mem] low memory reported -- releasing off-screen artwork"
+    #end if
+    for each key in m.rootScreens
+        releaseArtwork(m.rootScreens[key])
+    end for
+    for each screen in m.navStack
+        releaseArtwork(screen)
+    end for
+end sub
+
+' callFunc against a component that does not declare the function is an error,
+' so the screens that do are named rather than probed.
+sub releaseArtwork(screen as object)
+    if screen = invalid then return
+    kind = screen.subtype()
+    if kind = "HomeScreen" or kind = "LibraryScreen" or kind = "PlayerScreen"
+        screen.callFunc("releaseArtwork", "pressure")
+    end if
 end sub
 
 sub initDeviceId()

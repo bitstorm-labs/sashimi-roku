@@ -96,6 +96,19 @@ sub startHeroImage(uris as object)
     end if
 end sub
 
+' Hand back the one decoded 1280px backdrop this banner holds. The latch is set
+' FIRST because clearing the uri can itself report "failed", which would
+' otherwise walk the candidate list on the way down and re-fetch.
+sub releaseArtwork(reason as dynamic) as void
+    m.heroUrisDone = true
+    m.heroImage.uri = ""
+end sub
+
+' showItem re-arms the candidate walk via startHeroImage.
+sub restoreArtwork(reason as dynamic) as void
+    showItem(m.currentIndex)
+end sub
+
 sub onContentChanged()
     contentNode = m.top.content
     if contentNode = invalid then return
