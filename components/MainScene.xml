@@ -2,6 +2,10 @@
 <component name="MainScene" extends="Scene">
     <interface>
         <field id="launchArgs" type="assocarray" onChange="onLaunchArgs" />
+        <!-- Raised by Main.bs's message loop when the device reports low general
+             memory. SceneGraph components have no message loop of their own, so
+             the main thread is the only place that event can be received. -->
+        <field id="lowMemory" type="boolean" alwaysNotify="true" onChange="onLowMemory" />
     </interface>
     <children>
     </children>

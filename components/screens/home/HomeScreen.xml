@@ -2,6 +2,8 @@
 <component name="HomeScreen" extends="Group">
     <interface>
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+        <!-- Called by MainScene under memory pressure; no-op while on screen. -->
+        <function name="releaseArtwork" />
     </interface>
     <children>
         <!-- Background (tvOS: vertical gradient background -> black) -->

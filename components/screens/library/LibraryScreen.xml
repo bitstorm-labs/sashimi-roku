@@ -4,6 +4,8 @@
         <field id="libraryData" type="assocarray" onChange="onLibraryDataChanged" />
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
         <field id="playItem" type="assocarray" alwaysNotify="true" />
+        <!-- Called by MainScene under memory pressure; no-op while on screen. -->
+        <function name="releaseArtwork" />
     </interface>
     <children>
         <!-- Background -->

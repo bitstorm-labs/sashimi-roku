@@ -58,6 +58,51 @@ sub init()
     ' Returning from a pushed detail focuses this screen's group — hand
     ' focus back to the grid or the remote goes dead ("freeze").
     m.top.observeField("focusedChild", "onFocusDelegate")
+
+    ' See releaseArtwork. MainScene caches this screen per library for the whole
+    ' session, so without a visible observer a released grid would come back
+    ' blank the next time the user selected the library.
+    m.artworkReleased = false
+    m.releasedFocusIndex = -1
+    m.top.observeField("visible", "onVisibleChanged")
+end sub
+
+' ---------- Memory pressure ----------
+' A browsed library holds every poster the user paged through — hundreds, on
+' several cached screens at once — and none of them are on screen while another
+' selection or a pushed screen is up. m.gridContent (URIs and JSON, no bitmaps)
+' is kept, so restoring is a re-assign rather than re-paging the server.
+sub onVisibleChanged()
+    if m.top.visible
+        restoreArtwork()
+    else if m.global.memoryTier = "low"
+        releaseArtwork("offscreen")
+    end if
+end sub
+
+sub releaseArtwork(reason as dynamic) as void
+    if m.top.visible or m.artworkReleased then return
+    if m.gridContent = invalid or not hasItems() then return
+    m.releasedFocusIndex = m.posterGrid.itemFocused
+    m.posterGrid.content = invalid
+    m.artworkReleased = true
+    #if DEBUG
+        print "[Mem] LibraryScreen released "; m.loadedItems; " posters"
+    #end if
+end sub
+
+sub restoreArtwork() as void
+    if not m.artworkReleased then return
+    m.artworkReleased = false
+    m.posterGrid.content = m.gridContent
+    ' A re-assigned ContentNode always parks the grid back at item 0.
+    if m.releasedFocusIndex > 0 and m.releasedFocusIndex < m.loadedItems
+        m.posterGrid.jumpToItem = m.releasedFocusIndex
+    end if
+    m.releasedFocusIndex = -1
+    #if DEBUG
+        print "[Mem] LibraryScreen restored grid"
+    #end if
 end sub
 
 sub onFocusDelegate()
@@ -286,6 +331,8 @@ sub onItemsLoaded(response as object)
     ' rebuilt the grid and snapped focus back to the top.
     if response.startIndex = 0
         hideStatus()
+        ' A completed load supersedes anything releaseArtwork was holding back.
+        m.artworkReleased = false
         m.posterGrid.content = m.gridContent
         m.posterGrid.visible = hasItems()
         if isRefresh and m.refreshFocusIndex > 0 and m.refreshFocusIndex < m.loadedItems

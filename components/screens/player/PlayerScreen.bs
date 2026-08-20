@@ -68,6 +68,12 @@ sub init()
     m.tp = invalid       ' trick-play geometry for the current item (cert 4.7)
     m.tpSheet = -1       ' sheet already loaded, so scrubbing doesn't refetch it
     m.tpDeferred = invalid ' metadata held back until a real duration is known
+    ' Live pressure reading for the sheet cache (see memoryPressureHigh). A
+    ' small-budget device gets less rope: it is the one that dies first, and a
+    ' 1920x1080 decode is a big fraction of what it has left.
+    m.appMem = CreateObject("roAppMemoryMonitor")
+    m.tpPressurePct = 90
+    if m.global.memoryTier = "low" then m.tpPressurePct = 80
     m.bufferTimer.observeFieldScoped("fire", "onBufferTimer")
     ' Cert 4.8: honour the Roku-level caption setting. Subtitles here are burned
     ' in server-side, so there is no native caption track for Roku to toggle --
@@ -1213,8 +1219,17 @@ sub showTrickplay(position as dynamic)
 
     ' Sheets are ~1 MB, so only refetch when the sheet actually changes.
     if sheet <> m.tpSheet
-        m.tpSheet = sheet
-        m.tpImage.uri = tileSheetUrl(sheet)
+        ' A new sheet is a 1920x1080 decode -- the largest single allocation the
+        ' player makes on top of the decoder -- and it buys a preview frame the
+        ' viewer sees for a fraction of a second. Close to the channel's limit
+        ' that trade is wrong: give back the sheet already held and scrub on the
+        ' timestamp alone rather than risk being killed mid-playback.
+        if memoryPressureHigh()
+            dropTrickplaySheet()
+        else
+            m.tpSheet = sheet
+            m.tpImage.uri = tileSheetUrl(sheet)
+        end if
     end if
     m.tpImage.translation = [-col * m.tp.width, -row * m.tp.height]
 
@@ -1235,9 +1250,49 @@ sub showTrickplay(position as dynamic)
     m.tpGroup.translation = [x, y]
     m.tpTime.translation = [x, y + m.tp.height + 6]
     m.tpTime.text = formatTime(position)
-    m.tpGroup.visible = true
+    ' No sheet (dropped or withheld under pressure) means no frame -- an empty
+    ' bordered box reads as a broken thumbnail. The timestamp still tracks the
+    ' scrub, which is the part that actually navigates.
+    m.tpGroup.visible = (m.tpSheet >= 0)
     m.tpTime.visible = true
 end sub
+
+' ---------- Memory pressure ----------
+' The trickplay sheet is the only thing here the viewer is usually NOT looking
+' at: the overlay is on screen while scrubbing and nowhere else. Called by
+' MainScene when the device reports low general memory.
+sub releaseArtwork(reason as dynamic) as void
+    if m.seeking then return
+    #if DEBUG
+        print "[Mem] PlayerScreen dropping trickplay sheet "; m.tpSheet
+    #end if
+    dropTrickplaySheet()
+end sub
+
+sub dropTrickplaySheet()
+    m.tpImage.uri = ""
+    m.tpSheet = -1
+end sub
+
+' GetMemoryLimitPercent is the direct reading and is used as such, but it cannot
+' be trusted on its own: the dev soundbar (Roku OS 15.3.4) returns 0 from it
+' while the channel is demonstrably holding ~16% of its foreground budget, so a
+' gate on that number alone would never fire anywhere it reads 0. The
+' available-memory figure does track real usage, so derive a percentage from it
+' too and go with whichever is higher.
+function memoryPressureHigh() as boolean
+    if m.appMem = invalid then return false
+    pct = m.appMem.GetMemoryLimitPercent()
+    limitKb = m.global.memoryLimitKb
+    if limitKb > 0
+        usedPct = 100 - Int((m.appMem.GetChannelAvailableMemory() * 100) / limitKb)
+        if usedPct > pct then pct = usedPct
+    end if
+    #if DEBUG
+        print "[Mem] trickplay gate: used% "; pct; " threshold "; m.tpPressurePct
+    #end if
+    return pct >= m.tpPressurePct
+end function
 
 ' Built here rather than in the API task because the Poster fetches its own URI
 ' from the render thread. A Poster cannot attach an Authorization header, so the

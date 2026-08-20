@@ -6,6 +6,9 @@
              stays true when the *screen* is hidden (SceneGraph doesn't
              propagate it), so the screen has to say so explicitly. -->
         <field id="autoAdvance" type="boolean" value="true" onChange="applyAutoAdvance" />
+        <!-- Memory pressure: drop / re-fetch the current backdrop. -->
+        <function name="releaseArtwork" />
+        <function name="restoreArtwork" />
     </interface>
     <children>
         <!-- Full-bleed banner (no rounded card mask): flush to the top/right

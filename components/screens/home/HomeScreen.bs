@@ -34,6 +34,10 @@ sub init()
     ' per session and stays put across refreshes (see buildHeroContent).
     m.heroShuffled = false
     m.rowContent = invalid
+    m.pendingRowItemSizes = invalid
+    ' True while the rows' artwork has been handed back under memory pressure
+    ' (releaseArtwork); m.rowContent still holds the URIs to rebuild from.
+    m.artworkReleased = false
     m.pendingRow = invalid
     m.heroEnabled = true
     m.cwEnabled = true
@@ -94,10 +98,49 @@ end sub
 sub applyAutoRefresh()
     if m.top.visible
         m.autoRefreshTimer.control = "start"
+        restoreArtwork()
     else
         m.autoRefreshTimer.control = "stop"
+        ' On a small-budget device don't sit on a screenful of decoded posters
+        ' while a pushed screen (the player, most expensively) is on top. A
+        ' device with headroom keeps them, so returning is instant, and gives
+        ' them back only if it actually reports pressure.
+        if m.global.memoryTier = "low" then releaseArtwork("offscreen")
     end if
     m.heroBanner.autoAdvance = m.top.visible
+end sub
+
+' ---------- Memory pressure ----------
+' The rows' decoded posters are the largest thing home holds, and none of them
+' are on screen while something is pushed over us. m.rowContent (URIs and JSON,
+' no bitmaps) is kept, so coming back is a content re-assign rather than a
+' reload. Refuses while visible: dropping artwork the viewer is looking at would
+' be worse than the pressure.
+sub releaseArtwork(reason as dynamic) as void
+    if m.top.visible or m.artworkReleased then return
+    if m.rowContent = invalid or m.pendingRowItemSizes = invalid then return
+    m.rowList.content = invalid
+    m.heroBanner.callFunc("releaseArtwork", reason)
+    m.artworkReleased = true
+    #if DEBUG
+        print "[Mem] HomeScreen released rows + hero"
+    #end if
+end sub
+
+sub restoreArtwork() as void
+    if not m.artworkReleased then return
+    m.artworkReleased = false
+    m.heroBanner.callFunc("restoreArtwork", "restore")
+    ' A load already in flight will set the content itself when it finishes.
+    if m.chainBusy then return
+    ' Same two-tick path showRows uses, and for the same reason: the RowList
+    ' needs a render pass between nil and the new content to discard its
+    ' recycled item components.
+    m.pendingRowContent = m.rowContent
+    m.relayoutTimer.control = "start"
+    #if DEBUG
+        print "[Mem] HomeScreen restored rows + hero"
+    #end if
 end sub
 
 sub onAutoRefresh()
@@ -994,6 +1037,8 @@ end sub
 
 sub showRows()
     m.chainBusy = false
+    ' A completed load supersedes anything releaseArtwork was holding back.
+    m.artworkReleased = false
     if m.reloadPending
         loadHomeData()
         return
