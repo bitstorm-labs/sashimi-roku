@@ -667,15 +667,25 @@ sub doGetIntroSegments(request as object)
         for each seg in result.Items
             segType = nativeSegmentType(seg.Type)
             if segType <> invalid and seg.StartTicks <> invalid and seg.EndTicks <> invalid
-                ' Divide by a LongInteger literal, exactly as every other tick
-                ' conversion here does. Do NOT reach for CDbl(): it is declared
-                ' over Integer, so a 64-bit tick count is truncated to 32 bits
-                ' before the widening ever happens. A 5:57 intro (3570000000
-                ' ticks) wrapped to -1:12 that way and parked the skip pill at
-                ' the top of the episode. The legacy route hid this by
-                ' answering in seconds.
-                startSec = seg.StartTicks / 10000000&
-                endSec = seg.EndTicks / 10000000&
+                ' Two traps in one line, both already paid for.
+                '
+                ' Divide by a LongInteger literal, never CDbl(): CDbl is
+                ' declared over Integer, so a 64-bit tick count is truncated to
+                ' 32 bits before it is ever widened. A 5:57 intro (3570000000
+                ' ticks) wrapped to -1:12 that way and parked the pill at the
+                ' top of the episode.
+                '
+                ' Then narrow with Int(). The division yields a LongInteger,
+                ' and assigning one to the Video node's `seek` field does
+                ' nothing at all — the field silently reads back 0 and playback
+                ' never moves. That is why the chapter menu has always written
+                ' Int(ticks / 10000000&) into seek.
+                '
+                ' The legacy route hid both of these by answering in seconds.
+                startSec = Int(seg.StartTicks / 10000000&)
+                ' Round the end up, so the skip lands on the segment boundary
+                ' instead of a fraction of a second short of it.
+                endSec = Int((seg.EndTicks + 9999999&) / 10000000&)
                 ' A negative offset can only mean the number was mangled on the
                 ' way in; drop it rather than draw a pill in the wrong place.
                 if startSec >= 0 and endSec > startSec
