@@ -654,10 +654,48 @@ sub doGetNextUp(request as object)
     end if
 end sub
 
-' Intro Skipper plugin segments: {"Introduction":{Start,End},"Credits":{...}}
+' Skip segments for an episode. Jellyfin's own Media Segments API (10.10+) is
+' the source of truth — every provider (Intro Skipper, SkipMe.db, chapters)
+' writes into it. Intro Skipper's private /IntroSkipperSegments route is only a
+' fallback for older servers: v12 of the plugin removed it, which silently
+' killed the pill everywhere, so never depend on a plugin route alone.
 ' Missing plugin / no segments -> empty list (never an error).
 sub doGetIntroSegments(request as object)
-    result = Http.getJson(Http.apiUrl("/Episode/" + request.itemId + "/IntroSkipperSegments"))
+    segments = []
+    result = Http.getJson(Http.apiUrl("/MediaSegments/" + request.itemId))
+    if result <> invalid and result.Items <> invalid
+        for each seg in result.Items
+            segType = nativeSegmentType(seg.Type)
+            if segType <> invalid and seg.StartTicks <> invalid and seg.EndTicks <> invalid
+                ' Ticks are 100 ns units and overflow a 32-bit int: keep the
+                ' arithmetic in doubles.
+                startSec = CDbl(seg.StartTicks) / 10000000.0
+                endSec = CDbl(seg.EndTicks) / 10000000.0
+                if endSec > startSec then segments.push({ segType: segType, startSec: startSec, endSec: endSec })
+            end if
+        end for
+    end if
+    ' Pre-10.10 server (404) or nothing recorded natively: ask the plugin.
+    if segments.count() = 0 then segments = legacyIntroSkipperSegments(request.itemId)
+    m.top.response = { success: true, action: "getIntroSegments", segments: segments, itemId: request.itemId }
+end sub
+
+' Native MediaSegments Type -> the segType vocabulary PlayerScreen keys off
+' ("credits" drives the auto-skip setting and the pill label). Commercial and
+' Unknown have no sensible pill, so they are dropped (invalid).
+function nativeSegmentType(nativeType as dynamic) as dynamic
+    if nativeType = invalid then return invalid
+    t = LCase(nativeType)
+    if t = "intro" then return "Introduction"
+    if t = "outro" then return "Credits"
+    if t = "recap" then return "Recap"
+    if t = "preview" then return "Preview"
+    return invalid
+end function
+
+' Intro Skipper plugin segments: {"Introduction":{Start,End},"Credits":{...}}
+function legacyIntroSkipperSegments(itemId as string) as object
+    result = Http.getJson(Http.apiUrl("/Episode/" + itemId + "/IntroSkipperSegments"))
     segments = []
     if result <> invalid and type(result) = "roAssociativeArray"
         for each key in result
@@ -667,8 +705,8 @@ sub doGetIntroSegments(request as object)
             end if
         end for
     end if
-    m.top.response = { success: true, action: "getIntroSegments", segments: segments, itemId: request.itemId }
-end sub
+    return segments
+end function
 
 ' Batched item fetch (one call for N series) — used for "X new" badges and the
 ' series' overall CommunityRating (so episode cards can show the SERIES rating).
