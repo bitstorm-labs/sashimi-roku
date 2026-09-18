@@ -667,11 +667,20 @@ sub doGetIntroSegments(request as object)
         for each seg in result.Items
             segType = nativeSegmentType(seg.Type)
             if segType <> invalid and seg.StartTicks <> invalid and seg.EndTicks <> invalid
-                ' Ticks are 100 ns units and overflow a 32-bit int: keep the
-                ' arithmetic in doubles.
-                startSec = CDbl(seg.StartTicks) / 10000000.0
-                endSec = CDbl(seg.EndTicks) / 10000000.0
-                if endSec > startSec then segments.push({ segType: segType, startSec: startSec, endSec: endSec })
+                ' Divide by a LongInteger literal, exactly as every other tick
+                ' conversion here does. Do NOT reach for CDbl(): it is declared
+                ' over Integer, so a 64-bit tick count is truncated to 32 bits
+                ' before the widening ever happens. A 5:57 intro (3570000000
+                ' ticks) wrapped to -1:12 that way and parked the skip pill at
+                ' the top of the episode. The legacy route hid this by
+                ' answering in seconds.
+                startSec = seg.StartTicks / 10000000&
+                endSec = seg.EndTicks / 10000000&
+                ' A negative offset can only mean the number was mangled on the
+                ' way in; drop it rather than draw a pill in the wrong place.
+                if startSec >= 0 and endSec > startSec
+                    segments.push({ segType: segType, startSec: startSec, endSec: endSec })
+                end if
             end if
         end for
     end if
