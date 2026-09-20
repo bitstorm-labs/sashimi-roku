@@ -75,6 +75,27 @@
                    width="40" height="32" translation="[56, 290]" visible="false">
                 <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
             </Label>
+            <!-- FinTV channel badge (top-left) and LIVE pill (top-right).
+                 Both are positioned in applyChannelChrome, because the card's
+                 width is only known once the row has been measured. -->
+            <MaskGroup id="channelBadgeMask" maskUri="pkg:/images/badge_mask_r6.png"
+                       maskSize="[120, 30]" translation="[10, 10]" visible="false">
+                <Rectangle id="channelBadgeBg" width="120" height="30" color="#0A0A10D0" />
+            </MaskGroup>
+            <Label id="channelBadgeLabel" text="" color="#FFFFFFFF" horizAlign="center" vertAlign="center"
+                   width="120" height="30" translation="[10, 10]" visible="false">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="18" />
+            </Label>
+            <MaskGroup id="livePillMask" maskUri="pkg:/images/badge_mask_r6.png"
+                       maskSize="[70, 30]" translation="[140, 10]" visible="false">
+                <Rectangle id="livePillBg" width="70" height="30" color="#0A0A10D0" />
+            </MaskGroup>
+            <Rectangle id="liveDot" width="8" height="8" color="#FF3B30FF"
+                       translation="[150, 21]" visible="false" />
+            <Label id="livePillLabel" text="LIVE" color="#FFFFFFFF" horizAlign="left" vertAlign="center"
+                   width="46" height="30" translation="[164, 10]" visible="false">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="17" />
+            </Label>
             <!-- YouTube badge (top-left; shown for YouTube video cards so a
                  resumed YouTube video is identifiable, like the home hero) -->
             <Poster id="ytBadge" uri="pkg:/images/youtube_icon.png" width="44" height="31"

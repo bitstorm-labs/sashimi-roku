@@ -3,6 +3,9 @@
     <interface>
         <field id="itemData" type="assocarray" onChange="onItemDataChanged" />
         <field id="playAction" type="string" value="play" />
+        <!-- Set when this playback is a channel rather than a chosen item.
+             Suppresses all watch-state reporting and rolls over at the end. -->
+        <field id="channelContext" type="assocarray" />
         <field id="done" type="boolean" alwaysNotify="true" />
         <!-- Called by MainScene under memory pressure; drops the trickplay
              sheet unless the viewer is actually scrubbing. -->

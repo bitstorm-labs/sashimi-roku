@@ -74,6 +74,14 @@ sub processRequest()
         doGetNewestChannelVideos(request)
     else if action = "getIntroSegments"
         doGetIntroSegments(request)
+    else if action = "getVirtualChannels"
+        doGetVirtualChannels()
+    else if action = "getChannelNowPlaying"
+        doGetChannelNowPlaying(request)
+    else if action = "getChannelGuide"
+        doGetChannelGuide(request)
+    else if action = "getChannelCards"
+        doGetChannelCards()
     else if action = "getItems"
         doGetItems(request)
     else if action = "getItem"
@@ -653,6 +661,150 @@ sub doGetNextUp(request as object)
         m.top.response = { success: true, action: "getNextUp", items: [], context: request.context }
     end if
 end sub
+
+' FinTV virtual channels, served by the Channels plugin.
+'
+' A server without the plugin answers 404, which must read as "no channels"
+' rather than an error: the row simply does not appear, and nothing else on
+' Home is allowed to fail because of it.
+sub doGetVirtualChannels()
+    result = Http.getJson(Http.apiUrl("/VirtualChannels"))
+    channels = []
+    if result <> invalid and type(result) = "roArray" then channels = result
+    #if DEBUG
+        print "[API] Virtual channels: " + str(channels.count()).Trim()
+    #end if
+    m.top.response = { success: true, action: "getVirtualChannels", channels: channels }
+end sub
+
+' What a channel is airing right now.
+'
+' 204 means off air — a real state, not a failure. The channel stays in the
+' list because it will be back; only its card changes.
+sub doGetChannelNowPlaying(request as object)
+    meta = {}
+    result = Http.getJson(Http.apiUrl("/VirtualChannels/" + request.channelId + "/NowPlaying"), meta)
+    offAir = (meta.statusCode = 204)
+    m.top.response = {
+        success: true,
+        action: "getChannelNowPlaying",
+        channelId: request.channelId,
+        offAir: offAir,
+        nowPlaying: result,
+        context: request.context
+    }
+end sub
+
+' The whole schedule across a window, for the guide.
+sub doGetChannelGuide(request as object)
+    hours = 3
+    if request.hours <> invalid then hours = request.hours
+    url = Http.apiUrl("/VirtualChannels/Guide") + "?hours=" + str(hours).Trim()
+    result = Http.getJson(url)
+    rows = []
+    if result <> invalid and type(result) = "roArray" then rows = result
+    #if DEBUG
+        print "[API] Guide rows: " + str(rows.count()).Trim()
+    #end if
+    m.top.response = { success: true, action: "getChannelGuide", rows: rows }
+end sub
+
+' Everything the FinTV row needs, in one request.
+'
+' The row needs three things the server keeps apart: the channel list, what
+' each channel is airing right now, and the details of those programmes. Doing
+' that as a chain of requests from the screen means three round trips of
+' BrightScript state machine per channel and a half-built row on any failure.
+' This task already runs off the render thread, so it does the whole assembly
+' and answers once.
+sub doGetChannelCards()
+    channels = Http.getJson(Http.apiUrl("/VirtualChannels"))
+    if channels = invalid or type(channels) <> "roArray" or channels.count() = 0
+        ' No plugin, or no channels. Both mean "no row", never an error.
+        m.top.response = { success: true, action: "getChannelCards", cards: [] }
+        return
+    end if
+
+    cards = []
+    wantedIds = {}
+    for each channel in channels
+        id = ""
+        if channel.Id <> invalid then id = channel.Id
+        if id = "" then continue for
+
+        meta = {}
+        now = Http.getJson(Http.apiUrl("/VirtualChannels/" + id + "/NowPlaying"), meta)
+        card = {
+            channelId: id,
+            channelName: valueOr(channel.Name, ""),
+            channelDescription: valueOr(channel.Description, ""),
+            offAir: true,
+            itemId: "",
+            nextItemId: "",
+            startPositionSeconds: 0,
+            endUtc: ""
+        }
+        ' 204 is off air — a real state, not a failure. The channel stays in
+        ' the row because it will be back; only its card changes.
+        if meta.statusCode <> 204 and now <> invalid and now.ItemId <> invalid
+            card.offAir = false
+            card.itemId = now.ItemId
+            card.nextItemId = valueOr(now.NextItemId, "")
+            card.startPositionSeconds = valueOrNumber(now.StartPositionSeconds, 0)
+            card.endUtc = valueOr(now.EndUtc, "")
+            wantedIds[card.itemId] = true
+            if card.nextItemId <> "" then wantedIds[card.nextItemId] = true
+        end if
+        cards.push(card)
+    end for
+
+    items = channelItemsById(wantedIds)
+    for each card in cards
+        if card.itemId <> "" and items.DoesExist(card.itemId) then card.item = items[card.itemId]
+        if card.nextItemId <> "" and items.DoesExist(card.nextItemId) then card.nextItem = items[card.nextItemId]
+    end for
+
+    #if DEBUG
+        print "[API] Channel cards: " + str(cards.count()).Trim()
+    #end if
+    m.top.response = { success: true, action: "getChannelCards", cards: cards }
+end sub
+
+' One batched lookup for every programme the row will show, keyed by id.
+function channelItemsById(wantedIds as object) as object
+    byId = {}
+    idList = []
+    for each key in wantedIds
+        idList.push(key)
+    end for
+    if idList.count() = 0 then return byId
+
+    idStr = ""
+    for i = 0 to idList.count() - 1
+        if i > 0 then idStr += ","
+        idStr += idList[i]
+    end for
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items?Ids=" + idStr)
+    url += "&Fields=Overview,CommunityRating,OfficialRating,ParentBackdropImageTags,PrimaryImageAspectRatio"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    result = Http.getJson(url)
+    if result <> invalid and result.Items <> invalid
+        for each item in result.Items
+            if item.Id <> invalid then byId[item.Id] = item
+        end for
+    end if
+    return byId
+end function
+
+function valueOr(value as dynamic, fallback as string) as string
+    if value = invalid then return fallback
+    return value
+end function
+
+function valueOrNumber(value as dynamic, fallback as integer) as dynamic
+    if value = invalid then return fallback
+    return value
+end function
 
 ' Skip segments for an episode. Jellyfin's own Media Segments API (10.10+) is
 ' the source of truth — every provider (Intro Skipper, SkipMe.db, chapters)
