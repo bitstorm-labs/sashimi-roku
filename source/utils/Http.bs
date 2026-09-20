@@ -53,7 +53,14 @@ namespace Http
             if msg <> invalid and type(msg) = "roUrlEvent"
                 code = msg.GetResponseCode()
                 if meta <> invalid then meta.statusCode = code
-                if code >= 200 and code < 300
+                if code = 204
+                    ' No content is a legitimate answer, not a failure — the
+                    ' Channels plugin uses it for "off air". Parsing the empty
+                    ' body logs "ParseJSON: Data is empty" on every call, which
+                    ' reads as a bug in the console for something working
+                    ' exactly as designed. The caller checks meta.statusCode.
+                    return invalid
+                else if code >= 200 and code < 300
                     return ParseJSON(msg.GetString())
                 else
                     #if DEBUG

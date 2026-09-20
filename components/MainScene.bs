@@ -485,6 +485,7 @@ function getOrCreateRootScreen(choice as object) as object
     if kind = "home"
         screen = createObject("roSGNode", "HomeScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
+        screen.observeFieldScoped("playItem", "onPlayItem")
     else if kind = "search"
         screen = createObject("roSGNode", "SearchScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
@@ -659,6 +660,10 @@ sub onPlayItem(event as object)
     screen.observeFieldScoped("done", "onPlayerDone")
     pushScreen(screen)
     screen.playAction = playData.action
+    ' Set before itemData: onItemDataChanged is what starts the stream, and a
+    ' channel has to know it is a channel before the first byte is requested,
+    ' or it reports a play session it should never have opened.
+    if playData.channelContext <> invalid then screen.channelContext = playData.channelContext
     screen.itemData = playData.item
 end sub
 

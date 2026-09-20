@@ -220,6 +220,12 @@ sub onApiResponse()
         onItemsByIdsLoaded(response)
     else if action = "getNewestChannelVideos"
         onNewestChannelVideosLoaded(response)
+    else if action = "getChannelCards"
+        onChannelCardsLoaded(response)
+    else if action = "getChannelNowPlaying"
+        onChannelNowPlayingLoaded(response)
+    else if action = "getItem" and response.context = "channelTune"
+        onChannelItemLoaded(response)
     end if
 end sub
 
@@ -473,11 +479,27 @@ sub onNextUpLoaded(response as object)
     ' Reset so a stale index from the previous load can't tag a library row as
     ' the landscape CW row (addContinueWatchingRow re-sets it when CW exists).
     m.continueWatchingRowIndex = invalid
+    ' Same reason: a stale index would tag a library row as the FinTV row.
+    m.channelsRowIndex = invalid
 
     if m.continueWatchingItems.count() > 0 and m.cwEnabled
         addContinueWatchingRow(m.continueWatchingItems)
     end if
 
+    ' FinTV sits between Continue Watching and the libraries, as it does on the
+    ' other clients. One request assembles the whole row (see doGetChannelCards);
+    ' a server without the plugin answers with no cards, and the chain carries on.
+    m.apiTask.request = { action: "getChannelCards" }
+end sub
+
+sub onChannelCardsLoaded(response as object)
+    if response.success and response.cards <> invalid and response.cards.count() > 0
+        addChannelsRow(response.cards)
+    end if
+    startLibraryChain()
+end sub
+
+sub startLibraryChain()
     if m.libraries.count() > 0
         m.currentLibraryIndex = 0
         lib = m.libraries[0]
@@ -634,6 +656,123 @@ function formatRemaining(item as object) as string
         return str(hours).Trim() + "h " + str(mins).Trim() + "m left"
     end if
     return str(mins).Trim() + "m left"
+end function
+
+' The FinTV row: one card per channel, showing what it is airing now.
+'
+' Landscape cards, like Continue Watching, because a channel card is a frame of
+' the programme rather than its poster. The channel badge and LIVE pill are
+' drawn by HomeItem from the fields set here.
+' Re-read Home. Used when a channel turns out to have moved on between the row
+' being drawn and the viewer pressing OK.
+sub reloadRows()
+    if m.chainBusy
+        m.reloadPending = true
+        return
+    end if
+    loadHomeData()
+end sub
+
+sub addChannelsRow(cards as object)
+    if m.rowContent = invalid then return
+    m.channelsRowIndex = m.rowContent.getChildCount()
+
+    row = m.rowContent.createChild("ContentNode")
+    row.title = "FinTV"
+
+    for each card in cards
+        child = row.createChild("ContentNode")
+        child.addFields({
+            cardStyle: "landscape",
+            channelName: card.channelName,
+            isLive: not card.offAir,
+            playedPercentage: 0,
+            remainingText: "",
+            itemJson: "",
+            channelJson: FormatJSON(card),
+            isChannel: true
+        })
+
+        item = invalid
+        if card.DoesExist("item") then item = card.item
+
+        if card.offAir or item = invalid
+            child.title = card.channelName
+            child.description = card.channelDescription
+            continue for
+        end if
+
+        child.title = channelCardTitle(item)
+        child.description = channelCardMetadata(item)
+        child.HDPosterUrl = channelCardArtwork(item)
+        child.itemJson = FormatJSON(item)
+
+        ' Progress and time left both come from the join offset and the
+        ' programme runtime, so neither needs the wall clock or a date parse:
+        ' startPositionSeconds is exactly how far in the channel already is.
+        runtime = 0
+        if item.RunTimeTicks <> invalid then runtime = Int(item.RunTimeTicks / 10000000&)
+        elapsed = card.startPositionSeconds
+        if runtime > 0 and elapsed > 0 and elapsed < runtime
+            child.playedPercentage = Int((elapsed * 100) / runtime)
+        end if
+        if runtime > elapsed
+            child.remainingText = formatTimeLeft(runtime - elapsed)
+        end if
+    end for
+end sub
+
+function channelCardTitle(item as object) as string
+    if item.Type <> invalid and item.Type = "Episode" and item.SeriesName <> invalid and item.SeriesName <> ""
+        return item.SeriesName
+    end if
+    if item.Name <> invalid then return item.Name
+    return ""
+end function
+
+' Season/episode, year, rating, certificate — skipping whatever is missing, so
+' a sparse item does not render a line of orphaned separators.
+function channelCardMetadata(item as object) as string
+    parts = []
+    if item.Type <> invalid and item.Type = "Episode" and item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+        parts.push("S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim())
+    end if
+    if item.ProductionYear <> invalid then parts.push(str(item.ProductionYear).Trim())
+    if item.OfficialRating <> invalid and item.OfficialRating <> "" then parts.push(item.OfficialRating)
+
+    out = ""
+    for i = 0 to parts.count() - 1
+        if i > 0 then out += " · "
+        out += parts[i]
+    end for
+    return out
+end function
+
+function channelCardArtwork(item as object) as string
+    itemId = ""
+    if item.Id <> invalid then itemId = item.Id
+    hasSeriesBackdrop = (item.ParentBackdropItemId <> invalid) and (item.ParentBackdropImageTags <> invalid)
+    if hasSeriesBackdrop then return ImageUrl.backdrop(item.ParentBackdropItemId, 880)
+    if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
+        return ImageUrl.backdrop(itemId, 880)
+    end if
+    if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+        return ImageUrl.primary(itemId, 880)
+    end if
+    if item.SeriesId <> invalid and item.SeriesId <> "" then return ImageUrl.primary(item.SeriesId, 880)
+    return ""
+end function
+
+' Matches the wording every other client uses, so one programme does not
+' describe its remaining time two different ways across the house.
+function formatTimeLeft(seconds as integer) as string
+    if seconds >= 3600
+        hours = Int(seconds / 3600)
+        mins = Int((seconds MOD 3600) / 60)
+        return str(hours).Trim() + "h " + str(mins).Trim() + "m left"
+    end if
+    if seconds >= 60 then return str(Int(seconds / 60)).Trim() + "m left"
+    return str(seconds).Trim() + "s left"
 end function
 
 sub addContinueWatchingRow(items as object)
@@ -1178,6 +1317,14 @@ sub onRowItemSelected()
     item = row.getChild(itemIndex)
     if item = invalid then return
 
+    ' A FinTV card tunes in: the programme is already running, so it goes
+    ' straight to the player rather than to a detail screen for something you
+    ' cannot choose to start from the beginning.
+    if item.channelJson <> invalid and item.channelJson <> ""
+        tuneToChannel(ParseJSON(item.channelJson))
+        return
+    end if
+
     if item.itemJson <> invalid and item.itemJson <> ""
         itemData = ParseJSON(item.itemJson)
         if itemData <> invalid
@@ -1200,6 +1347,61 @@ sub onRowItemSelected()
         end if
     end if
 end sub
+
+' Tune in to a channel.
+'
+' Resolved fresh rather than from the card: the row may have been on screen for
+' a while, and a channel moves on whether or not anyone is looking at it. The
+' card's own itemId is only a fallback if the resolve fails.
+sub tuneToChannel(card as object)
+    if card = invalid then return
+    if card.offAir <> invalid and card.offAir = true then return
+    m.pendingTuneCard = card
+    m.apiTask.request = { action: "getChannelNowPlaying", channelId: card.channelId }
+end sub
+
+sub onChannelNowPlayingLoaded(response as object)
+    card = m.pendingTuneCard
+    m.pendingTuneCard = invalid
+    if card = invalid then return
+
+    ' Went off air between rendering and pressing. Reload so the row tells the
+    ' truth rather than appearing to do nothing.
+    if response.offAir = true or response.nowPlaying = invalid
+        reloadRows()
+        return
+    end if
+
+    now = response.nowPlaying
+    itemId = ""
+    if now.ItemId <> invalid then itemId = now.ItemId
+    if itemId = "" then return
+
+    m.pendingChannelContext = {
+        channelId: card.channelId,
+        channelName: card.channelName,
+        startPositionSeconds: valueOrZero(now.StartPositionSeconds),
+        nextItemId: ""
+    }
+    if now.NextItemId <> invalid then m.pendingChannelContext.nextItemId = now.NextItemId
+    m.apiTask.request = { action: "getItem", itemId: itemId, context: "channelTune" }
+end sub
+
+sub onChannelItemLoaded(response as object)
+    context = m.pendingChannelContext
+    m.pendingChannelContext = invalid
+    if context = invalid then return
+    if not response.success or response.item = invalid
+        reloadRows()
+        return
+    end if
+    m.top.playItem = { action: "play", item: response.item, channelContext: context }
+end sub
+
+function valueOrZero(value as dynamic) as integer
+    if value = invalid then return 0
+    return Int(value)
+end function
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if press

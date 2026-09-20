@@ -24,6 +24,12 @@ sub init()
     m.ratingLabel = m.top.findNode("ratingLabel")
     m.titleLabel = m.top.findNode("titleLabel")
     m.subtitleLabel = m.top.findNode("subtitleLabel")
+    m.channelBadgeMask = m.top.findNode("channelBadgeMask")
+    m.channelBadgeBg = m.top.findNode("channelBadgeBg")
+    m.channelBadgeLabel = m.top.findNode("channelBadgeLabel")
+    m.livePillMask = m.top.findNode("livePillMask")
+    m.liveDot = m.top.findNode("liveDot")
+    m.livePillLabel = m.top.findNode("livePillLabel")
     m.itemWidth = 220
     m.posterHeight = 330
     m.isCircular = false
@@ -218,6 +224,7 @@ sub onItemContentChanged()
     m.cwScrim.visible = false
     m.playGlyph.visible = false
     m.remainingLabel.visible = false
+    hideChannelChrome()
     applyQualityBadge()
     applyRatingBadge()
 
@@ -319,6 +326,59 @@ sub onItemContentChanged()
             end if
         end if
     end if
+
+    applyChannelChrome(content)
+end sub
+
+' FinTV cards say which channel they are, and that they are live.
+'
+' Positioned here rather than in the XML because the card's width is only known
+' once the row has been measured, and the pill has to sit against the right
+' edge whatever that width turns out to be.
+sub applyChannelChrome(content as object)
+    if not content.doesExist("channelName") then return
+    name = content.channelName
+    if name = invalid or name = "" then return
+
+    label = UCase(name)
+    ' Roughly 11px per character at 18pt bold, plus padding. Measuring properly
+    ' needs a render pass we do not have here, and the badge is a capsule, so
+    ' being a few pixels generous costs nothing.
+    badgeWidth = 22 + Len(label) * 11
+    if badgeWidth > m.itemWidth - 100 then badgeWidth = m.itemWidth - 100
+
+    m.channelBadgeLabel.text = label
+    m.channelBadgeMask.maskSize = [badgeWidth, 30]
+    m.channelBadgeBg.width = badgeWidth
+    m.channelBadgeLabel.width = badgeWidth
+    m.channelBadgeMask.translation = [10, 10]
+    m.channelBadgeLabel.translation = [10, 10]
+    m.channelBadgeMask.visible = true
+    m.channelBadgeLabel.visible = true
+
+    isLive = (content.doesExist("isLive") and content.isLive = true)
+    if isLive
+        pillWidth = 74
+        pillX = m.itemWidth - pillWidth - 10
+        m.livePillMask.maskSize = [pillWidth, 30]
+        m.livePillMask.translation = [pillX, 10]
+        m.livePillBg = m.top.findNode("livePillBg")
+        if m.livePillBg <> invalid then m.livePillBg.width = pillWidth
+        m.liveDot.translation = [pillX + 12, 21]
+        m.livePillLabel.translation = [pillX + 28, 10]
+        m.livePillMask.visible = true
+        m.liveDot.visible = true
+        m.livePillLabel.visible = true
+    end if
+end sub
+
+sub hideChannelChrome()
+    if m.channelBadgeMask = invalid then return
+    m.channelBadgeMask.visible = false
+    m.channelBadgeLabel.visible = false
+    m.livePillMask.visible = false
+    m.liveDot.visible = false
+    m.livePillLabel.visible = false
 end sub
 
 sub applyFocusVisuals(fp as float)
