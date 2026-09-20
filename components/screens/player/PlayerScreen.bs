@@ -293,6 +293,10 @@ sub retryPlayback()
     m.video.control = "stop"
     if m.startedReported
         m.pendingStartSecs = Int(m.lastPosition)
+    else if isChannelMode()
+        ' Join where the channel already is, not where this viewer last left
+        ' this episode — the two are unrelated.
+        m.pendingStartSecs = channelStartSeconds()
     else if m.top.playAction <> "play"
         m.pendingStartSecs = resumeSeconds()
     else
@@ -343,7 +347,63 @@ sub onApiResponse()
         onSiblingsLoaded(r)
     else if r.action = "getIntroSegments"
         if r.itemId = m.item.Id and r.segments <> invalid then m.segments = r.segments
+    else if r.action = "getChannelNowPlaying"
+        onChannelRolledOver(r)
+    else if r.action = "getItem" and r.context = "channelRoll"
+        onChannelNextItem(r)
     end if
+end sub
+
+function isChannelMode() as boolean
+    ctx = m.top.channelContext
+    if ctx = invalid then return false
+    if ctx.channelId = invalid or ctx.channelId = "" then return false
+    return true
+end function
+
+function channelStartSeconds() as integer
+    ctx = m.top.channelContext
+    if ctx = invalid or ctx.startPositionSeconds = invalid then return 0
+    return Int(ctx.startPositionSeconds)
+end function
+
+' The programme ended; ask the channel what is on now.
+sub onChannelRolledOver(r as object)
+    if r.offAir = true or r.nowPlaying = invalid
+        ' Nothing is on: the channel has gone off air. Leave rather than sit on
+        ' a frozen last frame.
+        exitPlayer()
+        return
+    end if
+    itemId = ""
+    if r.nowPlaying.ItemId <> invalid then itemId = r.nowPlaying.ItemId
+    if itemId = "" or itemId = m.item.Id
+        ' The schedule has not moved on yet, or the server is still serving the
+        ' programme that just finished. Either way there is nothing to roll to.
+        exitPlayer()
+        return
+    end if
+
+    ctx = m.top.channelContext
+    start = 0
+    if r.nowPlaying.StartPositionSeconds <> invalid then start = Int(r.nowPlaying.StartPositionSeconds)
+    ctx.startPositionSeconds = start
+    m.top.channelContext = ctx
+
+    enqueue({ action: "getItem", itemId: itemId, context: "channelRoll" })
+end sub
+
+sub onChannelNextItem(r as object)
+    if not r.success or r.item = invalid
+        exitPlayer()
+        return
+    end if
+    ' Same screen, next programme: reset the per-item state the way a fresh
+    ' item would, then let onItemDataChanged drive the new stream.
+    m.startedReported = false
+    m.stoppedReported = false
+    m.segments = []
+    m.top.itemData = r.item
 end sub
 
 sub onStreamReady(r as object)
@@ -432,6 +492,13 @@ sub onStreamReady(r as object)
         ' restart after a track/quality change — resume where we were
         if m.pendingStartSecs > 0 then content.PlayStart = m.pendingStartSecs
         m.pendingStartSecs = -1
+    else if isChannelMode()
+        ' Join the channel where it already is. This branch has to come before
+        ' the resume one: a channel tunes in with playAction "play", which would
+        ' otherwise start the programme from the beginning — the whole point of
+        ' a channel is that it did not wait for you.
+        startSecs = channelStartSeconds()
+        if startSecs > 0 then content.PlayStart = startSecs
     else if m.top.playAction <> "play"
         startSecs = resumeSeconds()
         if startSecs > 0 then content.PlayStart = startSecs
@@ -1509,6 +1576,10 @@ end function
 
 sub report(action as string, positionTicks as longinteger, isPaused as boolean)
     if m.item = invalid then return
+    ' A channel is a stream you joined, not something you chose to watch.
+    ' Reporting it would mark episodes played and rearrange Continue Watching
+    ' behind the viewer's back, for programmes they never picked.
+    if isChannelMode() then return
     enqueue({
         action: action
         itemId: m.item.Id
@@ -1521,6 +1592,11 @@ end sub
 
 sub reportStopped(positionTicks as longinteger)
     if m.stoppedReported then return
+    if isChannelMode()
+        m.stoppedReported = true
+        m.progressTimer.control = "stop"
+        return
+    end if
     m.stoppedReported = true
     m.progressTimer.control = "stop"
     if m.item <> invalid
@@ -1539,6 +1615,16 @@ sub onPlaybackEnded()
     m.bufferTimer.control = "stop"
     reportStopped(endTicks)
     hideOsd()
+
+    ' A channel rolls on to whatever it is showing next, without leaving the
+    ' player and without marking anything played.
+    if isChannelMode()
+        m.statusLabel.visible = true
+        m.statusLabel.text = "Up next..."
+        enqueue({ action: "getChannelNowPlaying", channelId: m.top.channelContext.channelId })
+        return
+    end if
+
     enqueue({ action: "markPlayed", itemId: m.item.Id })
 
     autoplay = AppSettings.autoPlayNextEpisode()
