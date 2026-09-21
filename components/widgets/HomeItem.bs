@@ -30,6 +30,10 @@ sub init()
     m.livePillMask = m.top.findNode("livePillMask")
     m.liveDot = m.top.findNode("liveDot")
     m.livePillLabel = m.top.findNode("livePillLabel")
+    m.synopsisLabel = m.top.findNode("synopsisLabel")
+    m.countdownLabel = m.top.findNode("countdownLabel")
+    m.nextLabel = m.top.findNode("nextLabel")
+    m.isChannel = false
     m.itemWidth = 220
     m.posterHeight = 330
     m.isCircular = false
@@ -55,7 +59,13 @@ sub applyLayout()
     w = m.itemWidth
     if w = 0 then return
 
-    if m.isLandscape
+    if m.isChannel
+        ' Channel card artwork (tvOS: 440x280 — taller than 16:9, so the badge
+        ' and the progress bar have room without crowding the frame).
+        m.posterHeight = Int(w * 0.6364)
+        m.posterMask.maskUri = "pkg:/images/wide_mask_r16.png"
+        m.posterMask.maskSize = [w, m.posterHeight]
+    else if m.isLandscape
         ' Continue Watching landscape card (tvOS: 440x248, radius 16)
         m.posterHeight = Int(w * 0.5625)
         m.posterMask.maskUri = "pkg:/images/wide_mask_r16.png"
@@ -91,7 +101,27 @@ sub applyLayout()
     applyQualityBadge()
     applyRatingBadge()
 
-    if m.isLandscape
+    if m.isChannel
+        ' Progress across the full width at the artwork's bottom edge, as on
+        ' the other clients — no scrim, no play glyph: this is how far the
+        ' CHANNEL has got, not how far this viewer has.
+        m.progressBg.width = w
+        m.progressBg.translation = [0, m.posterHeight - 5]
+        m.progressBar.translation = [0, m.posterHeight - 5]
+
+        m.titleLabel.horizAlign = "left"
+        setLabelFont(m.titleLabel, "pkg:/fonts/Inter-Bold.ttf", 28)
+        m.titleLabel.translation = [0, m.posterHeight + 14]
+        m.subtitleLabel.translation = [0, m.posterHeight + 56]
+        m.synopsisLabel.translation = [0, m.posterHeight + 92]
+        m.synopsisLabel.width = w
+        ' A wrapped 20pt line is about 38px tall on this renderer, not the ~26
+        ' the font size suggests, so two lines need 76 and the footer has to
+        ' clear 92 + 76. Budgeting by font size put the countdown on top of the
+        ' second line of synopsis.
+        m.countdownLabel.translation = [0, m.posterHeight + 178]
+        m.nextLabel.translation = [w - 260, m.posterHeight + 180]
+    else if m.isLandscape
         ' CW card internals (tvOS: pad H16/bottom14, progress under time-left row)
         m.cwScrim.width = w
         m.cwScrim.height = 60
@@ -209,6 +239,14 @@ sub onItemContentChanged()
     if content.doesExist("cardStyle") and content.cardStyle = "landscape"
         m.isLandscape = true
     end if
+    ' A channel card is landscape too, but it is not a Continue Watching card:
+    ' its caption carries a synopsis and a footer, and its artwork carries no
+    ' play glyph or scrim, because nothing here was half-watched.
+    m.isChannel = false
+    if content.doesExist("isChannel") and content.isChannel = true
+        m.isChannel = true
+        m.isLandscape = true
+    end if
     ' Re-apply poster/mask/label sizing for the (now known) style at the current
     ' width, so the mask matches even if onSizeChanged doesn't re-fire.
     applyLayout()
@@ -225,6 +263,9 @@ sub onItemContentChanged()
     m.playGlyph.visible = false
     m.remainingLabel.visible = false
     hideChannelChrome()
+    m.synopsisLabel.visible = false
+    m.countdownLabel.visible = false
+    m.nextLabel.visible = false
     applyQualityBadge()
     applyRatingBadge()
 
@@ -313,7 +354,13 @@ sub onItemContentChanged()
         if pct > 0 and pct < 100
             m.progressBg.visible = true
             m.progressBar.visible = true
-            if m.isLandscape
+            if m.isChannel
+                ' Full width, and none of the Continue Watching furniture: the
+                ' scrim, play glyph and overlaid time-left all say "you left off
+                ' here", which is untrue of a channel. The countdown lives in
+                ' the footer instead.
+                m.progressBar.width = m.itemWidth * (pct / 100.0)
+            else if m.isLandscape
                 m.progressBar.width = (m.itemWidth - 32) * (pct / 100.0)
                 m.cwScrim.visible = true
                 m.playGlyph.visible = true
@@ -328,6 +375,28 @@ sub onItemContentChanged()
     end if
 
     applyChannelChrome(content)
+    applyChannelCaption(content)
+end sub
+
+' Synopsis and footer. Only channel cards have them; everything else leaves
+' these hidden from the reset above.
+sub applyChannelCaption(content as object)
+    if not m.isChannel then return
+
+    if content.doesExist("synopsis") and content.synopsis <> ""
+        m.synopsisLabel.text = content.synopsis
+        m.synopsisLabel.visible = true
+    end if
+
+    if content.doesExist("remainingText") and content.remainingText <> ""
+        m.countdownLabel.text = content.remainingText
+        m.countdownLabel.visible = true
+    end if
+
+    if content.doesExist("nextTitle") and content.nextTitle <> ""
+        m.nextLabel.text = "NEXT  >  " + content.nextTitle
+        m.nextLabel.visible = true
+    end if
 end sub
 
 ' FinTV cards say which channel they are, and that they are live.

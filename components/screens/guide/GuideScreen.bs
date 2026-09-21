@@ -1,0 +1,505 @@
+' The FinTV guide: channels down, time across.
+'
+' Focus is managed by hand rather than by a RowList. The cells are not uniform —
+' a 22-minute sitcom and a two-hour film are the same programme to the grid but
+' wildly different widths — and a RowList wants a fixed item size per row. The
+' screen therefore owns m.rowIndex/m.colIndex and repaints focus itself, the
+' same shape SettingsScreen uses.
+
+' Geometry. Three hours at 7.5px/minute is 1350px, which fits beside the rail
+' and the channel column without scrolling sideways.
+' 14px a minute, not the 7.5 that fits three hours on one screen. At 7.5 a
+' 22-minute episode is 165px and its title is an ellipsis; the grid is worth
+' more when you can read it, so it is wider than the screen and scrolls.
+const PX_PER_MIN = 14
+' Root screens are already positioned to the right of the 136px rail, so these
+' are relative to the content area (1784 wide), not the screen. Indenting from
+' 1920 as well pushed the timeline off the right edge.
+const GRID_X = 396
+const GRID_TOP = 196
+const ROW_H = 96
+const ROW_GAP = 12
+const CHANNEL_X = 40
+const CHANNEL_W = 340
+const RULER_Y = 150
+const CONTENT_W = 1784
+const WINDOW_HOURS = 3
+' Wide enough for a title, always. The programme a row opens with is usually
+' the one part-way through — often with a minute left, which is 14px — and that
+' is the cell a viewer most wants to read and tune into. Given the choice
+' between an ellipsis and a row that runs further right, this takes the row.
+'
+' The cost is honest: a block widened to this minimum pushes everything after it
+' along, so past that point the ruler is approximate rather than exact. It only
+' happens to programmes too short to label at all.
+const MIN_BLOCK_W = 240
+
+sub init()
+    m.apiTask = m.top.findNode("apiTask")
+    m.grid = m.top.findNode("grid")
+    m.viewport = m.top.findNode("viewport")
+    m.scroller = m.top.findNode("scroller")
+    m.rulerGroup = m.top.findNode("rulerGroup")
+    m.channelGroup = m.top.findNode("channelGroup")
+    m.rowsGroup = m.top.findNode("rowsGroup")
+    m.nowLine = m.top.findNode("nowLine")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.clockLabel = m.top.findNode("clockLabel")
+    m.detailOverlay = m.top.findNode("detailOverlay")
+    m.tickTimer = m.top.findNode("tickTimer")
+
+    m.rows = []
+    m.cells = []
+    m.rowIndex = 0
+    m.colIndex = 0
+    m.windowStart = 0
+    m.detailUp = false
+    m.scrollX = 0
+    m.viewportW = CONTENT_W - GRID_X - 20
+    m.viewport.clippingRect = [GRID_X - 8, 0, m.viewportW + 8, 1080]
+
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    ' The task is a long-running message loop; without this it never reads a
+    ' request and the screen waits on a response that cannot come.
+    m.apiTask.control = "RUN"
+    m.tickTimer.observeFieldScoped("fire", "onTick")
+    m.top.observeFieldScoped("focusedChild", "onFocusGained")
+
+    load()
+end sub
+
+sub load()
+    m.statusLabel.visible = true
+    m.statusLabel.text = "Loading guide..."
+    m.grid.visible = false
+    m.apiTask.request = { action: "getGuide", hours: WINDOW_HOURS }
+end sub
+
+sub onApiResponse()
+    r = m.apiTask.response
+    if r = invalid then return
+    if r.action = "getGuide"
+        onGuideLoaded(r)
+    else if r.action = "getChannelNowPlaying"
+        onTuneResolved(r)
+    else if r.action = "getItem" and r.context = "guideTune"
+        onTuneItemLoaded(r)
+    end if
+end sub
+
+sub onGuideLoaded(r as object)
+    if not r.success or r.rows = invalid or r.rows.count() = 0
+        m.statusLabel.text = "No channels yet. Channels are created in Jellyfin under Dashboard -> Plugins -> Channels."
+        return
+    end if
+    m.rows = r.rows
+    m.windowStart = nowEpoch()
+    buildGrid()
+    m.statusLabel.visible = false
+    m.grid.visible = true
+    m.tickTimer.control = "start"
+    updateFocus()
+end sub
+
+' ---------- Building ----------
+
+sub buildGrid()
+    m.rulerGroup.removeChildrenIndex(m.rulerGroup.getChildCount(), 0)
+    m.channelGroup.removeChildrenIndex(m.channelGroup.getChildCount(), 0)
+    m.rowsGroup.removeChildrenIndex(m.rowsGroup.getChildCount(), 0)
+    m.cells = []
+
+    buildRuler()
+
+    m.contentW = 0
+    for i = 0 to m.rows.count() - 1
+        y = GRID_TOP + i * (ROW_H + ROW_GAP)
+        buildChannelLabel(m.rows[i], i, y)
+        cells = buildRow(m.rows[i], y)
+        m.cells.push(cells)
+        if cells.count() > 0
+            last = cells[cells.count() - 1]
+            right = last.group.translation[0] + last.width
+            if right > m.contentW then m.contentW = right
+        end if
+    end for
+    m.scrollX = 0
+    applyScroll()
+
+    m.nowLine.height = m.rows.count() * (ROW_H + ROW_GAP) + 46
+    m.nowLine.translation = [GRID_X, RULER_Y]
+    m.nowLine.visible = true
+    positionNowLine()
+    updateClock()
+end sub
+
+' Half-hour ticks across the window, in round numbers rather than starting at
+' whatever minute it happens to be.
+sub buildRuler()
+    first = Int(m.windowStart / 1800) * 1800
+    if first < m.windowStart then first = first + 1800
+    for i = 0 to WINDOW_HOURS * 2
+        t = first + i * 1800
+        label = m.rulerGroup.createChild("Label")
+        label.color = "#8C8C8C"
+        label.text = clockText(t)
+        label.font = fontOf("pkg:/fonts/Inter-Medium.ttf", 20)
+        label.translation = [GRID_X + offsetFor(t), RULER_Y]
+    end for
+end sub
+
+sub buildChannelLabel(row as object, index as integer, y as integer)
+    rail = m.channelGroup.createChild("Rectangle")
+    rail.width = 4
+    rail.height = ROW_H - 8
+    rail.color = railColour(index)
+    rail.translation = [CHANNEL_X, y]
+
+    name = m.channelGroup.createChild("Label")
+    name.color = "#FFFFFF"
+    name.text = UCase(row.name)
+    name.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 22)
+    name.width = CHANNEL_W - 20
+    name.maxLines = 1
+    name.ellipsizeOnBoundary = true
+    name.translation = [CHANNEL_X + 16, y]
+
+    if row.description <> invalid and row.description <> ""
+        desc = m.channelGroup.createChild("Label")
+        desc.color = "#8C8C8C"
+        desc.text = row.description
+        desc.font = fontOf("pkg:/fonts/Inter-Regular.ttf", 17)
+        desc.width = CHANNEL_W - 20
+        desc.maxLines = 2
+        desc.wrap = true
+        desc.ellipsizeOnBoundary = true
+        desc.translation = [CHANNEL_X + 16, y + 30]
+    end if
+end sub
+
+function buildRow(row as object, y as integer) as object
+    cells = []
+    windowEnd = m.windowStart + WINDOW_HOURS * 3600
+    cursor = 0
+
+    for each prog in row.programs
+        if prog.endEpoch <= m.windowStart then continue for
+        if prog.startEpoch >= windowEnd then continue for
+
+        ' Proportional to the part inside the window: the guide includes the
+        ' programme straddling the right-hand edge, and drawing it at full
+        ' length would push the row past the ruler.
+        visibleStart = prog.startEpoch
+        if visibleStart < m.windowStart then visibleStart = m.windowStart
+        visibleEnd = prog.endEpoch
+        if visibleEnd > windowEnd then visibleEnd = windowEnd
+
+        w = Int(((visibleEnd - visibleStart) / 60.0) * PX_PER_MIN) - 6
+        if w < MIN_BLOCK_W then w = MIN_BLOCK_W
+        x = GRID_X + offsetFor(visibleStart)
+        ' Blocks are placed at their true time, EXCEPT where the one before was
+        ' widened to the readable minimum — then it would be drawn underneath
+        ' its neighbour. Pushing right keeps the row legible and non-overlapping;
+        ' the distortion only ever affects programmes too short to label anyway,
+        ' and it is gone again by the next full-width block.
+        if x < cursor then x = cursor
+        cursor = x + w + 6
+
+        group = m.rowsGroup.createChild("Group")
+        group.translation = [x, y]
+
+        bg = group.createChild("Poster")
+        bg.uri = "pkg:/images/card_r16.9.png"
+        bg.width = w
+        bg.height = ROW_H
+
+        dot = group.createChild("Rectangle")
+        dot.width = 8
+        dot.height = 8
+        dot.color = "#FF3B30"
+        dot.translation = [14, 20]
+
+        title = group.createChild("Label")
+        title.color = "#FFFFFF"
+        title.text = prog.title
+        title.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 20)
+        title.width = w - 28
+        title.maxLines = 1
+        title.ellipsizeOnBoundary = true
+        title.translation = [14, 14]
+
+        sub_ = group.createChild("Label")
+        sub_.color = "#BFBFBF"
+        sub_.text = prog.subtitle
+        sub_.font = fontOf("pkg:/fonts/Inter-Medium.ttf", 17)
+        sub_.width = w - 28
+        sub_.maxLines = 1
+        sub_.ellipsizeOnBoundary = true
+        sub_.translation = [14, 42]
+
+        start = group.createChild("Label")
+        start.color = "#8C8C8C"
+        start.text = clockText(prog.startEpoch)
+        start.font = fontOf("pkg:/fonts/Inter-Regular.ttf", 16)
+        start.width = w - 28
+        start.maxLines = 1
+        start.translation = [14, 66]
+
+        cells.push({ group: group, bg: bg, dot: dot, title: title, prog: prog, width: w })
+    end for
+    return cells
+end function
+
+' ---------- Focus ----------
+
+sub onFocusGained()
+    updateFocus()
+end sub
+
+sub updateFocus()
+    ensureFocusVisible()
+    hasFocus = m.top.isInFocusChain() and not m.detailUp
+    now = nowEpoch()
+
+    for r = 0 to m.cells.count() - 1
+        for c = 0 to m.cells[r].count() - 1
+            cell = m.cells[r][c]
+            airing = (cell.prog.startEpoch <= now and now < cell.prog.endEpoch)
+            focused = (hasFocus and r = m.rowIndex and c = m.colIndex)
+
+            ' What is on now reads as filled; everything later is a quieter
+            ' surface, so the eye lands on the present first. There is no
+            ' separate "now" asset — the ordinary card is tinted, which keeps
+            ' the corner radius identical across all three states.
+            if focused
+                cell.bg.uri = "pkg:/images/card_r16_focus.9.png"
+                cell.bg.blendColor = "#FFFFFF"
+            else
+                cell.bg.uri = "pkg:/images/card_r16.9.png"
+                if airing
+                    cell.bg.blendColor = "#6E4F9E"
+                else
+                    cell.bg.blendColor = "#FFFFFF"
+                end if
+            end if
+            cell.dot.visible = airing
+            ' The dot takes the title's left edge, so the title shifts when one
+            ' is showing rather than running underneath it.
+            if airing
+                cell.title.translation = [28, 14]
+                cell.title.width = cell.width - 42
+            else
+                cell.title.translation = [14, 14]
+                cell.title.width = cell.width - 28
+            end if
+        end for
+    end for
+end sub
+
+' Keep the focused block fully on screen, with a margin so the next one is
+' visibly there to move to rather than appearing out of nowhere.
+sub ensureFocusVisible()
+    if m.cells.count() = 0 then return
+    if m.cells[m.rowIndex].count() = 0 then return
+    cell = m.cells[m.rowIndex][m.colIndex]
+    margin = 60
+    left = cell.group.translation[0]
+    right = left + cell.width
+
+    if left - margin < GRID_X + m.scrollX
+        m.scrollX = left - margin - GRID_X
+    else if right + margin > GRID_X + m.scrollX + m.viewportW
+        m.scrollX = right + margin - GRID_X - m.viewportW
+    end if
+
+    maxScroll = m.contentW - GRID_X - m.viewportW
+    if maxScroll < 0 then maxScroll = 0
+    if m.scrollX > maxScroll then m.scrollX = maxScroll
+    if m.scrollX < 0 then m.scrollX = 0
+    applyScroll()
+end sub
+
+sub applyScroll()
+    m.scroller.translation = [-m.scrollX, 0]
+end sub
+
+sub onTick()
+    positionNowLine()
+    updateClock()
+    updateFocus()
+end sub
+
+sub positionNowLine()
+    now = nowEpoch()
+    m.nowLine.translation = [GRID_X + offsetFor(now), RULER_Y]
+    m.nowLine.visible = (now >= m.windowStart)
+end sub
+
+sub updateClock()
+    dt = CreateObject("roDateTime")
+    dt.ToLocalTime()
+    ' Short form: the long one overran its label and ran off the screen edge.
+    m.clockLabel.text = dt.AsDateStringNoParam() + "  " + clockText(nowEpoch())
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+
+    if m.detailUp
+        if key = "back" or key = "OK"
+            m.detailOverlay.visible = false
+            m.detailUp = false
+            updateFocus()
+            return true
+        end if
+        return true
+    end if
+
+    if m.cells.count() = 0 then return false
+
+    if key = "right"
+        if m.colIndex < m.cells[m.rowIndex].count() - 1
+            m.colIndex = m.colIndex + 1
+            updateFocus()
+        end if
+        return true
+    else if key = "left"
+        if m.colIndex > 0
+            m.colIndex = m.colIndex - 1
+            updateFocus()
+            return true
+        end if
+        ' At the first programme: let the press fall through so the rail can
+        ' take focus, the way every other screen behaves.
+        return false
+    else if key = "down"
+        if m.rowIndex < m.cells.count() - 1
+            m.rowIndex = m.rowIndex + 1
+            clampColumn()
+            updateFocus()
+        end if
+        return true
+    else if key = "up"
+        if m.rowIndex > 0
+            m.rowIndex = m.rowIndex - 1
+            clampColumn()
+            updateFocus()
+        end if
+        return true
+    else if key = "OK"
+        activate()
+        return true
+    end if
+    return false
+end function
+
+' Rows have different numbers of programmes; moving between them must not land
+' on a column that does not exist.
+sub clampColumn()
+    count = m.cells[m.rowIndex].count()
+    if count = 0
+        m.colIndex = 0
+    else if m.colIndex > count - 1
+        m.colIndex = count - 1
+    end if
+end sub
+
+' ---------- Selection ----------
+
+sub activate()
+    if m.cells[m.rowIndex].count() = 0 then return
+    cell = m.cells[m.rowIndex][m.colIndex]
+    prog = cell.prog
+    now = nowEpoch()
+
+    ' Only what is on right now can be tuned to; anything later opens its
+    ' detail instead, because you cannot watch what has not aired.
+    if prog.startEpoch > now or now >= prog.endEpoch
+        showDetail(m.rows[m.rowIndex], prog)
+        return
+    end if
+
+    m.pendingChannel = m.rows[m.rowIndex]
+    m.apiTask.request = { action: "getChannelNowPlaying", channelId: m.rows[m.rowIndex].id }
+end sub
+
+sub showDetail(row as object, prog as object)
+    m.top.findNode("detailChannel").text = UCase(row.name)
+    m.top.findNode("detailTitle").text = prog.title
+    timing = clockText(prog.startEpoch) + " - " + clockText(prog.endEpoch)
+    if prog.subtitle <> "" then timing += "   " + prog.subtitle
+    m.top.findNode("detailTiming").text = timing
+    m.detailOverlay.visible = true
+    m.detailUp = true
+    updateFocus()
+end sub
+
+sub onTuneResolved(r as object)
+    channel = m.pendingChannel
+    m.pendingChannel = invalid
+    if channel = invalid then return
+    ' Went off air between the guide being drawn and the press. Reload so the
+    ' grid tells the truth rather than appearing to do nothing.
+    if r.offAir = true or r.nowPlaying = invalid
+        load()
+        return
+    end if
+
+    itemId = ""
+    if r.nowPlaying.ItemId <> invalid then itemId = r.nowPlaying.ItemId
+    if itemId = "" then return
+
+    start = 0
+    if r.nowPlaying.StartPositionSeconds <> invalid then start = Int(r.nowPlaying.StartPositionSeconds)
+    m.pendingContext = {
+        channelId: channel.id,
+        channelName: channel.name,
+        startPositionSeconds: start,
+        nextItemId: ""
+    }
+    if r.nowPlaying.NextItemId <> invalid then m.pendingContext.nextItemId = r.nowPlaying.NextItemId
+    m.apiTask.request = { action: "getItem", itemId: itemId, context: "guideTune" }
+end sub
+
+sub onTuneItemLoaded(r as object)
+    context = m.pendingContext
+    m.pendingContext = invalid
+    if context = invalid then return
+    if not r.success or r.item = invalid
+        load()
+        return
+    end if
+    m.top.playItem = { action: "play", item: r.item, channelContext: context }
+end sub
+
+' ---------- Helpers ----------
+
+function offsetFor(epoch as integer) as integer
+    return Int(((epoch - m.windowStart) / 60.0) * PX_PER_MIN)
+end function
+
+function nowEpoch() as integer
+    return CreateObject("roDateTime").AsSeconds()
+end function
+
+function clockText(epoch as integer) as string
+    dt = CreateObject("roDateTime")
+    dt.FromSeconds(epoch)
+    dt.ToLocalTime()
+    return dt.AsTimeStringLoc("short")
+end function
+
+function fontOf(uri as string, size as integer) as object
+    f = CreateObject("roSGNode", "Font")
+    f.uri = uri
+    f.size = size
+    return f
+end function
+
+' Cycled by row so the palette reads as an index down the screen and
+' neighbouring channels never share a colour. No purple: that is the accent the
+' grid uses for what is on now.
+function railColour(index as integer) as string
+    palette = ["#4CC7CC", "#F2A640", "#ED5C7A", "#66CC80", "#5CADE6", "#E0C759"]
+    return palette[index MOD palette.count()]
+end function

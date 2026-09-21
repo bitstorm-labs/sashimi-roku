@@ -688,6 +688,8 @@ sub addChannelsRow(cards as object)
             isLive: not card.offAir,
             playedPercentage: 0,
             remainingText: "",
+            synopsis: "",
+            nextTitle: "",
             itemJson: "",
             channelJson: FormatJSON(card),
             isChannel: true
@@ -706,6 +708,18 @@ sub addChannelsRow(cards as object)
         child.description = channelCardMetadata(item)
         child.HDPosterUrl = channelCardArtwork(item)
         child.itemJson = FormatJSON(item)
+
+        ' What the programme IS, falling back to what the channel is — an item
+        ' with no overview would otherwise leave a hole in the card.
+        if item.Overview <> invalid and item.Overview <> ""
+            child.synopsis = item.Overview
+        else
+            child.synopsis = card.channelDescription
+        end if
+
+        if card.DoesExist("nextItem") and card.nextItem <> invalid
+            child.nextTitle = channelCardTitle(card.nextItem)
+        end if
 
         ' Progress and time left both come from the join offset and the
         ' programme runtime, so neither needs the wall clock or a date parse:
@@ -738,7 +752,18 @@ function channelCardMetadata(item as object) as string
         parts.push("S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim())
     end if
     if item.ProductionYear <> invalid then parts.push(str(item.ProductionYear).Trim())
+    if item.CommunityRating <> invalid and item.CommunityRating > 0
+        parts.push(Chr(9733) + " " + formatRating(item.CommunityRating))
+    end if
     if item.OfficialRating <> invalid and item.OfficialRating <> "" then parts.push(item.OfficialRating)
+    if item.RunTimeTicks <> invalid
+        mins = Int(item.RunTimeTicks / 600000000&)
+        if mins >= 60
+            parts.push(str(Int(mins / 60)).Trim() + "h " + str(mins MOD 60).Trim() + "m")
+        else if mins > 0
+            parts.push(str(mins).Trim() + "m")
+        end if
+    end if
 
     out = ""
     for i = 0 to parts.count() - 1
@@ -746,6 +771,17 @@ function channelCardMetadata(item as object) as string
         out += parts[i]
     end for
     return out
+end function
+
+' One decimal, without str()'s leading space or float noise.
+function formatRating(value as dynamic) as string
+    whole = Int(value)
+    frac = Int((value - whole) * 10 + 0.5)
+    if frac >= 10
+        whole = whole + 1
+        frac = 0
+    end if
+    return str(whole).Trim() + "." + str(frac).Trim()
 end function
 
 function channelCardArtwork(item as object) as string
@@ -1200,7 +1236,13 @@ sub showRows()
     itemSpacings = []
     for i = 0 to rowCount - 1
         iKey = str(i).Trim()
-        if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
+        if m.channelsRowIndex <> invalid and i = m.channelsRowIndex
+            ' FinTV: 440x280 artwork plus a caption carrying title, metadata,
+            ' two lines of synopsis and the footer — the same card the other
+            ' clients draw.
+            itemSizes.push([440, 500])
+            itemSpacings.push([40, 0])
+        else if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
             ' Continue Watching: 440x248 image + title 28 + subtitle 20
             itemSizes.push([440, 330])
             itemSpacings.push([40, 0])

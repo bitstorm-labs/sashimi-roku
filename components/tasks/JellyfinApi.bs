@@ -82,6 +82,8 @@ sub processRequest()
         doGetChannelGuide(request)
     else if action = "getChannelCards"
         doGetChannelCards()
+    else if action = "getGuide"
+        doGetGuide(request)
     else if action = "getItems"
         doGetItems(request)
     else if action = "getItem"
@@ -804,6 +806,96 @@ end function
 function valueOrNumber(value as dynamic, fallback as integer) as dynamic
     if value = invalid then return fallback
     return value
+end function
+
+' The guide, assembled: channels, their schedule, and the titles to draw.
+'
+' Same reasoning as doGetChannelCards — the screen should get one answer, not
+' orchestrate a fan-out. Times are converted to epoch seconds here too, because
+' every consumer wants to compare them against now and BrightScript has exactly
+' one date type to do it with.
+sub doGetGuide(request as object)
+    hours = 3
+    if request.hours <> invalid then hours = request.hours
+    rows = Http.getJson(Http.apiUrl("/VirtualChannels/Guide") + "?hours=" + str(hours).Trim())
+    if rows = invalid or type(rows) <> "roArray" or rows.count() = 0
+        m.top.response = { success: true, action: "getGuide", rows: [] }
+        return
+    end if
+
+    wantedIds = {}
+    for each row in rows
+        if row.Programs = invalid then continue for
+        for each prog in row.Programs
+            if prog.ItemId <> invalid then wantedIds[prog.ItemId] = true
+        end for
+    end for
+    items = channelItemsById(wantedIds)
+
+    out = []
+    for each row in rows
+        programs = []
+        if row.Programs <> invalid
+            for each prog in row.Programs
+                itemId = valueOr(prog.ItemId, "")
+                if itemId = "" then continue for
+                entry = {
+                    itemId: itemId,
+                    startEpoch: isoToEpoch(valueOr(prog.StartUtc, "")),
+                    endEpoch: isoToEpoch(valueOr(prog.EndUtc, "")),
+                    title: "—",
+                    subtitle: ""
+                }
+                if items.DoesExist(itemId)
+                    item = items[itemId]
+                    entry.title = guideTitle(item)
+                    entry.subtitle = guideSubtitle(item)
+                end if
+                programs.push(entry)
+            end for
+        end if
+        out.push({
+            id: valueOr(row.Id, ""),
+            name: valueOr(row.Name, ""),
+            description: valueOr(row.Description, ""),
+            programs: programs
+        })
+    end for
+
+    #if DEBUG
+        print "[API] Guide rows: " + str(out.count()).Trim()
+    #end if
+    m.top.response = { success: true, action: "getGuide", rows: out }
+end sub
+
+function guideTitle(item as object) as string
+    if item.Type <> invalid and item.Type = "Episode" and item.SeriesName <> invalid and item.SeriesName <> ""
+        return item.SeriesName
+    end if
+    if item.Name <> invalid then return item.Name
+    return "—"
+end function
+
+function guideSubtitle(item as object) as string
+    if item.Type <> invalid and item.Type = "Episode" and item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+        return "S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim()
+    end if
+    if item.ProductionYear <> invalid then return str(item.ProductionYear).Trim()
+    return ""
+end function
+
+' Jellyfin serialises .NET DateTime with seven fractional digits, which
+' roDateTime refuses. Nothing here needs sub-second precision, so trim to
+' whole seconds rather than trying to make the parser accept it.
+function isoToEpoch(iso as string) as integer
+    if iso = "" then return 0
+    trimmed = iso
+    dot = Instr(1, trimmed, ".")
+    if dot > 0 then trimmed = Left(trimmed, dot - 1)
+    if Right(trimmed, 1) = "Z" then trimmed = Left(trimmed, Len(trimmed) - 1)
+    dt = CreateObject("roDateTime")
+    dt.FromISO8601String(trimmed)
+    return dt.AsSeconds()
 end function
 
 ' Skip segments for an episode. Jellyfin's own Media Segments API (10.10+) is
