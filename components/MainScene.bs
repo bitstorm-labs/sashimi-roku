@@ -486,6 +486,9 @@ function getOrCreateRootScreen(choice as object) as object
         screen = createObject("roSGNode", "HomeScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
         screen.observeFieldScoped("playItem", "onPlayItem")
+    else if kind = "fintv"
+        screen = createObject("roSGNode", "GuideScreen")
+        screen.observeFieldScoped("playItem", "onPlayItem")
     else if kind = "search"
         screen = createObject("roSGNode", "SearchScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
