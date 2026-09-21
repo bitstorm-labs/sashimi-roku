@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="GuideScreen" extends="Group">
+    <interface>
+        <!-- A now-airing block tunes in; MainScene owns the player. -->
+        <field id="playItem" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+
+        <Label id="titleLabel" text="Guide" color="#FFFFFF" translation="[40, 46]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="44" />
+        </Label>
+        <Label id="clockLabel" text="" color="#BFBFBF" width="600" horizAlign="right"
+               translation="[1104, 60]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
+        </Label>
+
+        <Label id="statusLabel" text="Loading guide..." color="#8C8C8C" translation="[40, 400]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="28" />
+        </Label>
+
+        <!-- Everything below is built in code: the grid's shape depends on how
+             many channels the server has and how long each programme runs. -->
+        <Group id="grid" visible="false">
+            <!-- The timeline is wider than the screen on purpose (see
+                 PX_PER_MIN) and scrolls sideways. clippingRect stops the
+                 scrolled-off blocks from being drawn over the channel column;
+                 the column itself sits outside the viewport so it never moves. -->
+            <Group id="viewport">
+                <Group id="scroller">
+                    <Group id="rulerGroup" />
+                    <Group id="rowsGroup" />
+                    <Rectangle id="nowLine" width="3" height="10" color="#8C5CC7" visible="false" />
+                </Group>
+            </Group>
+            <Group id="channelGroup" />
+        </Group>
+
+        <!-- Detail for a programme that has not aired yet. -->
+        <Group id="detailOverlay" visible="false">
+            <Rectangle width="1920" height="1080" color="#000000E6" />
+            <Label id="detailChannel" text="" color="#8C5CC7" translation="[200, 300]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="24" />
+            </Label>
+            <Label id="detailTitle" text="" color="#FFFFFF" width="1320" maxLines="2" wrap="true"
+                   translation="[200, 340]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="48" />
+            </Label>
+            <Label id="detailTiming" text="" color="#BFBFBF" translation="[200, 460]">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+            </Label>
+            <Label id="detailHint" text="Airs later — tune in when it starts.  (Back to close)"
+                   color="#8C8C8C" translation="[200, 520]">
+                <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="22" />
+            </Label>
+        </Group>
+
+        <JellyfinApi id="apiTask" />
+        <!-- Redraws the now-line and the on-air highlight without refetching. -->
+        <Timer id="tickTimer" duration="30" repeat="true" />
+    </children>
+</component>

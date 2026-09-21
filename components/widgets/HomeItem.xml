@@ -127,6 +127,43 @@
         >
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
+        <!-- FinTV caption extras. A channel card carries what the other
+             clients carry: a synopsis, a live countdown, and what is next.
+             All three are positioned in applyLayout and hidden otherwise. -->
+        <Label
+            id="synopsisLabel"
+            text=""
+            color="#BFBFBF"
+            width="440"
+            maxLines="2"
+            wrap="true"
+            ellipsizeOnBoundary="true"
+            visible="false"
+        >
+            <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="20" />
+        </Label>
+        <Label
+            id="countdownLabel"
+            text=""
+            color="#8C5CC7"
+            width="200"
+            maxLines="1"
+            visible="false"
+        >
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
+        </Label>
+        <Label
+            id="nextLabel"
+            text=""
+            color="#8C8C8C"
+            width="260"
+            maxLines="1"
+            horizAlign="right"
+            ellipsizeOnBoundary="true"
+            visible="false"
+        >
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="18" />
+        </Label>
         <!-- Subtitle (Continue Watching cards only: "S1:E5 - Name" / year) -->
         <Label
             id="subtitleLabel"
