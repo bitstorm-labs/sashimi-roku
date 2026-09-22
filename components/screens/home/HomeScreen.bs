@@ -30,6 +30,7 @@ sub init()
     m.libraries = []
     m.continueWatchingItems = []
     m.heroPool = []
+    m.heroChannels = []
     ' Deliberately NOT reset by loadHomeData() — the hero order is shuffled once
     ' per session and stays put across refreshes (see buildHeroContent).
     m.heroShuffled = false
@@ -188,6 +189,7 @@ sub loadHomeData()
     m.emptyLabel.visible = false
     m.wideRowIndices = {}
     m.heroPool = []
+    m.heroChannels = []
     ' Cancel any newest-video prefetch still in flight: index -1 makes its
     ' response a no-op. m.ytNewestByChannel is deliberately NOT cleared — the
     ' 30s auto-refresh would otherwise blank it on every cycle and taps during
@@ -495,8 +497,30 @@ end sub
 sub onChannelCardsLoaded(response as object)
     if response.success and response.cards <> invalid and response.cards.count() > 0
         addChannelsRow(response.cards)
+        collectChannelHeroItems(response.cards)
     end if
     startLibraryChain()
+end sub
+
+' Channels belong in the hero rotation too — nothing at the top of Home said
+' FinTV was on. An off-air channel is left out rather than shown as a dead
+' slide: there is nothing to put in the frame and nothing to watch.
+sub collectChannelHeroItems(cards as object)
+    m.heroChannels = []
+    for each card in cards
+        if card.offAir then continue for
+        if not card.DoesExist("item") or card.item = invalid then continue for
+        item = card.item
+        ' Ride the channel stamp on the item AA, the way _forceYouTube does —
+        ' it survives FormatJSON/ParseJSON into HeroBanner without a new field.
+        item._channelName = card.channelName
+        runtime = 0
+        if item.RunTimeTicks <> invalid then runtime = Int(item.RunTimeTicks / 10000000&)
+        if runtime > card.startPositionSeconds
+            item._channelRemaining = formatTimeLeft(runtime - card.startPositionSeconds)
+        end if
+        m.heroChannels.push(item)
+    end for
 end sub
 
 sub startLibraryChain()
@@ -672,6 +696,31 @@ sub reloadRows()
     end if
     loadHomeData()
 end sub
+
+' One insert every few base slides, so a channel turns up regularly instead of
+' in a block. Whatever does not fit still goes in at the end.
+function interleaveHero(base as object, inserts as object) as object
+    if inserts = invalid or inserts.count() = 0 then return base
+    if base.count() = 0 then return inserts
+
+    stride = Int(base.count() / inserts.count())
+    if stride < 1 then stride = 1
+
+    out = []
+    cursor = 0
+    for i = 0 to base.count() - 1
+        out.push(base[i])
+        if cursor < inserts.count() and ((i + 1) MOD stride) = 0
+            out.push(inserts[cursor])
+            cursor = cursor + 1
+        end if
+    end for
+    while cursor < inserts.count()
+        out.push(inserts[cursor])
+        cursor = cursor + 1
+    end while
+    return out
+end function
 
 sub addChannelsRow(cards as object)
     if m.rowContent = invalid then return
@@ -1175,11 +1224,17 @@ sub buildHeroContent()
         m.heroShuffled = true
     end if
 
+    ' Spread the channels through the rotation rather than letting the shuffle
+    ' decide: grouped, six channels at six seconds each is half a minute of
+    ' FinTV before anything else appears, and relying on chance can leave them
+    ' out of the first 15 slides entirely.
+    pool = interleaveHero(m.heroPool, m.heroChannels)
+
     heroContent = CreateObject("roSGNode", "ContentNode")
     maxHero = 15
-    if maxHero > m.heroPool.count() then maxHero = m.heroPool.count()
+    if maxHero > pool.count() then maxHero = pool.count()
     for i = 0 to maxHero - 1
-        item = m.heroPool[i]
+        item = pool[i]
         child = heroContent.createChild("ContentNode")
         ' Standard ContentNode text, kept in step with what the banner actually
         ' draws: tvOS headlines an episode with its SERIES (the channel, for
