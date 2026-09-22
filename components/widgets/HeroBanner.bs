@@ -15,6 +15,9 @@ sub init()
     m.heroCritic = m.top.findNode("heroCritic")
     m.ytIcon = m.top.findNode("ytIcon")
     m.ytLabel = m.top.findNode("ytLabel")
+    m.heroLiveDot = m.top.findNode("heroLiveDot")
+    m.heroLiveLabel = m.top.findNode("heroLiveLabel")
+    m.heroChannelLabel = m.top.findNode("heroChannelLabel")
     m.heroOverview = m.top.findNode("heroOverview")
     m.advanceTimer = m.top.findNode("advanceTimer")
 
@@ -181,9 +184,23 @@ sub reflowHeroText()
         if ovH <= 0 then ovH = 58
     end if
 
-    blockH = h1 + subGap + subH + metaGap + metaH + ovGap + ovH
+    ' The channel stamp is part of the block, so the whole thing stays centred
+    ' rather than the title drifting down when a channel slide comes round.
+    stampH = 0 : stampGap = 0
+    if m.heroChannelLabel.visible
+        stampH = 28 : stampGap = 12
+    end if
+
+    blockH = stampH + stampGap + h1 + subGap + subH + metaGap + metaH + ovGap + ovH
     titleY = Int((bannerH - blockH) / 2)
     if titleY < 44 then titleY = 44
+
+    if m.heroChannelLabel.visible
+        m.heroLiveDot.translation = [leftX, titleY + 9]
+        m.heroLiveLabel.translation = [leftX + 22, titleY]
+        m.heroChannelLabel.translation = [leftX + 22 + labelWidth(m.heroLiveLabel) + 20, titleY]
+        titleY += stampH + stampGap
+    end if
 
     m.heroTitle.translation = [leftX, titleY]
     y = titleY + h1
@@ -318,6 +335,20 @@ sub showItem(index as integer)
     end if
     m.heroTitle.text = title
 
+    ' A channel slide says which channel before it says what is on: the
+    ' programme is still the headline, because that is what a viewer is
+    ' choosing between, but without this it is indistinguishable from a
+    ' library slide.
+    m.channelName = ""
+    if item._channelName <> invalid then m.channelName = item._channelName
+    m.channelRemaining = ""
+    if item._channelRemaining <> invalid then m.channelRemaining = item._channelRemaining
+    isChannel = (m.channelName <> "")
+    m.heroLiveDot.visible = isChannel
+    m.heroLiveLabel.visible = isChannel
+    m.heroChannelLabel.visible = isChannel
+    if isChannel then m.heroChannelLabel.text = UCase(m.channelName)
+
     ' Episode subline (tvOS: "S{n} E{n} • {name}" / YouTube: video title). Only
     ' an episode gets one — tvOS gates the whole subline on type == .episode.
     ' Without the SeriesName gate a grouped channel printed its own name twice,
@@ -386,6 +417,13 @@ sub showItem(index as integer)
                 end if
             end if
         end if
+    end if
+    ' Time left joins the metadata row, as it does on the other clients.
+    if m.channelRemaining <> invalid and m.channelRemaining <> ""
+        ' Plain spacing, like the rest of this row. BrightScript has no \u
+        ' escape — writing one put a literal backslash-u on screen.
+        if meta <> "" then meta += "  "
+        meta += m.channelRemaining
     end if
     m.heroMeta.text = meta
     layoutMetaRow(isYouTube, community <> invalid, critic <> invalid)
