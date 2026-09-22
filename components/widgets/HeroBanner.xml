@@ -49,6 +49,16 @@
         </Group>
 
         <!-- Text overlay — left, tvOS type scale -->
+        <!-- Channel stamp for a FinTV slide: a live dot, LIVE, and the
+             channel's name, sitting above the title. Positioned by
+             reflowHeroText along with everything else. -->
+        <Rectangle id="heroLiveDot" width="12" height="12" color="#FF3B30" visible="false" />
+        <Label id="heroLiveLabel" text="LIVE" color="#FFFFFF" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="22" />
+        </Label>
+        <Label id="heroChannelLabel" text="" color="#8C5CC7" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="22" />
+        </Label>
         <Label
             id="heroTitle"
             text=""
