@@ -34,6 +34,8 @@ sub init()
     m.rows = []            ' [{group,hl,icon,label}]
     m.focusIndex = 0
     m.selectedIndex = 0
+    ' First nav row drawn, when there are more rows than fit. See layout().
+    m.firstVisible = 0
     m.expanded = false
 
     m.wordmark.font = font("pkg:/fonts/Inter-Bold.ttf", 40)
@@ -134,9 +136,9 @@ end sub
 
 sub buildItems()
     m.items = [{ id: "home", kind: "home", title: "Home", iconLocal: "pkg:/images/nav_home.png", iconSelected: "pkg:/images/nav_home_selected.png" }]
-    ' FinTV sits directly under Home, as it does on the other clients, with the
+    ' Stations sits directly under Home, as it does on the other clients, with the
     ' same broadcast glyph they use — the TV library's icon read as a duplicate.
-    m.items.push({ id: "fintv", kind: "fintv", title: "FinTV", iconLocal: "pkg:/images/nav_fintv.png", iconSelected: "pkg:/images/nav_fintv_selected.png" })
+    m.items.push({ id: "fintv", kind: "fintv", title: "Stations", iconLocal: "pkg:/images/nav_fintv.png", iconSelected: "pkg:/images/nav_fintv_selected.png" })
     for each lib in m.libraries
         ct = ""
         if lib.CollectionType <> invalid then ct = LCase(lib.CollectionType)
@@ -271,15 +273,31 @@ sub layout()
     m.accountLabel.visible = m.expanded
     m.accountSub.visible = m.expanded
 
-    ' Vertically center the nav block between logo (top) and avatar (foot).
+    ' Vertically center the nav block between logo (top) and avatar (foot) —
+    ' but only while it fits. The band is 790px and a row is 88, so nine or more
+    ' items used to run straight through the avatar at 968: the old code clamped
+    ' the TOP of the block and let the bottom grow off the end of the rail.
+    ' Past that point the list scrolls instead, the way SettingsScreen does.
     count = m.rows.count()
     if count > 0
-        block = count * m.rowPitch
         topBound = 150
         botBound = 940
-        gy = topBound + ((botBound - topBound) - block) / 2
-        if gy < topBound then gy = topBound
+        band = botBound - topBound
+        ' Derived, not a magic 8: the pitch or the avatar can move.
+        m.visibleRows = Int(band / m.rowPitch)
+        block = count * m.rowPitch
+
+        if count <= m.visibleRows
+            m.firstVisible = 0
+            gy = topBound + (band - block) / 2
+        else
+            clampFirstVisible()
+            gy = topBound - m.firstVisible * m.rowPitch
+        end if
         m.navGroup.translation = [0, gy]
+
+        ' Clip to the band so a scrolled row cannot paint over the avatar.
+        m.navGroup.clippingRect = [0, topBound - gy, m.railExpanded, band]
     end if
 
     for i = 0 to m.rows.count() - 1
@@ -380,7 +398,27 @@ function onKeyEvent(key as string, press as boolean) as boolean
     return false
 end function
 
+' Keep the focused row inside the visible band. The avatar sits one past the
+' last item, so moving onto it scrolls the list to its end first.
+sub clampFirstVisible()
+    if m.visibleRows = invalid or m.visibleRows <= 0 then return
+    count = m.rows.count()
+    maxFirst = count - m.visibleRows
+    if maxFirst < 0 then maxFirst = 0
+
+    target = m.focusIndex
+    if target > count - 1 then target = count - 1
+
+    if target < m.firstVisible then m.firstVisible = target
+    if target > m.firstVisible + m.visibleRows - 1 then m.firstVisible = target - m.visibleRows + 1
+
+    if m.firstVisible > maxFirst then m.firstVisible = maxFirst
+    if m.firstVisible < 0 then m.firstVisible = 0
+end sub
+
 sub onFocusMoved()
+    ' Re-run layout first: the focused row may be outside the band.
+    layout()
     if m.focusIndex < m.items.count()
         m.selectedIndex = m.focusIndex
         emitChoice(m.items[m.focusIndex])

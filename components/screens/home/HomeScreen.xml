@@ -2,7 +2,7 @@
 <component name="HomeScreen" extends="Group">
     <interface>
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
-        <!-- A FinTV card goes straight to the player, so Home needs the same
+        <!-- A Stations card goes straight to the player, so Home needs the same
              play channel the library and detail screens use. -->
         <field id="playItem" type="assocarray" alwaysNotify="true" />
         <!-- Called by MainScene under memory pressure; no-op while on screen. -->
