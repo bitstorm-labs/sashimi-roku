@@ -664,7 +664,7 @@ sub doGetNextUp(request as object)
     end if
 end sub
 
-' FinTV virtual channels, served by the Channels plugin.
+' Stations virtual channels, served by the Channels plugin.
 '
 ' A server without the plugin answers 404, which must read as "no channels"
 ' rather than an error: the row simply does not appear, and nothing else on
@@ -711,7 +711,7 @@ sub doGetChannelGuide(request as object)
     m.top.response = { success: true, action: "getChannelGuide", rows: rows }
 end sub
 
-' Everything the FinTV row needs, in one request.
+' Everything the Stations row needs, in one request.
 '
 ' The row needs three things the server keeps apart: the channel list, what
 ' each channel is airing right now, and the details of those programmes. Doing

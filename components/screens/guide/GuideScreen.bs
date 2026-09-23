@@ -1,4 +1,4 @@
-' The FinTV guide: channels down, time across.
+' The Stations guide: channels down, time across.
 '
 ' Focus is managed by hand rather than by a RowList. The cells are not uniform —
 ' a 22-minute sitcom and a two-hour film are the same programme to the grid but

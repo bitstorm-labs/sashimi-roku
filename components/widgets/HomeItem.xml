@@ -75,7 +75,7 @@
                    width="40" height="32" translation="[56, 290]" visible="false">
                 <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
             </Label>
-            <!-- FinTV channel badge (top-left) and LIVE pill (top-right).
+            <!-- Stations channel badge (top-left) and LIVE pill (top-right).
                  Both are positioned in applyChannelChrome, because the card's
                  width is only known once the row has been measured. -->
             <MaskGroup id="channelBadgeMask" maskUri="pkg:/images/badge_mask_r6.png"
@@ -127,7 +127,7 @@
         >
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
-        <!-- FinTV caption extras. A channel card carries what the other
+        <!-- Stations caption extras. A channel card carries what the other
              clients carry: a synopsis, a live countdown, and what is next.
              All three are positioned in applyLayout and hidden otherwise. -->
         <Label
