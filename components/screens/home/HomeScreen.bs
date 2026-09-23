@@ -481,14 +481,14 @@ sub onNextUpLoaded(response as object)
     ' Reset so a stale index from the previous load can't tag a library row as
     ' the landscape CW row (addContinueWatchingRow re-sets it when CW exists).
     m.continueWatchingRowIndex = invalid
-    ' Same reason: a stale index would tag a library row as the FinTV row.
+    ' Same reason: a stale index would tag a library row as the Stations row.
     m.channelsRowIndex = invalid
 
     if m.continueWatchingItems.count() > 0 and m.cwEnabled
         addContinueWatchingRow(m.continueWatchingItems)
     end if
 
-    ' FinTV sits between Continue Watching and the libraries, as it does on the
+    ' Stations sits between Continue Watching and the libraries, as it does on the
     ' other clients. One request assembles the whole row (see doGetChannelCards);
     ' a server without the plugin answers with no cards, and the chain carries on.
     m.apiTask.request = { action: "getChannelCards" }
@@ -503,7 +503,7 @@ sub onChannelCardsLoaded(response as object)
 end sub
 
 ' Channels belong in the hero rotation too — nothing at the top of Home said
-' FinTV was on. An off-air channel is left out rather than shown as a dead
+' Stations was on. An off-air channel is left out rather than shown as a dead
 ' slide: there is nothing to put in the frame and nothing to watch.
 sub collectChannelHeroItems(cards as object)
     m.heroChannels = []
@@ -682,7 +682,7 @@ function formatRemaining(item as object) as string
     return str(mins).Trim() + "m left"
 end function
 
-' The FinTV row: one card per channel, showing what it is airing now.
+' The Stations row: one card per channel, showing what it is airing now.
 '
 ' Landscape cards, like Continue Watching, because a channel card is a frame of
 ' the programme rather than its poster. The channel badge and LIVE pill are
@@ -727,7 +727,7 @@ sub addChannelsRow(cards as object)
     m.channelsRowIndex = m.rowContent.getChildCount()
 
     row = m.rowContent.createChild("ContentNode")
-    row.title = "FinTV"
+    row.title = "Stations"
 
     for each card in cards
         child = row.createChild("ContentNode")
@@ -1226,7 +1226,7 @@ sub buildHeroContent()
 
     ' Spread the channels through the rotation rather than letting the shuffle
     ' decide: grouped, six channels at six seconds each is half a minute of
-    ' FinTV before anything else appears, and relying on chance can leave them
+    ' Stations before anything else appears, and relying on chance can leave them
     ' out of the first 15 slides entirely.
     pool = interleaveHero(m.heroPool, m.heroChannels)
 
@@ -1292,7 +1292,7 @@ sub showRows()
     for i = 0 to rowCount - 1
         iKey = str(i).Trim()
         if m.channelsRowIndex <> invalid and i = m.channelsRowIndex
-            ' FinTV: 440x280 artwork plus a caption carrying title, metadata,
+            ' Stations: 440x280 artwork plus a caption carrying title, metadata,
             ' two lines of synopsis and the footer — the same card the other
             ' clients draw.
             itemSizes.push([440, 500])
@@ -1414,7 +1414,7 @@ sub onRowItemSelected()
     item = row.getChild(itemIndex)
     if item = invalid then return
 
-    ' A FinTV card tunes in: the programme is already running, so it goes
+    ' A Stations card tunes in: the programme is already running, so it goes
     ' straight to the player rather than to a detail screen for something you
     ' cannot choose to start from the beginning.
     if item.channelJson <> invalid and item.channelJson <> ""

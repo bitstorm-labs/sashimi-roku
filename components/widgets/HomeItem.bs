@@ -399,7 +399,7 @@ sub applyChannelCaption(content as object)
     end if
 end sub
 
-' FinTV cards say which channel they are, and that they are live.
+' Stations cards say which channel they are, and that they are live.
 '
 ' Positioned here rather than in the XML because the card's width is only known
 ' once the row has been measured, and the pill has to sit against the right
