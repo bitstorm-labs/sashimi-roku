@@ -37,7 +37,18 @@ namespace YT
         if item.SeriesName <> invalid and Len(item.SeriesName) >= 9 and Right(item.SeriesName, 9) = " - Videos" then return true
         if item.Type <> invalid and item.Type = "Series" and item.Name <> invalid and Len(item.Name) >= 9 and Right(item.Name, 9) = " - Videos" then return true
         if item.Type <> invalid and item.Type = "Video" then return true
+        ' Channel programmes arrive without a Path, so the checks above miss
+        ' them; the numbering gives them away.
+        if hasDatedEpisodeNumbers(item) then return true
         return false
+    end function
+
+    ' A YouTube channel's "episodes" carry the upload year as the season and a
+    ' date-like index as the episode ("S2025:E102999"), which says nothing.
+    ' Same rule as the guide and the Apple clients.
+    function hasDatedEpisodeNumbers(item as dynamic) as boolean
+        if item = invalid or item.ParentIndexNumber = invalid or item.IndexNumber = invalid then return false
+        return item.ParentIndexNumber >= 1900 and item.IndexNumber > 999
     end function
 
     ' Strip the Pinchflat " - Videos" suffix from channel names (tvOS
