@@ -61,6 +61,11 @@ sub init()
     m.okHeld = false
     m.channelMenu = false
     m.okHoldTimer = m.top.findNode("okHoldTimer")
+    m.rollRetries = 0
+    m.rollRetryTimer = CreateObject("roSGNode", "Timer")
+    m.rollRetryTimer.duration = 2
+    m.rollRetryTimer.repeat = false
+    m.rollRetryTimer.observeFieldScoped("fire", "onRollRetry")
     m.okHoldTimer.observeFieldScoped("fire", "onOkHold")
     m.flipTarget = -1
     m.flipDir = 0
@@ -401,12 +406,24 @@ sub onChannelRolledOver(r as object)
     end if
     itemId = ""
     if r.nowPlaying.ItemId <> invalid then itemId = r.nowPlaying.ItemId
-    if itemId = "" or itemId = m.item.Id
-        ' The schedule has not moved on yet, or the server is still serving the
-        ' programme that just finished. Either way there is nothing to roll to.
+    if itemId = ""
         exitPlayer()
         return
     end if
+    if itemId = m.item.Id
+        ' The stream finished a moment before the server's schedule did — its
+        ' clock runs a few seconds ahead, and a joined programme starts that
+        ' far out. Leaving here dropped the viewer out of the channel at every
+        ' such boundary; wait a beat and ask again instead, a few times.
+        m.rollRetries = m.rollRetries + 1
+        if m.rollRetries > 6
+            exitPlayer()
+            return
+        end if
+        m.rollRetryTimer.control = "start"
+        return
+    end if
+    m.rollRetries = 0
 
     ctx = m.top.channelContext
     start = 0
@@ -739,6 +756,10 @@ end sub
 
 ' Intro Skipper: show a skip pill while inside a segment; OK jumps past it
 sub checkSegment(posSecs as dynamic)
+    ' A channel runs on the clock: skipping an intro, by hand or automatically,
+    ' would put the viewer ahead of the schedule and the next programme would
+    ' start late. Live TV has no skip button.
+    if isChannelMode() then return
     if m.segments.count() = 0 then return
     active = invalid
     for each seg in m.segments
@@ -1958,6 +1979,14 @@ sub showStationBanner(row as object)
     number = ""
     if row.number <> invalid and row.number > 0 then number = row.number.toStr()
     m.top.findNode("bannerNumber").text = number
+    ' Number, logo, name: the logo and name follow the number's width
+    ' (~36px a digit at 60pt) so a one-digit channel has no gap.
+    logoX = 80
+    if number <> "" then logoX = 80 + Len(number) * 36 + 18
+    m.top.findNode("bannerLogo").translation = [logoX, 804]
+    nameX = logoX + 116
+    m.top.findNode("bannerName").translation = [nameX, 808]
+    m.top.findNode("bannerDescription").translation = [nameX, 858]
     m.top.findNode("bannerName").text = UCase(row.name)
     m.top.findNode("bannerDescription").text = row.description
     logoKey = ""
@@ -1965,13 +1994,11 @@ sub showStationBanner(row as object)
     m.top.findNode("bannerLogo").uri = ImageUrl.channelLogo(row.id, logoKey)
     m.stationBugUri = ImageUrl.channelLogo(row.id, logoKey, true)
     m.top.findNode("stationBugLogo").uri = m.stationBugUri
-    m.top.findNode("stationBugNumber").text = number
     m.top.findNode("stationBugName").text = UCase(row.name)
-    ' Without a logo the text moves to the corner itself.
-    textX = 86
-    if m.stationBugUri = "" then textX = 0
-    m.top.findNode("stationBugNumber").translation = [textX, 6]
-    m.top.findNode("stationBugName").translation = [textX, 40]
+    ' Logo over name; without a logo the name moves up into its place.
+    nameY = 78
+    if m.stationBugUri = "" then nameY = 0
+    m.top.findNode("stationBugName").translation = [0, nameY]
     m.top.findNode("bannerClock").text = bannerClock(CreateObject("roDateTime").AsSeconds())
     status = ""
     if m.stationPausedAt >= 0
@@ -2192,3 +2219,8 @@ function leaveChannelMenu() as boolean
     hideStationBanner()
     return true
 end function
+
+sub onRollRetry()
+    if not isChannelMode() then return
+    enqueue({ action: "getChannelNowPlaying", channelId: m.top.channelContext.channelId })
+end sub
