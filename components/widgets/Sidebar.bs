@@ -138,7 +138,7 @@ sub buildItems()
     m.items = [{ id: "home", kind: "home", title: "Home", iconLocal: "pkg:/images/nav_home.png", iconSelected: "pkg:/images/nav_home_selected.png" }]
     ' Stations sits directly under Home, as it does on the other clients, with the
     ' same broadcast glyph they use — the TV library's icon read as a duplicate.
-    m.items.push({ id: "fintv", kind: "fintv", title: "Stations", iconLocal: "pkg:/images/nav_fintv.png", iconSelected: "pkg:/images/nav_fintv_selected.png" })
+    m.items.push({ id: "fintv", kind: "fintv", title: "SashimiTV", iconLocal: "pkg:/images/nav_fintv.png", iconSelected: "pkg:/images/nav_fintv_selected.png" })
     for each lib in m.libraries
         ct = ""
         if lib.CollectionType <> invalid then ct = LCase(lib.CollectionType)

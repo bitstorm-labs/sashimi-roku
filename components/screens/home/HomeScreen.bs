@@ -727,7 +727,7 @@ sub addChannelsRow(cards as object)
     m.channelsRowIndex = m.rowContent.getChildCount()
 
     row = m.rowContent.createChild("ContentNode")
-    row.title = "Stations"
+    row.title = "SashimiTV"
 
     for each card in cards
         child = row.createChild("ContentNode")
