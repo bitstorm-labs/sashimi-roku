@@ -813,3 +813,8 @@ function railColour(index as integer) as string
     palette = ["#4CC7CC", "#F2A640", "#ED5C7A", "#66CC80", "#5CADE6", "#E0C759"]
     return palette[index MOD palette.count()]
 end function
+
+sub onOverlayChanged()
+    m.top.findNode("background").visible = not m.top.overlay
+    m.top.findNode("scrim").visible = m.top.overlay
+end sub

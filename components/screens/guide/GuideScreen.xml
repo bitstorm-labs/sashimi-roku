@@ -3,9 +3,12 @@
     <interface>
         <!-- A now-airing block tunes in; MainScene owns the player. -->
         <field id="playItem" type="assocarray" alwaysNotify="true" />
+        <!-- Laid over a playing channel: the picture shows through. -->
+        <field id="overlay" type="boolean" onChange="onOverlayChanged" />
     </interface>
     <children>
-        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+        <Poster id="background" uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+        <Rectangle id="scrim" width="1920" height="1080" color="#000000C7" visible="false" />
 
         <Label id="titleLabel" text="Guide" color="#FFFFFF" translation="[40, 46]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="44" />

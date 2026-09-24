@@ -514,6 +514,8 @@ sub collectChannelHeroItems(cards as object)
         ' Ride the channel stamp on the item AA, the way _forceYouTube does —
         ' it survives FormatJSON/ParseJSON into HeroBanner without a new field.
         item._channelName = card.channelName
+        item._channelNumber = valueOrZero(card.channelNumber)
+        item._channelLogoUri = ImageUrl.channelLogo(card.channelId, card.channelLogo)
         runtime = 0
         if item.RunTimeTicks <> invalid then runtime = Int(item.RunTimeTicks / 10000000&)
         if runtime > card.startPositionSeconds

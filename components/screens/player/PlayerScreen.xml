@@ -59,8 +59,8 @@
                    ellipsizeOnBoundary="true" translation="[80, 1004]">
                 <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="26" />
             </Label>
-            <Label id="bannerHints" text="▲▼ channels     OK  info     hold OK  subtitles &amp; audio" color="#8C8C8C"
-                   width="760" horizAlign="right" translation="[1080, 1008]">
+            <Label id="bannerHints" text="▲▼ channels     ◀▶ guide     OK  info     hold OK  subtitles &amp; audio" color="#8C8C8C"
+                   width="900" horizAlign="right" translation="[940, 1008]">
                 <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="20" />
             </Label>
         </Group>
