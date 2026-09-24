@@ -823,14 +823,18 @@ sub doGetGuide(request as object)
         return
     end if
 
+    ' Plugin 0.4.0 sends each programme's name with the schedule, so a week
+    ' of guide (thousands of programmes) needs no per-item requests. Only
+    ' programmes without a name — an older plugin — are fetched.
     wantedIds = {}
     for each row in rows
         if row.Programs = invalid then continue for
         for each prog in row.Programs
-            if prog.ItemId <> invalid then wantedIds[prog.ItemId] = true
+            if prog.ItemId <> invalid and prog.Name = invalid then wantedIds[prog.ItemId] = true
         end for
     end for
-    items = channelItemsById(wantedIds)
+    items = {}
+    if wantedIds.count() > 0 then items = channelItemsById(wantedIds)
 
     out = []
     for each row in rows
@@ -846,7 +850,16 @@ sub doGetGuide(request as object)
                     title: "—",
                     subtitle: ""
                 }
-                if items.DoesExist(itemId)
+                if prog.Name <> invalid
+                    ' Same shape guideTitle/guideSubtitle read from an item.
+                    item = {
+                        Name: prog.Name, Type: prog.Type, SeriesName: prog.SeriesName,
+                        ParentIndexNumber: prog.SeasonNumber, IndexNumber: prog.EpisodeNumber,
+                        ProductionYear: prog.ProductionYear
+                    }
+                    entry.title = guideTitle(item)
+                    entry.subtitle = guideSubtitle(item)
+                else if items.DoesExist(itemId)
                     item = items[itemId]
                     entry.title = guideTitle(item)
                     entry.subtitle = guideSubtitle(item)
@@ -878,6 +891,9 @@ end function
 
 function guideSubtitle(item as object) as string
     if item.Type <> invalid and item.Type = "Episode" and item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+        ' A YouTube channel's "episodes" carry the upload year as the season
+        ' and a long index as the episode; the video's title says more.
+        if item.ParentIndexNumber >= 1900 and item.IndexNumber > 999 and item.Name <> invalid and item.Name <> "" then return item.Name
         return "S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim()
     end if
     if item.ProductionYear <> invalid then return str(item.ProductionYear).Trim()
