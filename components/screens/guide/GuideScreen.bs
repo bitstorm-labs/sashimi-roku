@@ -176,43 +176,44 @@ sub buildChannelLabel(row as object, index as integer, y as integer)
     rail.color = railColour(index)
     rail.translation = [CHANNEL_X, y]
 
-    ' The station's logo sits between the rail and the name when it has one.
-    textX = CHANNEL_X + 16
+    ' Number, logo, then name — each vertically centred in the row, the
+    ' number leading at the left the way a printed guide set its columns.
+    rowH = ROW_H - 8
+    x = CHANNEL_X + 14
+    hasNumber = (row.number <> invalid and row.number > 0)
+    if hasNumber
+        num = m.channelGroup.createChild("Label")
+        num.color = railColour(index)
+        num.text = row.number.toStr()
+        num.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 26)
+        num.width = 40
+        num.height = rowH
+        num.vertAlign = "center"
+        num.translation = [x, y]
+        x = x + 46
+    end if
+    textX = x
+    ' The logo travels with the name, on its line; the description runs under both.
+    nameX = textX
     logoUri = ImageUrl.channelLogo(row.id, row.logo)
     if logoUri <> ""
         logo = m.channelGroup.createChild("Poster")
         logo.uri = logoUri
-        logo.width = 44
-        logo.height = 44
+        logo.width = 28
+        logo.height = 28
         logo.loadDisplayMode = "scaleToFit"
-        logo.translation = [CHANNEL_X + 14, y]
-        textX = CHANNEL_X + 70
-    end if
-
-    hasNumber = (row.number <> invalid and row.number > 0)
-    ' With a logo, the number sits under it — the station's mark and its
-    ' number read as one badge, the way a printed guide set them.
-    if logoUri <> "" and hasNumber
-        num = m.channelGroup.createChild("Label")
-        num.color = railColour(index)
-        num.text = row.number.toStr()
-        num.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 20)
-        num.width = 44
-        num.horizAlign = "center"
-        num.translation = [CHANNEL_X + 14, y + 48]
+        logo.translation = [textX, y]
+        nameX = textX + 36
     end if
 
     name = m.channelGroup.createChild("Label")
     name.color = "#FFFFFF"
     name.text = UCase(row.name)
-    if hasNumber and logoUri = ""
-        name.text = row.number.toStr() + "  " + name.text
-    end if
     name.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 22)
-    name.width = CHANNEL_W - 4 - textX + CHANNEL_X
+    name.width = CHANNEL_W - 4 - nameX + CHANNEL_X
     name.maxLines = 1
     name.ellipsizeOnBoundary = true
-    name.translation = [textX, y]
+    name.translation = [nameX, y]
 
     if row.description <> invalid and row.description <> ""
         desc = m.channelGroup.createChild("Label")
