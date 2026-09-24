@@ -1964,6 +1964,14 @@ sub showStationBanner(row as object)
     if row.logo <> invalid then logoKey = row.logo
     m.top.findNode("bannerLogo").uri = ImageUrl.channelLogo(row.id, logoKey)
     m.stationBugUri = ImageUrl.channelLogo(row.id, logoKey, true)
+    m.top.findNode("stationBugLogo").uri = m.stationBugUri
+    m.top.findNode("stationBugNumber").text = number
+    m.top.findNode("stationBugName").text = UCase(row.name)
+    ' Without a logo the text moves to the corner itself.
+    textX = 86
+    if m.stationBugUri = "" then textX = 0
+    m.top.findNode("stationBugNumber").translation = [textX, 6]
+    m.top.findNode("stationBugName").translation = [textX, 40]
     m.top.findNode("bannerClock").text = bannerClock(CreateObject("roDateTime").AsSeconds())
     status = ""
     if m.stationPausedAt >= 0
@@ -2029,8 +2037,7 @@ end sub
 sub hideStationBanner()
     m.bannerTimer.control = "stop"
     m.stationBanner.visible = false
-    m.stationBug.uri = m.stationBugUri
-    m.stationBug.visible = (isChannelMode() and m.stationBugUri <> "" and not m.osdVisible)
+    m.stationBug.visible = (isChannelMode() and m.top.findNode("stationBugName").text <> "" and not m.osdVisible)
 end sub
 
 ' ---------- Channel remote ----------

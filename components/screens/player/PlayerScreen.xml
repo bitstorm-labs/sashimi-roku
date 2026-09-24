@@ -64,9 +64,17 @@
                 <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="20" />
             </Label>
         </Group>
-        <!-- The station's white logo, faint in the corner while the bar is down. -->
-        <Poster id="stationBug" width="84" height="84" opacity="0.35" loadDisplayMode="scaleToFit"
-                translation="[80, 60]" visible="false" />
+        <!-- The station's mark, faint in the corner while the bar is down:
+             white logo, then number and name in small type. -->
+        <Group id="stationBug" opacity="0.45" translation="[80, 60]" visible="false">
+            <Poster id="stationBugLogo" width="72" height="72" loadDisplayMode="scaleToFit" />
+            <Label id="stationBugNumber" text="" color="#FFFFFF" translation="[86, 6]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="26" />
+            </Label>
+            <Label id="stationBugName" text="" color="#FFFFFF" width="500" maxLines="1" translation="[86, 40]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="18" />
+            </Label>
+        </Group>
         <Timer id="bannerTimer" duration="6" repeat="false" />
         <!-- OK held this long opens subtitles & audio instead of the info bar. -->
         <Timer id="okHoldTimer" duration="0.6" repeat="false" />
