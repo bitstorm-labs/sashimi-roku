@@ -1,0 +1,86 @@
+import "pkg:/source/utils/Registry.bs"
+
+' Programme reminders, kept per device in the registry. A reminder is for one
+' airing — a channel and a start time — not for a title, because a channel can
+' air the same thing again on another day and only the one asked for should
+' ring.
+namespace Reminders
+
+    ' How early the banner appears, and how long after the start it still
+    ' offers to tune in (you can join a programme a few minutes late).
+    const LEAD_SECONDS = 300
+    const GRACE_SECONDS = 300
+
+    function keyFor(channelId as string, startEpoch as integer) as string
+        return channelId + "|" + startEpoch.toStr()
+    end function
+
+    ' Every live reminder, soonest first. Reminders past their grace period are
+    ' dropped here, so the list never grows without bound.
+    function all() as object
+        list = Registry.readJson("reminders", "list")
+        if list = invalid or type(list) <> "roArray" then return []
+        now = CreateObject("roDateTime").AsSeconds()
+        live = []
+        for each r in list
+            if r.startEpoch <> invalid and r.startEpoch + GRACE_SECONDS > now then live.push(r)
+        end for
+        live.SortBy("startEpoch")
+        if live.count() <> list.count() then save(live)
+        return live
+    end function
+
+    sub save(list as object)
+        Registry.write("reminders", "list", FormatJson(list))
+    end sub
+
+    function has(key as string) as boolean
+        for each r in all()
+            if r.key = key then return true
+        end for
+        return false
+    end function
+
+    ' Sets the reminder if it is not set, clears it if it is. Returns whether it
+    ' is now set.
+    function toggle(reminder as object) as boolean
+        list = all()
+        for i = 0 to list.count() - 1
+            if list[i].key = reminder.key
+                list.delete(i)
+                save(list)
+                return false
+            end if
+        end for
+        list.push(reminder)
+        save(list)
+        return true
+    end function
+
+    sub remove(key as string)
+        list = all()
+        for i = 0 to list.count() - 1
+            if list[i].key = key
+                list.delete(i)
+                save(list)
+                return
+            end if
+        end for
+    end sub
+
+    sub clearAll()
+        save([])
+    end sub
+
+    ' The reminder to announce now, if any: inside its window and not already
+    ' shown this session (`shown` is keyed by reminder key).
+    function due(now as integer, shown as object) as dynamic
+        for each r in all()
+            if not shown.doesExist(r.key) and r.startEpoch - LEAD_SECONDS <= now and now < r.startEpoch + GRACE_SECONDS
+                return r
+            end if
+        end for
+        return invalid
+    end function
+
+end namespace

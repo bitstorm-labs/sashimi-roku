@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- The "starts in 5 minutes" banner for a guide reminder. It never takes
+     focus — MainScene routes Play to it while it is up — so whatever screen
+     is underneath keeps working. -->
+<component name="ReminderBanner" extends="Group">
+    <interface>
+        <!-- Off until signed in: a reminder needs a server to tune to. -->
+        <field id="active" type="boolean" onChange="onActiveChanged" />
+        <field id="playItem" type="assocarray" alwaysNotify="true" />
+        <function name="tune" />
+    </interface>
+    <children>
+        <Group id="panel" visible="false" translation="[1180, 40]">
+            <Poster uri="pkg:/images/card_r16.9.png" width="700" height="150" blendColor="#1A1A1FF2" />
+            <Rectangle width="6" height="118" color="#8C5CC7" translation="[18, 16]" />
+            <Label id="headline" text="" color="#FFFFFF" width="630" maxLines="1"
+                   ellipsizeOnBoundary="true" translation="[42, 18]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="28" />
+            </Label>
+            <Label id="detail" text="" color="#BFBFBF" width="630" maxLines="1"
+                   ellipsizeOnBoundary="true" translation="[42, 60]">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
+            </Label>
+            <Label id="hint" text="Press Play to watch" color="#8C5CC7" width="630"
+                   translation="[42, 100]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
+            </Label>
+        </Group>
+        <Timer id="checkTimer" duration="20" repeat="true" />
+        <Timer id="hideTimer" duration="45" repeat="false" />
+        <JellyfinApi id="apiTask" />
+    </children>
+</component>

@@ -82,6 +82,7 @@ sub processRequest()
         doGetChannelGuide(request)
     else if action = "getChannelCards"
         doGetChannelCards()
+
     else if action = "getGuide"
         doGetGuide(request)
     else if action = "getItems"
@@ -738,6 +739,7 @@ sub doGetChannelCards()
         now = Http.getJson(Http.apiUrl("/VirtualChannels/" + id + "/NowPlaying"), meta)
         card = {
             channelId: id,
+            channelNumber: valueOrNumber(channel.Number, 0),
             channelName: valueOr(channel.Name, ""),
             channelDescription: valueOr(channel.Description, ""),
             offAir: true,
@@ -847,6 +849,8 @@ sub doGetGuide(request as object)
                     itemId: itemId,
                     startEpoch: isoToEpoch(valueOr(prog.StartUtc, "")),
                     endEpoch: isoToEpoch(valueOr(prog.EndUtc, "")),
+                    joinSeconds: Int(valueOrNumber(prog.StartPositionSeconds, 0)),
+                    isNew: (prog.IsNew <> invalid and prog.IsNew = true),
                     title: "—",
                     subtitle: ""
                 }
@@ -869,6 +873,7 @@ sub doGetGuide(request as object)
         end if
         out.push({
             id: valueOr(row.Id, ""),
+            number: valueOrNumber(row.Number, 0),
             name: valueOr(row.Name, ""),
             description: valueOr(row.Description, ""),
             programs: programs
