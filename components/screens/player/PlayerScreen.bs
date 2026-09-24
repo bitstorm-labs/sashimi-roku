@@ -49,6 +49,15 @@ sub init()
     m.osdMenuTitle = m.top.findNode("osdMenuTitle")
     m.osdMenuRows = m.top.findNode("osdMenuRows")
 
+    ' Station banner and flipping (channel mode only)
+    m.stationBanner = m.top.findNode("stationBanner")
+    m.bannerTimer = m.top.findNode("bannerTimer")
+    m.bannerTimer.observeFieldScoped("fire", "hideStationBanner")
+    m.stations = []
+    m.flipTarget = -1
+    m.flipDir = 0
+    m.flipTries = 0
+
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
     m.video.observeFieldScoped("state", "onVideoState")
@@ -183,6 +192,9 @@ sub onItemDataChanged()
     setChapters(data)
     populateInfoBar()
     requestStream(data)
+    ' Every programme a channel plays — the first, each roll-over and each
+    ' flip — announces the station.
+    if isChannelMode() then enqueue({ action: "getGuide", hours: 4 })
 end sub
 
 ' Chapters are per-item, so this rebuilds from scratch every time the playing
@@ -347,8 +359,12 @@ sub onApiResponse()
         onSiblingsLoaded(r)
     else if r.action = "getIntroSegments"
         if r.itemId = m.item.Id and r.segments <> invalid then m.segments = r.segments
+    else if r.action = "getChannelNowPlaying" and r.context <> invalid and r.context = "flip"
+        onFlipResolved(r)
     else if r.action = "getChannelNowPlaying"
         onChannelRolledOver(r)
+    else if r.action = "getGuide"
+        onStationGuide(r)
     else if r.action = "getItem" and r.context = "channelRoll"
         onChannelNextItem(r)
     end if
@@ -780,6 +796,7 @@ end sub
 ' ---------- OSD visibility ----------
 
 sub showOsd()
+    hideStationBanner()
     buildChapterTicks()
     updateScrubber()
     updateClock()
@@ -1746,6 +1763,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
     if m.errorDialogUp then m.errorDialogUp = false
     if not press then return false
 
+    ' A reminder banner is up: Play is its "watch now", not pause.
+    if key = "play" and m.global.reminderShowing = true then return false
+
     ' Menu zone: up/down navigate, OK applies, back/left dismiss
     if m.zone = "menu"
         if key = "up"
@@ -1840,6 +1860,18 @@ function onKeyEvent(key as string, press as boolean) as boolean
         return true
     end if
 
+    ' A channel with the controls hidden: up/down change station, the way a
+    ' cable remote does. Once the controls are up they navigate them instead.
+    if isChannelMode() and not m.osdVisible
+        if key = "up" or key = "channelup"
+            changeStation(1)
+            return true
+        else if key = "down" or key = "channeldown"
+            changeStation(-1)
+            return true
+        end if
+    end if
+
     ' Up climbs to the controls (buttons sit above the scrubber); Down hides
     if key = "up"
         if m.osdVisible
@@ -1877,3 +1909,169 @@ function onKeyEvent(key as string, press as boolean) as boolean
 
     return false
 end function
+
+' ---------- Stations: banner and flipping ----------
+
+' A four-hour guide (long enough to see past a feature film) carries the whole line-up in number order and what each
+' station has on now and next, so it serves both the banner and flipping.
+sub onStationGuide(r as object)
+    if not r.success or r.rows = invalid or r.rows.count() = 0 then return
+    m.stations = r.rows
+    if not isChannelMode() then return
+    row = stationRow(m.top.channelContext.channelId)
+    if row = invalid then return
+    showStationBanner(row)
+end sub
+
+function stationIndex(channelId as string) as integer
+    for i = 0 to m.stations.count() - 1
+        if m.stations[i].id = channelId then return i
+    end for
+    return -1
+end function
+
+function stationRow(channelId as string) as dynamic
+    i = stationIndex(channelId)
+    if i < 0 then return invalid
+    return m.stations[i]
+end function
+
+sub showStationBanner(row as object)
+    number = ""
+    if row.number <> invalid and row.number > 0 then number = row.number.toStr()
+    m.top.findNode("bannerNumber").text = number
+    m.top.findNode("bannerName").text = UCase(row.name)
+    m.top.findNode("bannerDescription").text = row.description
+
+    now = CreateObject("roDateTime").AsSeconds()
+    current = invalid
+    upNext = invalid
+    ' The server clips the airing programme's start to ITS clock, which can
+    ' run a few seconds ahead of this one — so "on now" is the first programme
+    ' not yet over, allowing a little skew, rather than a strict start <= now.
+    for each prog in row.programs
+        if prog.endEpoch <= now then continue for
+        if current = invalid and upNext = invalid and prog.startEpoch <= now + 120
+            current = prog
+        else if upNext = invalid
+            upNext = prog
+        end if
+    end for
+
+    nowText = ""
+    timesText = ""
+    fraction = 0.0
+    if current <> invalid
+        nowText = "NOW   " + current.title
+        if current.subtitle <> "" then nowText += "  ·  " + current.subtitle
+        if current.isNew = true then nowText += "  ·  NEW"
+        ' The guide clips the airing programme to the moment it was asked for;
+        ' its join offset says how long it had already been on.
+        began = current.startEpoch
+        if current.joinSeconds <> invalid then began = began - current.joinSeconds
+        timesText = bannerClock(began) + " – " + bannerClock(current.endEpoch)
+        span = current.endEpoch - began
+        if span > 0 then fraction = (now - began) / span
+        if fraction < 0 then fraction = 0.0
+    else
+        nowText = "Tuning in..."
+    end if
+    m.top.findNode("bannerNow").text = nowText
+    m.top.findNode("bannerTimes").text = timesText
+    m.top.findNode("bannerFill").width = Int(700 * fraction)
+    m.top.findNode("bannerTrack").visible = (current <> invalid)
+    m.top.findNode("bannerFill").visible = (current <> invalid)
+
+    nextText = ""
+    if upNext <> invalid then nextText = "NEXT   " + bannerClock(upNext.startEpoch) + "   " + upNext.title
+    m.top.findNode("bannerNext").text = nextText
+
+    ' The controls own the bottom of the screen while they are up.
+    if m.osdVisible then return
+    m.stationBanner.visible = true
+    m.bannerTimer.control = "stop"
+    m.bannerTimer.control = "start"
+end sub
+
+sub hideStationBanner()
+    m.bannerTimer.control = "stop"
+    m.stationBanner.visible = false
+end sub
+
+function bannerClock(epoch as integer) as string
+    dt = CreateObject("roDateTime")
+    dt.FromSeconds(epoch)
+    dt.ToLocalTime()
+    ' Same format as the guide, so a time reads identically in both places.
+    return dt.AsTimeStringLoc("short")
+end function
+
+' Step to the next (+1) or previous (-1) station in number order, wrapping.
+' A station that is off air right now is skipped, like an empty channel on a
+' scan.
+sub changeStation(dir as integer)
+    if m.stations.count() < 2
+        ' The line-up has not loaded yet; fetch it, and the next press flips.
+        enqueue({ action: "getGuide", hours: 4 })
+        return
+    end if
+    origin = m.flipTarget
+    if origin < 0 then origin = stationIndex(m.top.channelContext.channelId)
+    if origin < 0 then origin = 0
+    m.flipDir = dir
+    m.flipTries = 0
+    flipTo((origin + dir + m.stations.count()) mod m.stations.count())
+end sub
+
+sub flipTo(index as integer)
+    m.flipTarget = index
+    row = m.stations[index]
+    ' Show the station at once — the stream takes a moment, the number should
+    ' not.
+    showStationBanner(row)
+    enqueue({ action: "getChannelNowPlaying", channelId: row.id, context: "flip" })
+end sub
+
+sub onFlipResolved(r as object)
+    ' A later press already moved on; only the latest target tunes.
+    if m.flipTarget < 0 or m.stations[m.flipTarget].id <> r.channelId then return
+    if r.offAir = true or r.nowPlaying = invalid or r.nowPlaying.ItemId = invalid
+        m.flipTries = m.flipTries + 1
+        if m.flipTries >= m.stations.count()
+            m.flipTarget = -1
+            return
+        end if
+        flipTo((m.flipTarget + m.flipDir + m.stations.count()) mod m.stations.count())
+        return
+    end if
+
+    row = m.stations[m.flipTarget]
+    m.flipTarget = -1
+    start = 0
+    if r.nowPlaying.StartPositionSeconds <> invalid then start = Int(r.nowPlaying.StartPositionSeconds)
+    nextId = ""
+    if r.nowPlaying.NextItemId <> invalid then nextId = r.nowPlaying.NextItemId
+    ' Channel playback never reports, so leaving the old station needs no
+    ' stop report — just stop the picture.
+    m.video.control = "stop"
+    m.statusLabel.visible = true
+    m.statusLabel.text = "Tuning " + UCase(row.name) + "..."
+    m.top.channelContext = {
+        channelId: row.id,
+        channelName: row.name,
+        startPositionSeconds: start,
+        nextItemId: nextId
+    }
+    enqueue({ action: "getItem", itemId: r.nowPlaying.ItemId, context: "channelRoll" })
+end sub
+
+' MainScene is replacing this player (a reminder tuned in). Same teardown as
+' leaving, without raising `done` — MainScene pops the screen itself, and a
+' late done would pop the player that replaced this one.
+sub stopForHandoff()
+    m.bufferTimer.control = "stop"
+    m.progressTimer.control = "stop"
+    hideStationBanner()
+    m.video.control = "stop"
+    if m.startedReported then reportStopped(Int(m.lastPosition) * 10000000&)
+end sub

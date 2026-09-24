@@ -1,0 +1,107 @@
+import "pkg:/source/utils/Reminders.bs"
+
+sub init()
+    m.panel = m.top.findNode("panel")
+    m.checkTimer = m.top.findNode("checkTimer")
+    m.hideTimer = m.top.findNode("hideTimer")
+    m.apiTask = m.top.findNode("apiTask")
+    ' Keyed by reminder key: each reminder rings once per app session.
+    m.shown = {}
+    m.current = invalid
+    m.checkTimer.observeFieldScoped("fire", "check")
+    m.hideTimer.observeFieldScoped("fire", "hide")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+end sub
+
+sub onActiveChanged()
+    if m.top.active
+        m.apiTask.control = "RUN"
+        m.checkTimer.control = "start"
+        check()
+    else
+        m.checkTimer.control = "stop"
+        hide()
+    end if
+end sub
+
+sub check()
+    if m.current <> invalid then return
+    now = CreateObject("roDateTime").AsSeconds()
+    r = Reminders.due(now, m.shown)
+    if r = invalid then return
+    m.shown[r.key] = true
+    m.current = r
+
+    minutes = Int((r.startEpoch - now + 59) / 60)
+    station = UCase(valueOr(r.channelName))
+    if r.channelNumber <> invalid and r.channelNumber > 0 then station = r.channelNumber.toStr() + "  " + station
+    ' The title gets the whole first line; when and where go underneath, so a
+    ' long title never cuts off the part that says when it starts.
+    m.top.findNode("headline").text = r.title
+    if minutes > 0
+        m.top.findNode("detail").text = "Starts in " + minutes.toStr() + " min on " + station + "   ·   " + startClock(r.startEpoch)
+    else
+        m.top.findNode("detail").text = "On now on " + station
+    end if
+    m.panel.visible = true
+    m.global.reminderShowing = true
+    m.hideTimer.control = "stop"
+    m.hideTimer.control = "start"
+end sub
+
+sub hide()
+    m.hideTimer.control = "stop"
+    m.panel.visible = false
+    m.current = invalid
+    m.global.reminderShowing = false
+end sub
+
+' Play on the banner: join the channel where it is now, like tuning from the
+' guide. The reminder has done its job either way, so it is removed.
+sub tune()
+    r = m.current
+    if r = invalid then return
+    hide()
+    Reminders.remove(r.key)
+    m.pending = r
+    m.apiTask.request = { action: "getChannelNowPlaying", channelId: r.channelId, context: "reminder" }
+end sub
+
+sub onApiResponse()
+    resp = m.apiTask.response
+    if resp = invalid or m.pending = invalid then return
+    if resp.action = "getChannelNowPlaying"
+        if resp.offAir = true or resp.nowPlaying = invalid or resp.nowPlaying.ItemId = invalid
+            m.pending = invalid
+            return
+        end if
+        start = 0
+        if resp.nowPlaying.StartPositionSeconds <> invalid then start = Int(resp.nowPlaying.StartPositionSeconds)
+        nextId = ""
+        if resp.nowPlaying.NextItemId <> invalid then nextId = resp.nowPlaying.NextItemId
+        m.pending.context = {
+            channelId: m.pending.channelId,
+            channelName: m.pending.channelName,
+            startPositionSeconds: start,
+            nextItemId: nextId
+        }
+        m.apiTask.request = { action: "getItem", itemId: resp.nowPlaying.ItemId, context: "reminderTune" }
+    else if resp.action = "getItem" and resp.context <> invalid and resp.context = "reminderTune"
+        pending = m.pending
+        m.pending = invalid
+        if not resp.success or resp.item = invalid then return
+        m.top.playItem = { action: "play", item: resp.item, channelContext: pending.context }
+    end if
+end sub
+
+function startClock(epoch as integer) as string
+    dt = CreateObject("roDateTime")
+    dt.FromSeconds(epoch)
+    dt.ToLocalTime()
+    return dt.AsTimeStringLoc("short")
+end function
+
+function valueOr(value as dynamic) as string
+    if value = invalid then return ""
+    return value
+end function

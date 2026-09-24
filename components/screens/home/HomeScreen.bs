@@ -734,6 +734,7 @@ sub addChannelsRow(cards as object)
         child.addFields({
             cardStyle: "landscape",
             channelName: card.channelName,
+            channelNumber: valueOrZero(card.channelNumber),
             isLive: not card.offAir,
             playedPercentage: 0,
             remainingText: "",

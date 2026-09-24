@@ -27,6 +27,7 @@ sub init()
         playThemeSongs: (AppSettings.read("playThemeSongs", "true") = "true")
         memoryTier: budget.tier
         memoryLimitKb: budget.limitKb
+        reminderShowing: false
     })
 
     initDeviceId()
@@ -40,6 +41,10 @@ sub init()
 
     ' Global toast overlay (always on top)
     m.toast = createObject("roSGNode", "ToastOverlay")
+
+    ' Guide reminders ring over whatever screen is up.
+    m.reminderBanner = createObject("roSGNode", "ReminderBanner")
+    m.reminderBanner.observeFieldScoped("playItem", "onReminderPlay")
     m.global.observeFieldScoped("toastMessage", "onGlobalToast")
 
     ' Deep-link cover. A direct-play deep link keeps its detail screen hidden
@@ -462,6 +467,7 @@ sub enterMainUI()
 
     liftOverlays()
     m.sidebar.visible = true
+    m.reminderBanner.active = true
 
     ' Focus the content so the app opens with the rail resting (collapsed);
     ' LEFT from content reveals/expands the rail (Plex behavior).
@@ -536,6 +542,8 @@ sub liftOverlays()
     m.top.appendChild(m.sidebar)
     m.top.removeChild(m.toast)
     m.top.appendChild(m.toast)
+    m.top.removeChild(m.reminderBanner)
+    m.top.appendChild(m.reminderBanner)
     if hadFocus then m.sidebar.setFocus(true)
 end sub
 
@@ -698,10 +706,23 @@ sub popScreen()
     end if
 end sub
 
+' A reminder tuned in. Whatever is playing gives way first: a second player
+' pushed over the first would leave the first one's audio running underneath.
+sub onReminderPlay(event as object)
+    top = invalid
+    if m.navStack.count() > 0 then top = m.navStack.peek()
+    if top <> invalid and top.subtype() = "PlayerScreen"
+        top.callFunc("stopForHandoff")
+        popScreen()
+    end if
+    onPlayItem(event)
+end sub
+
 sub clearAllScreens()
     ' Sign-out and server switch both land here. Cached theme URLs carry the
     ' outgoing server's token, so the whole session's state goes with them.
     m.themePlayer.callFunc("resetSession", "session")
+    m.reminderBanner.active = false
     endDeepLinkWait()
     while m.navStack.count() > 0
         screen = m.navStack.pop()
@@ -752,6 +773,12 @@ end sub
 
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
+
+    ' Play belongs to a showing reminder; screens let it through while one is up.
+    if key = "play" and m.global.reminderShowing = true
+        m.reminderBanner.callFunc("tune")
+        return true
+    end if
 
     if key = "back"
         if m.navStack.count() > 0

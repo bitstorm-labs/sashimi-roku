@@ -410,6 +410,10 @@ sub applyChannelChrome(content as object)
     if name = invalid or name = "" then return
 
     label = UCase(name)
+    ' The channel number leads, the way a cable box labels a station.
+    if content.doesExist("channelNumber") and content.channelNumber <> invalid and content.channelNumber > 0
+        label = str(content.channelNumber).Trim() + " · " + label
+    end if
     ' Roughly 11px per character at 18pt bold, plus padding. Measuring properly
     ' needs a render pass we do not have here, and the badge is a capsule, so
     ' being a few pixels generous costs nothing.
