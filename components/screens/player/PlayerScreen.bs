@@ -54,6 +54,14 @@ sub init()
     m.bannerTimer = m.top.findNode("bannerTimer")
     m.bannerTimer.observeFieldScoped("fire", "hideStationBanner")
     m.stations = []
+    m.stationBug = m.top.findNode("stationBug")
+    m.stationBugUri = ""
+    m.stationPausedAt = -1
+    m.behindLiveSecs = 0
+    m.okHeld = false
+    m.channelMenu = false
+    m.okHoldTimer = m.top.findNode("okHoldTimer")
+    m.okHoldTimer.observeFieldScoped("fire", "onOkHold")
     m.flipTarget = -1
     m.flipDir = 0
     m.flipTries = 0
@@ -419,6 +427,9 @@ sub onChannelNextItem(r as object)
     m.startedReported = false
     m.stoppedReported = false
     m.segments = []
+    ' A roll-over or a flip joins at the channel's live offset.
+    m.stationPausedAt = -1
+    m.behindLiveSecs = 0
     m.top.itemData = r.item
 end sub
 
@@ -995,6 +1006,13 @@ sub openMenu(kind as string)
             if m.audTracks[i].index = m.curAudIdx then current = m.menuItems.count() - 1
         end for
         if m.curAudIdx = -1 then current = 0
+    else if kind = "channelOptions"
+        ' A channel's held-OK menu: the two track choices the OSD would offer.
+        m.osdMenuTitle.text = "Subtitles & Audio"
+        ' Integer values like every other menu (isCurrentValue is typed): 1
+        ' subtitles, 2 audio. A string here crashed the menu on open.
+        m.menuItems.push({ label: "Subtitles", value: 1 })
+        if m.audTracks.count() > 1 then m.menuItems.push({ label: "Audio", value: 2 })
     else if kind = "chapters"
         m.osdMenuTitle.text = "Chapters"
         for i = 0 to m.chapters.count() - 1
@@ -1106,7 +1124,10 @@ sub applyMenuSelection()
     if m.menuIdx < 0 or m.menuIdx >= m.menuItems.count() then return
     value = m.menuItems[m.menuIdx].value
 
-    if m.menuKind = "chapters"
+    if m.menuKind = "channelOptions"
+        if value = 1 then openMenu("subs") else openMenu("audio")
+        return
+    else if m.menuKind = "chapters"
         m.seeking = false
         m.video.seek = value
         updateScrubber()
@@ -1137,6 +1158,7 @@ sub applyMenuSelection()
         end if
     end if
     closeMenu()
+    if leaveChannelMenu() then return
     m.zone = "buttons"
     restyleButtons()
     bumpOsd()
@@ -1761,10 +1783,17 @@ function onKeyEvent(key as string, press as boolean) as boolean
     ' latch and block every later error. Any key reaching this screen proves the
     ' modal is gone — dialogs consume everything while they are up.
     if m.errorDialogUp then m.errorDialogUp = false
-    if not press then return false
 
     ' A reminder banner is up: Play is its "watch now", not pause.
     if key = "play" and m.global.reminderShowing = true then return false
+
+    ' A channel has its own remote (onChannelKey) — except inside a menu, and
+    ' except OK while the skip pill is up, which still skips.
+    if isChannelMode() and m.zone <> "menu" and not (key = "OK" and m.skipVisible)
+        return onChannelKey(key, press)
+    end if
+
+    if not press then return false
 
     ' Menu zone: up/down navigate, OK applies, back/left dismiss
     if m.zone = "menu"
@@ -1791,6 +1820,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
             return true
         else if key = "back" or key = "left"
             closeMenu()
+            if leaveChannelMenu() then return true
             m.zone = "buttons"
             restyleButtons()
             bumpOsd()
@@ -1858,18 +1888,6 @@ function onKeyEvent(key as string, press as boolean) as boolean
         showOsd()
         bumpOsd()
         return true
-    end if
-
-    ' A channel with the controls hidden: up/down change station, the way a
-    ' cable remote does. Once the controls are up they navigate them instead.
-    if isChannelMode() and not m.osdVisible
-        if key = "up" or key = "channelup"
-            changeStation(1)
-            return true
-        else if key = "down" or key = "channeldown"
-            changeStation(-1)
-            return true
-        end if
     end if
 
     ' Up climbs to the controls (buttons sit above the scrubber); Down hides
@@ -1942,6 +1960,18 @@ sub showStationBanner(row as object)
     m.top.findNode("bannerNumber").text = number
     m.top.findNode("bannerName").text = UCase(row.name)
     m.top.findNode("bannerDescription").text = row.description
+    logoKey = ""
+    if row.logo <> invalid then logoKey = row.logo
+    m.top.findNode("bannerLogo").uri = ImageUrl.channelLogo(row.id, logoKey)
+    m.stationBugUri = ImageUrl.channelLogo(row.id, logoKey, true)
+    m.top.findNode("bannerClock").text = bannerClock(CreateObject("roDateTime").AsSeconds())
+    status = ""
+    if m.stationPausedAt >= 0
+        status = "PAUSED"
+    else if m.behindLiveSecs >= 60
+        status = Int(m.behindLiveSecs / 60).toStr() + " min behind live"
+    end if
+    m.top.findNode("bannerStatus").text = status
 
     now = CreateObject("roDateTime").AsSeconds()
     current = invalid
@@ -1978,7 +2008,7 @@ sub showStationBanner(row as object)
     end if
     m.top.findNode("bannerNow").text = nowText
     m.top.findNode("bannerTimes").text = timesText
-    m.top.findNode("bannerFill").width = Int(700 * fraction)
+    m.top.findNode("bannerFill").width = Int(1400 * fraction)
     m.top.findNode("bannerTrack").visible = (current <> invalid)
     m.top.findNode("bannerFill").visible = (current <> invalid)
 
@@ -1989,13 +2019,83 @@ sub showStationBanner(row as object)
     ' The controls own the bottom of the screen while they are up.
     if m.osdVisible then return
     m.stationBanner.visible = true
+    m.stationBug.visible = false
     m.bannerTimer.control = "stop"
-    m.bannerTimer.control = "start"
+    ' A paused channel keeps its bar up: the picture is still, and "paused,
+    ' 4 min behind live" is the thing to know.
+    if m.stationPausedAt < 0 then m.bannerTimer.control = "start"
 end sub
 
 sub hideStationBanner()
     m.bannerTimer.control = "stop"
     m.stationBanner.visible = false
+    m.stationBug.uri = m.stationBugUri
+    m.stationBug.visible = (isChannelMode() and m.stationBugUri <> "" and not m.osdVisible)
+end sub
+
+' ---------- Channel remote ----------
+
+' A channel has no scrubber, skips or chapters, so it never shows the OSD. The
+' remote works like a TV's: up/down change channel, OK shows the info bar, a
+' held OK opens subtitles and audio, Play pauses (the bar then says how far
+' behind live), left/right do nothing, Back leaves. "*" is never taken —
+' certification reserves it for Roku's own overlay during playback.
+function onChannelKey(key as string, press as boolean) as boolean
+    if key = "OK"
+        if press
+            m.okHeld = false
+            m.okHoldTimer.control = "stop"
+            m.okHoldTimer.control = "start"
+        else
+            m.okHoldTimer.control = "stop"
+            if not m.okHeld then toggleStationInfo()
+        end if
+        return true
+    end if
+    if not press then return false
+
+    if key = "up" or key = "channelup"
+        changeStation(1)
+    else if key = "down" or key = "channeldown"
+        changeStation(-1)
+    else if key = "play"
+        toggleStationPause()
+    else if key = "left" or key = "right" or key = "rewind" or key = "fastforward" or key = "replay"
+        ' Live: nothing to seek.
+    else if key = "back"
+        exitPlayer()
+    else
+        return false
+    end if
+    return true
+end function
+
+sub onOkHold()
+    m.okHeld = true
+    hideStationBanner()
+    m.channelMenu = true
+    openMenu("channelOptions")
+end sub
+
+sub toggleStationInfo()
+    if m.stationBanner.visible and m.stationPausedAt < 0
+        hideStationBanner()
+        return
+    end if
+    enqueue({ action: "getGuide", hours: 4 })
+end sub
+
+sub toggleStationPause()
+    nowSecs = CreateObject("roDateTime").AsSeconds()
+    if m.stationPausedAt >= 0
+        m.behindLiveSecs = m.behindLiveSecs + (nowSecs - m.stationPausedAt)
+        m.stationPausedAt = -1
+        m.video.control = "resume"
+    else
+        m.stationPausedAt = nowSecs
+        m.video.control = "pause"
+    end if
+    enqueue({ action: "getGuide", hours: 4 })
 end sub
 
 function bannerClock(epoch as integer) as string
@@ -2075,3 +2175,13 @@ sub stopForHandoff()
     m.video.control = "stop"
     if m.startedReported then reportStopped(Int(m.lastPosition) * 10000000&)
 end sub
+
+' A menu opened from a channel (held OK) closes back to the picture, not to
+' the OSD a channel never shows.
+function leaveChannelMenu() as boolean
+    if not isChannelMode() then return false
+    m.zone = "scrub"
+    m.channelMenu = false
+    hideStationBanner()
+    return true
+end function

@@ -735,6 +735,7 @@ sub addChannelsRow(cards as object)
             cardStyle: "landscape",
             channelName: card.channelName,
             channelNumber: valueOrZero(card.channelNumber),
+            channelLogoUri: ImageUrl.channelLogo(card.channelId, card.channelLogo, true),
             isLive: not card.offAir,
             playedPercentage: 0,
             remainingText: "",

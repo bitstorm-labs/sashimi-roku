@@ -740,6 +740,7 @@ sub doGetChannelCards()
         card = {
             channelId: id,
             channelNumber: valueOrNumber(channel.Number, 0),
+            channelLogo: valueOr(channel.Logo, ""),
             channelName: valueOr(channel.Name, ""),
             channelDescription: valueOr(channel.Description, ""),
             offAir: true,
@@ -874,6 +875,7 @@ sub doGetGuide(request as object)
         out.push({
             id: valueOr(row.Id, ""),
             number: valueOrNumber(row.Number, 0),
+            logo: valueOr(row.Logo, ""),
             name: valueOr(row.Name, ""),
             description: valueOr(row.Description, ""),
             programs: programs

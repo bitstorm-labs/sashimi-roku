@@ -27,6 +27,7 @@ sub init()
     m.channelBadgeMask = m.top.findNode("channelBadgeMask")
     m.channelBadgeBg = m.top.findNode("channelBadgeBg")
     m.channelBadgeLabel = m.top.findNode("channelBadgeLabel")
+    m.channelBadgeLogo = m.top.findNode("channelBadgeLogo")
     m.livePillMask = m.top.findNode("livePillMask")
     m.liveDot = m.top.findNode("liveDot")
     m.livePillLabel = m.top.findNode("livePillLabel")
@@ -418,14 +419,22 @@ sub applyChannelChrome(content as object)
     ' needs a render pass we do not have here, and the badge is a capsule, so
     ' being a few pixels generous costs nothing.
     badgeWidth = 22 + Len(label) * 11
+    ' The station's white logo leads the badge when the server has one.
+    logoUri = ""
+    if content.doesExist("channelLogoUri") and content.channelLogoUri <> invalid then logoUri = content.channelLogoUri
+    logoRoom = 0
+    if logoUri <> "" then logoRoom = 28
+    badgeWidth = badgeWidth + logoRoom
     if badgeWidth > m.itemWidth - 100 then badgeWidth = m.itemWidth - 100
 
     m.channelBadgeLabel.text = label
     m.channelBadgeMask.maskSize = [badgeWidth, 30]
     m.channelBadgeBg.width = badgeWidth
-    m.channelBadgeLabel.width = badgeWidth
+    m.channelBadgeLabel.width = badgeWidth - logoRoom
     m.channelBadgeMask.translation = [10, 10]
-    m.channelBadgeLabel.translation = [10, 10]
+    m.channelBadgeLabel.translation = [10 + logoRoom, 10]
+    m.channelBadgeLogo.uri = logoUri
+    m.channelBadgeLogo.visible = (logoUri <> "")
     m.channelBadgeMask.visible = true
     m.channelBadgeLabel.visible = true
 
@@ -449,6 +458,7 @@ sub hideChannelChrome()
     if m.channelBadgeMask = invalid then return
     m.channelBadgeMask.visible = false
     m.channelBadgeLabel.visible = false
+    if m.channelBadgeLogo <> invalid then m.channelBadgeLogo.visible = false
     m.livePillMask.visible = false
     m.liveDot.visible = false
     m.livePillLabel.visible = false

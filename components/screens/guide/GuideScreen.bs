@@ -1,3 +1,4 @@
+import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Reminders.bs"
 ' The Stations guide: channels down, time across.
 '
@@ -175,28 +176,54 @@ sub buildChannelLabel(row as object, index as integer, y as integer)
     rail.color = railColour(index)
     rail.translation = [CHANNEL_X, y]
 
+    ' The station's logo sits between the rail and the name when it has one.
+    textX = CHANNEL_X + 16
+    logoUri = ImageUrl.channelLogo(row.id, row.logo)
+    if logoUri <> ""
+        logo = m.channelGroup.createChild("Poster")
+        logo.uri = logoUri
+        logo.width = 44
+        logo.height = 44
+        logo.loadDisplayMode = "scaleToFit"
+        logo.translation = [CHANNEL_X + 14, y]
+        textX = CHANNEL_X + 70
+    end if
+
+    hasNumber = (row.number <> invalid and row.number > 0)
+    ' With a logo, the number sits under it — the station's mark and its
+    ' number read as one badge, the way a printed guide set them.
+    if logoUri <> "" and hasNumber
+        num = m.channelGroup.createChild("Label")
+        num.color = railColour(index)
+        num.text = row.number.toStr()
+        num.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 20)
+        num.width = 44
+        num.horizAlign = "center"
+        num.translation = [CHANNEL_X + 14, y + 48]
+    end if
+
     name = m.channelGroup.createChild("Label")
     name.color = "#FFFFFF"
     name.text = UCase(row.name)
-    if row.number <> invalid and row.number > 0
+    if hasNumber and logoUri = ""
         name.text = row.number.toStr() + "  " + name.text
     end if
     name.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 22)
-    name.width = CHANNEL_W - 20
+    name.width = CHANNEL_W - 4 - textX + CHANNEL_X
     name.maxLines = 1
     name.ellipsizeOnBoundary = true
-    name.translation = [CHANNEL_X + 16, y]
+    name.translation = [textX, y]
 
     if row.description <> invalid and row.description <> ""
         desc = m.channelGroup.createChild("Label")
         desc.color = "#8C8C8C"
         desc.text = row.description
         desc.font = fontOf("pkg:/fonts/Inter-Regular.ttf", 17)
-        desc.width = CHANNEL_W - 20
+        desc.width = CHANNEL_W - 4 - textX + CHANNEL_X
         desc.maxLines = 2
         desc.wrap = true
         desc.ellipsizeOnBoundary = true
-        desc.translation = [CHANNEL_X + 16, y + 30]
+        desc.translation = [textX, y + 30]
     end if
 end sub
 
