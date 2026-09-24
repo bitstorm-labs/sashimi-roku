@@ -67,7 +67,7 @@
         <!-- The station's mark, faint in the corner while the bar is down:
              white logo, then number and name in small type. -->
         <!-- Stacked: logo over name, centred on one column. -->
-        <Group id="stationBug" opacity="0.45" translation="[8, 24]" visible="false">
+        <Group id="stationBug" opacity="0.45" translation="[-38, 12]" visible="false">
             <Poster id="stationBugLogo" width="72" height="72" loadDisplayMode="scaleToFit" translation="[84, 0]" />
             <Label id="stationBugName" text="" color="#FFFFFF" width="240" horizAlign="center" maxLines="1" translation="[0, 78]">
                 <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="16" />
