@@ -798,7 +798,7 @@ end function
 ' a sparse item does not render a line of orphaned separators.
 function channelCardMetadata(item as object) as string
     parts = []
-    if item.Type <> invalid and item.Type = "Episode" and item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+    if item.Type <> invalid and item.Type = "Episode" and item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid and not YT.hasDatedEpisodeNumbers(item)
         parts.push("S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim())
     end if
     if item.ProductionYear <> invalid then parts.push(str(item.ProductionYear).Trim())
