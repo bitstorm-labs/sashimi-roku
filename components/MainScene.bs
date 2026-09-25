@@ -133,12 +133,26 @@ sub init()
     m.reapTimer.observeFieldScoped("fire", "onReapTick")
     m.top.appendChild(m.reapTimer)
 
+    ' Server the user just switched away from: the preferred way back if the
+    ' one they switched to turns out to have an expired login (#163).
+    m.switchedFromId = ""
+
+    ' No active login, but another saved server may still have one -- the
+    ' active one's was cleared when its server rejected it. Never strand the
+    ' user on sign-in while a saved server can still be restored (#163).
+    if not hasSavedSession()
+        fallback = Servers.usableFallback(Servers.getActiveId())
+        if fallback <> invalid then Servers.activate(fallback.id)
+    end if
+
     if hasSavedSession()
         restoreSession()
         enterMainUI()
         processDeepLink()
     else
-        showAuthScreen()
+        ' Nothing to restore. If the last server is still saved, offer to sign
+        ' back in to it rather than a blank form.
+        showAuthScreen(Servers.get(Servers.getActiveId()))
     end if
 end sub
 
@@ -301,6 +315,17 @@ sub onSwitchServer()
         showAuthScreen()
         return
     end if
+    target = Servers.get(id)
+    if target = invalid then return
+    if target.token = invalid or target.token = ""
+        ' Already known to be expired (#163): straight to a prefilled re-auth
+        ' for it. The current server stays active underneath, so Cancel/Back
+        ' returns to it and a relaunch restores it.
+        showAuthScreen(target)
+        return
+    end if
+    previousId = Servers.getActiveId()
+    if previousId <> id then m.switchedFromId = previousId
     entry = Servers.activate(id)
     if entry = invalid then return
     clearAllScreens()
@@ -394,15 +419,30 @@ end sub
 
 ' An expired/revoked token cannot be retried around -- clear the stored auth
 ' and send the user back to sign-in rather than leaving a dead UI up.
+'
+' That used to be the whole story, and with more than one saved server it
+' stranded people (#163): picking a server whose login had expired cleared the
+' active auth, so the sign-in screen had no Cancel (Back exited the app) and a
+' relaunch found no session -- while another saved server's login was still
+' perfectly good. Now the dead login is dropped from its saved entry only, a
+' server that may still work (preferably the one just switched away from)
+' becomes active underneath, and sign-in opens prefilled for the expired server
+' with Cancel back to it, as on Apple.
 sub onSessionExpired()
     if not m.global.sessionExpired then return
     m.global.sessionExpired = false
+    expiredId = Servers.getActiveId()
+    expired = Servers.get(expiredId)
+    if expired <> invalid then Servers.expire(expiredId)
     Registry.clearAuth()
     m.global.serverUrl = ""
     m.global.authToken = ""
     m.global.userId = ""
+    fallback = Servers.usableFallback(expiredId, m.switchedFromId)
+    m.switchedFromId = ""
+    if fallback <> invalid then Servers.activate(fallback.id)
     m.global.toastMessage = { message: "Session expired. Please sign in again." }
-    showAuthScreen()
+    showAuthScreen(expired)
 end sub
 
 sub onGlobalToast()
@@ -414,7 +454,9 @@ end sub
 
 ' ---------- Auth ----------
 
-sub showAuthScreen()
+' prefill: a saved server entry to sign back in to (its url and user name
+' fill the form), or invalid for a blank form.
+sub showAuthScreen(prefill = invalid as dynamic)
     m.top.signalBeacon("AppDialogInitiate")
     clearAllScreens()
     ' A second login screen appended over the first is full-screen, unfocused
@@ -425,6 +467,11 @@ sub showAuthScreen()
     ' Adding a server while already signed in — let the user cancel back to
     ' the current server instead of being stranded (or exiting the app).
     screen.canCancel = hasSavedSession()
+    if prefill <> invalid and prefill.url <> invalid and prefill.url <> ""
+        userName = ""
+        if prefill.userName <> invalid then userName = prefill.userName
+        screen.prefill = { serverUrl: prefill.url, userName: userName }
+    end if
     screen.observeFieldScoped("loginSuccess", "onLoginSuccess")
     screen.observeFieldScoped("cancelled", "onAuthCancelled")
     m.top.appendChild(screen)
@@ -451,6 +498,7 @@ sub onLoginSuccess()
     m.top.signalBeacon("AppDialogComplete")
     ' Record/refresh this login in the multi-server list
     Servers.addFromCurrentAuth()
+    m.switchedFromId = ""
     dismissAuthScreen()
     enterMainUI()
     processDeepLink()
