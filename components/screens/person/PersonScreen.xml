@@ -3,7 +3,9 @@
     <interface>
         <!-- A People entry from the originating item ({Id, Name, Role, Type,
              PrimaryImageTag}) plus _excludeItemId, the title it was opened
-             from, which the filmography leaves out (tvOS parity). -->
+             from, which the filmography leaves out (tvOS parity), and
+             _server when that title was on a saved server other than the
+             active one (the person's Id belongs to that server). -->
         <field id="personData" type="assocarray" onChange="onPersonDataChanged" />
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
     </interface>
@@ -32,6 +34,12 @@
 
         <Label id="sectionLabel" text="Movies &amp; Shows" color="#FFFFFF" translation="[96, 250]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="28" />
+        </Label>
+        <!-- Multi-server progress / partial-failure note, right-aligned on the
+             section heading's line so it never shifts the grid. -->
+        <Label id="noteLabel" text="" color="#8C8C8C" width="1728" maxLines="1"
+               horizAlign="right" translation="[96, 256]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
 
         <!-- Same poster cards as the library grid -->

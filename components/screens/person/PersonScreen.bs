@@ -1,12 +1,27 @@
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Quality.bs"
+import "pkg:/source/utils/Servers.bs"
+import "pkg:/source/utils/Filmography.bs"
 
-' A cast or crew member and what else they are in on THIS server (tvOS
-' PersonDetailView, single-server — the cross-server fan-out is #120).
-' Movies and series come from /Users/{id}/Items?PersonIds=, sorted by SortName
-' like tvOS, paged until the server says there is no more.
+' A cast or crew member and what else they are in, across every saved server
+' (tvOS PersonDetailView; the multi-server part is #120, after
+' sashimi-apple#379).
+'
+' One getPersonFilmography request per server, sent one after another through
+' the serialized queue below. The task is a single thread and its request field
+' keeps only the latest write per tick, so a parallel fan-out would need a task
+' per server. With the handful of servers a household saves, sequential is fast
+' enough, and each request carries a 12s budget so a dead server costs at most
+' that before the next one starts. The server the person was opened from goes
+' first and uses the person's id. The task resolves the person by name on the
+' others.
+'
+' Results show progressively. The origin server's titles appear as soon as it
+' answers, and each later server is merged in as it lands: the list is
+' re-sorted and focus stays on the title it was on. Waiting for the slowest
+' server would leave a blank screen for up to 12s per dead server.
 
-const PAGE_SIZE = 100
+const REQUEST_TIMEOUT_MS = 12000
 
 sub init()
     m.personImage = m.top.findNode("personImage")
@@ -14,6 +29,7 @@ sub init()
     m.nameLabel = m.top.findNode("nameLabel")
     m.roleLabel = m.top.findNode("roleLabel")
     m.sectionLabel = m.top.findNode("sectionLabel")
+    m.noteLabel = m.top.findNode("noteLabel")
     m.posterGrid = m.top.findNode("posterGrid")
     m.loadingLabel = m.top.findNode("loadingLabel")
     m.statusLabel = m.top.findNode("statusLabel")
@@ -25,11 +41,19 @@ sub init()
     m.posterGrid.observeFieldScoped("itemSelected", "onItemSelected")
 
     m.personId = ""
+    m.personName = ""
     m.excludeItemId = ""
-    m.items = []
-    m.seenKeys = {}
-    m.titleRegex = CreateObject("roRegex", "[^a-z0-9]", "i")
-    m.gridContent = invalid
+    m.servers = []          ' eligible saved servers, origin first
+    m.serverById = {}
+    m.originServerId = ""
+    m.activeServerId = ""
+    m.resultsById = {}      ' serverId -> items, successful servers only
+    m.pending = 0
+    m.failed = 0
+    m.signedOut = 0
+    m.generation = 0        ' bumped per load so a stale answer is dropped
+    m.groups = []           ' what the grid shows, index for index
+    m.pickerGroup = invalid
     m.reqQueue = []
     m.reqActive = false
 
@@ -37,8 +61,8 @@ sub init()
 end sub
 
 ' ---------- Serialized request queue ----------
-' Paging issues several requests; apiTask keeps only the latest write per tick,
-' so they go through the same queue as MediaDetailScreen.
+' One request per server. apiTask keeps only the latest write per tick, so they
+' go through the same queue as MediaDetailScreen.
 
 sub enqueue(req as object)
     m.reqQueue.push(req)
@@ -56,9 +80,7 @@ sub onApiResponse()
     response = m.apiTask.response
     if response = invalid then return
     m.reqActive = false
-    if response.action = "getItems" and response.context = "filmography"
-        onFilmographyPage(response)
-    end if
+    if response.action = "getPersonFilmography" then onServerFilmography(response)
     pumpQueue()
 end sub
 
@@ -75,11 +97,16 @@ sub onPersonDataChanged()
 
     name = ""
     if person.Name <> invalid then name = person.Name
+    m.personName = name
     m.nameLabel.text = name
     m.roleLabel.text = displayRole(person)
 
-    if m.personId <> "" and person.PrimaryImageTag <> invalid and person.PrimaryImageTag <> ""
-        m.personImage.uri = ImageUrl.primary(m.personId, 320)
+    setupServers(person._server)
+
+    origin = m.serverById[m.originServerId]
+    if m.personId <> "" and origin <> invalid and person.PrimaryImageTag <> invalid and person.PrimaryImageTag <> ""
+        ' The id belongs to the origin server, so its portrait does too.
+        m.personImage.uri = ImageUrl.primaryAt(origin.url, m.personId, 320)
         m.personInitial.text = ""
     else
         m.personImage.uri = ""
@@ -97,103 +124,195 @@ function displayRole(person as object) as string
     return "Cast & Crew"
 end function
 
+' ---------- Servers ----------
+
+' Every saved server with a usable session: the origin first, then the rest in
+' saved order. origin is the _server a pinned detail screen passed along, or
+' invalid when the person came from the active server.
+sub setupServers(origin as dynamic)
+    m.activeServerId = Servers.getActiveId()
+    all = []
+    for each s in Servers.getAll()
+        if usable(s) then all.push(s)
+    end for
+    ' No saved list (Servers.migrate should have made one): fall back to the
+    ' active session alone, which is what the single-server screen used.
+    if all.count() = 0
+        m.activeServerId = "active"
+        all.push({ id: "active", name: m.global.serverUrl, url: m.global.serverUrl, token: m.global.authToken, userId: m.global.userId })
+    end if
+
+    m.originServerId = m.activeServerId
+    if origin <> invalid and origin.id <> invalid then m.originServerId = origin.id
+
+    m.servers = []
+    for each s in all
+        if s.id = m.originServerId then m.servers.push(s)
+    end for
+    ' The origin left the saved list after the detail screen opened: use the
+    ' copy that was passed along, since the person id only means anything there.
+    if m.servers.count() = 0 and usable(origin) then m.servers.push(origin)
+    for each s in all
+        if s.id <> m.originServerId then m.servers.push(s)
+    end for
+    m.serverById = {}
+    for each s in m.servers
+        m.serverById[s.id] = s
+    end for
+    if m.servers.count() > 0 then m.originServerId = m.servers[0].id
+end sub
+
+' A saved server with no token or user is skipped rather than failing the whole
+' view. It is not counted as unreachable either, because it was never asked.
+function usable(s as dynamic) as boolean
+    if s = invalid then return false
+    if s.id = invalid or s.url = invalid or s.token = invalid or s.userId = invalid then return false
+    return s.url <> "" and s.token <> "" and s.userId <> ""
+end function
+
 ' ---------- Filmography ----------
 
 sub loadFilmography()
-    m.items = []
-    m.seenKeys = {}
+    m.generation += 1
+    m.resultsById = {}
+    m.groups = []
+    m.failed = 0
+    m.signedOut = 0
+    m.pending = 0
+    ' A Retry drops the previous load's unsent requests. One already in flight
+    ' still answers, and its old generation gets it ignored.
+    m.reqQueue = []
     hideStatus()
-    if m.personId = ""
+    m.noteLabel.text = ""
+    if m.personId = "" or m.servers.count() = 0
         showStatus("Couldn't load this person.", false)
         return
     end if
     m.posterGrid.visible = false
     m.loadingLabel.visible = true
-    requestPage(0)
-end sub
 
-sub requestPage(startIndex as integer)
-    enqueue({
-        action: "getItems"
-        personIds: m.personId
-        includeItemTypes: "Movie,Series"
-        sortBy: "SortName"
-        sortOrder: "Ascending"
-        limit: PAGE_SIZE
-        startIndex: startIndex
-        context: "filmography"
-    })
-end sub
-
-sub onFilmographyPage(response as object)
-    if not response.success
-        m.loadingLabel.visible = false
-        showStatus("Couldn't load this filmography. Check your server connection.", true)
-        return
-    end if
-
-    page = []
-    if response.items <> invalid then page = response.items
-    for each item in page
-        if keepItem(item) then m.items.push(item)
+    ctx = "filmography:" + str(m.generation).Trim()
+    for each s in m.servers
+        req = {
+            action: "getPersonFilmography"
+            ' This server's own credentials. The task never falls back to the
+            ' active session for this action, and never reports a 401 upward.
+            server: { url: s.url, token: s.token, userId: s.userId }
+            serverId: s.id
+            personId: ""
+            personName: m.personName
+            timeoutMs: REQUEST_TIMEOUT_MS
+            context: ctx
+        }
+        if s.id = m.originServerId then req.personId = m.personId
+        m.pending += 1
+        enqueue(req)
     end for
-
-    nextIndex = response.startIndex + page.count()
-    total = 0
-    if response.totalRecordCount <> invalid then total = response.totalRecordCount
-    if page.count() = PAGE_SIZE and nextIndex < total
-        requestPage(nextIndex)
-        return
-    end if
-
-    m.loadingLabel.visible = false
-    buildGrid()
+    updateNote()
 end sub
 
-' Leave out the title the screen was opened from, and collapse duplicate
-' library copies of the same title (tvOS: type|year|normalised name).
-function keepItem(item as object) as boolean
-    if item.Id = invalid then return false
-    if item.Id = m.excludeItemId then return false
-    key = titleKey(item)
-    if m.seenKeys.doesExist(key) then return false
-    m.seenKeys[key] = true
-    return true
-end function
-
-function titleKey(item as object) as string
-    itemType = ""
-    if item.Type <> invalid then itemType = item.Type
-    name = ""
-    if item.Name <> invalid then name = item.Name
-    return itemType + "|" + displayYear(item) + "|" + m.titleRegex.ReplaceAll(LCase(name), "")
-end function
-
-' ProductionYear, falling back to the PremiereDate year (tvOS displayYear).
-function displayYear(item as object) as string
-    if item.ProductionYear <> invalid and item.ProductionYear > 0 then return str(item.ProductionYear).Trim()
-    if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 4
-        y = Left(item.PremiereDate, 4)
-        if Val(y) > 0 then return y
+sub onServerFilmography(response as object)
+    if response.context <> "filmography:" + str(m.generation).Trim() then return
+    m.pending -= 1
+    if response.success
+        items = []
+        if response.items <> invalid then items = response.items
+        m.resultsById[response.serverId] = items
+    else
+        m.failed += 1
+        ' A saved server whose login expired answers, but with 401/403: say
+        ' so rather than calling it unreachable.
+        code = 0
+        if response.statusCode <> invalid then code = response.statusCode
+        if code = 401 or code = 403 then m.signedOut += 1
     end if
-    return ""
-end function
+    render()
+end sub
 
-sub buildGrid()
-    if m.items.count() = 0
-        showStatus("No other movies or shows with this person on this server.", false)
+sub render()
+    results = []
+    for each s in m.servers
+        items = m.resultsById[s.id]
+        if items <> invalid then results.push({ serverId: s.id, items: items })
+    end for
+    exclude = invalid
+    if m.excludeItemId <> "" then exclude = { serverId: m.originServerId, itemId: m.excludeItemId }
+    groups = Filmography.merge(results, exclude)
+    updateNote()
+
+    if groups.count() > 0
+        m.loadingLabel.visible = false
+        hideStatus()
+        buildGrid(groups)
         return
     end if
+    if m.pending > 0 then return
 
-    m.gridContent = CreateObject("roSGNode", "ContentNode")
-    for each item in m.items
-        child = m.gridContent.createChild("ContentNode")
+    ' Every server has answered and there is nothing to show.
+    m.loadingLabel.visible = false
+    m.noteLabel.text = ""
+    if m.failed >= m.servers.count()
+        ' Never let "nobody answered" pass for an empty filmography.
+        showStatus("Couldn't load this filmography. Check your server connection.", true)
+    else if m.failed > 0
+        showStatus("No other movies or shows found. " + unreachableText(), true)
+    else if m.servers.count() = 1
+        showStatus("No other movies or shows with this person on this server.", false)
+    else
+        showStatus("No other movies or shows with this person on your servers.", false)
+    end if
+end sub
+
+sub updateNote()
+    if m.pending > 0 and m.servers.count() > 1
+        if m.pending = 1
+            m.noteLabel.text = "Checking 1 more server..."
+        else
+            m.noteLabel.text = "Checking " + str(m.pending).Trim() + " more servers..."
+        end if
+    else if m.failed > 0 and m.failed < m.servers.count()
+        m.noteLabel.text = unreachableText()
+    else
+        m.noteLabel.text = ""
+    end if
+end sub
+
+function unreachableText() as string
+    parts = []
+    down = m.failed - m.signedOut
+    if down = 1 then parts.push("1 server couldn't be reached")
+    if down > 1 then parts.push(str(down).Trim() + " servers couldn't be reached")
+    if m.signedOut = 1 then parts.push("1 server needs you to sign in again")
+    if m.signedOut > 1 then parts.push(str(m.signedOut).Trim() + " servers need you to sign in again")
+    return parts.Join(" and ") + ", so this list may be incomplete."
+end function
+
+' Rebuilt each time a server lands. MarkupGrid resets focus when its content is
+' replaced, so put focus back on the title it was on: a later server's titles
+' may have sorted in ahead of it.
+sub buildGrid(groups as object)
+    focusedKey = ""
+    if m.posterGrid.visible and m.groups.count() > 0
+        idx = m.posterGrid.itemFocused
+        if idx >= 0 and idx < m.groups.count() then focusedKey = m.groups[idx].key
+    end if
+
+    m.groups = groups
+    showPills = (m.servers.count() > 1)
+    content = CreateObject("roSGNode", "ContentNode")
+    refocus = 0
+    for i = 0 to groups.count() - 1
+        g = groups[i]
+        if g.key = focusedKey then refocus = i
+        src = g.sources[0]
+        item = src.item
+        child = content.createChild("ContentNode")
         title = ""
         if item.Name <> invalid then title = item.Name
         child.shortDescriptionLine1 = title
 
         parts = []
-        year = displayYear(item)
+        year = Filmography.displayYear(item)
         if year <> "" then parts.push(year)
         itemType = ""
         if item.Type <> invalid then itemType = item.Type
@@ -203,32 +322,86 @@ sub buildGrid()
             parts.push("Movie")
         end if
         subtitle = ""
-        for i = 0 to parts.count() - 1
-            if i > 0 then subtitle += " " + Chr(8226) + " "
-            subtitle += parts[i]
+        for p = 0 to parts.count() - 1
+            if p > 0 then subtitle += " " + Chr(8226) + " "
+            subtitle += parts[p]
         end for
         child.shortDescriptionLine2 = subtitle
 
+        ' Artwork from the server the first source lives on. Ids are
+        ' server-scoped, so any other server's URL would 404.
         if item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primary(item.Id, 210)
+            child.HDPosterUrl = ImageUrl.primaryAt(m.serverById[src.serverId].url, item.Id, 210)
         end if
 
-        child.addFields({ itemJson: "", isCircular: false, quality: Quality.badge(item), communityRating: Quality.rating(item) })
-        child.itemJson = FormatJSON(item)
+        pills = []
+        if showPills
+            for each gs in g.sources
+                pills.push(Filmography.serverLabel(m.serverById[gs.serverId]))
+            end for
+        end if
+        child.addFields({ isCircular: false, quality: Quality.badge(item), communityRating: Quality.rating(item), sourcePills: pills })
     end for
 
-    m.posterGrid.content = m.gridContent
+    m.posterGrid.content = content
     m.posterGrid.visible = true
+    if refocus > 0 then m.posterGrid.jumpToItem = refocus
     if m.top.isInFocusChain() then m.posterGrid.setFocus(true)
 end sub
 
 sub onItemSelected()
     index = m.posterGrid.itemSelected
-    if index < 0 or m.gridContent = invalid then return
-    child = m.gridContent.getChild(index)
-    if child = invalid or child.itemJson = "" then return
-    itemData = ParseJSON(child.itemJson)
-    if itemData <> invalid then m.top.selectedItem = itemData
+    if index < 0 or index >= m.groups.count() then return
+    g = m.groups[index]
+    if g.sources.count() = 1
+        openSource(g.sources[0])
+    else
+        showServerPicker(g)
+    end if
+end sub
+
+' Several servers have this title: the viewer picks which copy to open. The
+' group is captured here, so a server landing while the dialog is up (which
+' rebuilds m.groups) cannot change what the buttons mean.
+sub showServerPicker(g as object)
+    m.pickerGroup = g
+    buttons = []
+    for each src in g.sources
+        label = Filmography.serverLabel(m.serverById[src.serverId])
+        q = Quality.badge(src.item)
+        if q <> "" then label += " " + Chr(8226) + " " + q
+        if src.serverId = m.activeServerId then label += " (current)"
+        buttons.push(label)
+    end for
+    buttons.push("Cancel")
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Choose a Server"
+    dialog.buttons = buttons
+    dialog.observeFieldScoped("buttonSelected", "onServerPickerButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onServerPickerButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    dialog.close = true
+    g = m.pickerGroup
+    m.pickerGroup = invalid
+    if g <> invalid and idx >= 0 and idx < g.sources.count() then openSource(g.sources[idx])
+end sub
+
+' A title on the active server opens exactly as before. One on another saved
+' server carries that server along as _server: the detail screen browses it
+' there without switching, and playing it takes an explicit "Switch to".
+sub openSource(src as object)
+    item = src.item
+    if src.serverId <> m.activeServerId
+        s = m.serverById[src.serverId]
+        if s = invalid then return
+        item._server = { id: s.id, name: s.name, url: s.url, token: s.token, userId: s.userId }
+    end if
+    m.top.selectedItem = item
 end sub
 
 ' ---------- Status / focus ----------
