@@ -18,7 +18,6 @@ sub init()
     m.heroLiveDot = m.top.findNode("heroLiveDot")
     m.heroLiveLabel = m.top.findNode("heroLiveLabel")
     m.heroChannelLabel = m.top.findNode("heroChannelLabel")
-    m.heroChannelNumber = m.top.findNode("heroChannelNumber")
     m.heroChannelLogo = m.top.findNode("heroChannelLogo")
     m.heroOverview = m.top.findNode("heroOverview")
     m.advanceTimer = m.top.findNode("advanceTimer")
@@ -201,10 +200,6 @@ sub reflowHeroText()
         m.heroLiveDot.translation = [leftX, titleY + 9]
         m.heroLiveLabel.translation = [leftX + 22, titleY]
         x = leftX + 22 + labelWidth(m.heroLiveLabel) + 20
-        if m.heroChannelNumber.visible
-            m.heroChannelNumber.translation = [x, titleY]
-            x = x + labelWidth(m.heroChannelNumber) + 12
-        end if
         if m.heroChannelLogo.visible
             m.heroChannelLogo.translation = [x, titleY - 1]
             x = x + 28 + 12
@@ -359,10 +354,6 @@ sub showItem(index as integer)
     m.heroLiveLabel.visible = isChannel
     m.heroChannelLabel.visible = isChannel
     if isChannel then m.heroChannelLabel.text = UCase(m.channelName)
-    numText = ""
-    if isChannel and item._channelNumber <> invalid and item._channelNumber > 0 then numText = item._channelNumber.toStr()
-    m.heroChannelNumber.text = numText
-    m.heroChannelNumber.visible = (numText <> "")
     logoUri = ""
     if isChannel and item._channelLogoUri <> invalid then logoUri = item._channelLogoUri
     m.heroChannelLogo.uri = logoUri

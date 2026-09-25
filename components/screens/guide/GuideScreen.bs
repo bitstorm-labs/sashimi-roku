@@ -1,3 +1,4 @@
+import "pkg:/source/utils/TimeFormat.bs"
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Reminders.bs"
 ' The Stations guide: channels down, time across.
@@ -176,24 +177,8 @@ sub buildChannelLabel(row as object, index as integer, y as integer)
     rail.color = railColour(index)
     rail.translation = [CHANNEL_X, y]
 
-    ' Number, logo, then name — each vertically centred in the row, the
-    ' number leading at the left the way a printed guide set its columns.
-    rowH = ROW_H - 8
-    x = CHANNEL_X + 14
-    hasNumber = (row.number <> invalid and row.number > 0)
-    if hasNumber
-        num = m.channelGroup.createChild("Label")
-        num.color = railColour(index)
-        num.text = row.number.toStr()
-        num.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 26)
-        num.width = 40
-        num.height = rowH
-        num.vertAlign = "center"
-        num.translation = [x, y]
-        x = x + 46
-    end if
-    textX = x
     ' The logo travels with the name, on its line; the description runs under both.
+    textX = CHANNEL_X + 14
     nameX = textX
     logoUri = ImageUrl.channelLogo(row.id, row.logo)
     if logoUri <> ""
@@ -484,7 +469,6 @@ sub toggleReminder(row as object, prog as object)
         key: Reminders.keyFor(row.id, prog.startEpoch),
         channelId: row.id,
         channelName: row.name,
-        channelNumber: row.number,
         title: prog.title,
         startEpoch: prog.startEpoch,
         endEpoch: prog.endEpoch
@@ -724,9 +708,7 @@ end sub
 sub showDetail(row as object, prog as object)
     m.detailRow = row
     m.detailProg = prog
-    channel = UCase(row.name)
-    if row.number <> invalid and row.number > 0 then channel = row.number.toStr() + "  " + channel
-    m.top.findNode("detailChannel").text = channel
+    m.top.findNode("detailChannel").text = UCase(row.name)
     updateDetailHint()
     m.top.findNode("detailTitle").text = prog.title
     timing = clockText(prog.startEpoch) + " - " + clockText(prog.endEpoch)
@@ -790,7 +772,7 @@ function clockText(epoch as integer) as string
     dt = CreateObject("roDateTime")
     dt.FromSeconds(epoch)
     dt.ToLocalTime()
-    return dt.AsTimeStringLoc("short")
+    return TimeFormat.clock(dt.GetHours(), dt.GetMinutes())
 end function
 
 ' "13:55" today; "Sat 18:00" any other day — a week of guide makes a bare

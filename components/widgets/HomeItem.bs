@@ -28,7 +28,6 @@ sub init()
     m.channelBadgeBg = m.top.findNode("channelBadgeBg")
     m.channelBadgeLabel = m.top.findNode("channelBadgeLabel")
     m.channelBadgeLogo = m.top.findNode("channelBadgeLogo")
-    m.channelBadgeNumber = m.top.findNode("channelBadgeNumber")
     m.livePillMask = m.top.findNode("livePillMask")
     m.liveDot = m.top.findNode("liveDot")
     m.livePillLabel = m.top.findNode("livePillLabel")
@@ -411,27 +410,14 @@ sub applyChannelChrome(content as object)
     name = content.channelName
     if name = invalid or name = "" then return
 
-    ' Number, the station's white logo, then its name — number first, the
-    ' way a cable box labels a station. Widths are estimated (~11-12px a
-    ' character at 18pt bold): measuring needs a render pass we do not have
+    ' The station's white logo, then its name. Widths are estimated (~11-12px
+    ' a character at 18pt bold): measuring needs a render pass we do not have
     ' here, and the badge is a capsule, so a few pixels generous costs nothing.
     label = UCase(name)
-    numText = ""
-    if content.doesExist("channelNumber") and content.channelNumber <> invalid and content.channelNumber > 0
-        numText = content.channelNumber.toStr()
-    end if
     logoUri = ""
     if content.doesExist("channelLogoUri") and content.channelLogoUri <> invalid then logoUri = content.channelLogoUri
 
     x = 22
-    if numText <> ""
-        numW = Len(numText) * 12
-        m.channelBadgeNumber.text = numText
-        m.channelBadgeNumber.width = numW
-        m.channelBadgeNumber.translation = [x, 10]
-        x = x + numW + 8
-    end if
-    m.channelBadgeNumber.visible = (numText <> "")
     if logoUri <> ""
         m.channelBadgeLogo.translation = [x, 14]
         x = x + 22 + 8
@@ -477,7 +463,6 @@ sub hideChannelChrome()
     m.channelBadgeMask.visible = false
     m.channelBadgeLabel.visible = false
     if m.channelBadgeLogo <> invalid then m.channelBadgeLogo.visible = false
-    if m.channelBadgeNumber <> invalid then m.channelBadgeNumber.visible = false
     m.livePillMask.visible = false
     m.liveDot.visible = false
     m.livePillLabel.visible = false
