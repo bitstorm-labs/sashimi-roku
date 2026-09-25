@@ -15,6 +15,10 @@ sub init()
     m.ratingMask = m.top.findNode("ratingMask")
     m.tmdbLogo = m.top.findNode("tmdbLogo")
     m.ratingLabel = m.top.findNode("ratingLabel")
+    m.sourcePills = m.top.findNode("sourcePills")
+    m.pillFont = CreateObject("roSGNode", "Font")
+    m.pillFont.uri = "pkg:/fonts/Inter-Bold.ttf"
+    m.pillFont.size = 16
     m.isCircular = false
 end sub
 
@@ -50,6 +54,53 @@ sub applyRatingBadge(content as object)
     m.tmdbLogo.visible = show
     m.ratingLabel.visible = show
     if show then m.ratingLabel.text = formatRating(rating)
+end sub
+
+' Which saved servers carry this title (PersonScreen, #120). Up to two pills
+' stacked down the poster's top-left, then "+N" for the rest, so a long server
+' name cannot cover the artwork. Rebuilt on every content change: the grid
+' recycles cells, and a cell reused by a title with no pills must lose them.
+sub applySourcePills(content as object)
+    while m.sourcePills.getChildCount() > 0
+        m.sourcePills.removeChildIndex(0)
+    end while
+    if m.isCircular or content = invalid or not content.doesExist("sourcePills") then return
+    pills = content.sourcePills
+    if pills = invalid or pills.count() = 0 then return
+
+    labels = []
+    for i = 0 to pills.count() - 1
+        if i = 2
+            labels.push("+" + str(pills.count() - 2).Trim())
+            exit for
+        end if
+        labels.push(pills[i])
+    end for
+
+    y = 0
+    maxW = 194
+    for each text in labels
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.font = m.pillFont
+        lbl.color = "#FFFFFF"
+        lbl.text = text
+        w = Int(lbl.boundingRect().width) + 16
+        if w > maxW then w = maxW
+        bg = CreateObject("roSGNode", "Poster")
+        bg.uri = "pkg:/images/badge_r6.9.png"
+        bg.width = w
+        bg.height = 26
+        bg.translation = [0, y]
+        lbl.width = w
+        lbl.height = 26
+        lbl.maxLines = 1
+        lbl.horizAlign = "center"
+        lbl.vertAlign = "center"
+        lbl.translation = [0, y]
+        m.sourcePills.appendChild(bg)
+        m.sourcePills.appendChild(lbl)
+        y += 30
+    end for
 end sub
 
 ' 0-10 float to one decimal ("8.0", "7.5") without locale surprises.
@@ -126,6 +177,7 @@ sub onItemContentChanged()
 
     applyQualityBadge(content)
     applyRatingBadge(content)
+    applySourcePills(content)
 
     ' Re-derive the focus visuals from the cell's ACTUAL focusPercent rather
     ' than leaving the unfocused defaults above. If content is reassigned to the

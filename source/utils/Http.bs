@@ -1,5 +1,32 @@
 namespace Http
 
+    ' A JellyfinApi request may name its own server ({ url, token, userId }),
+    ' which the task parks in m.httpServer for the length of that one request
+    ' (see JellyfinApi.processRequest). That is how the person filmography
+    ' reads, and a detail screen browses, a saved server that is NOT the active
+    ' one without touching m.global: rewriting the global auth would switch the
+    ' whole app mid-browse, and every other screen's task reads it. Everywhere
+    ' else m.httpServer is unset and these fall back to the active session.
+    function baseUrl() as string
+        if m.httpServer <> invalid then return m.httpServer.url
+        return m.global.serverUrl
+    end function
+
+    function token() as dynamic
+        if m.httpServer <> invalid then return m.httpServer.token
+        return m.global.authToken
+    end function
+
+    ' The wait budget for one request: an explicit timeoutMs argument (sign-in
+    ' passes 12s) wins, then the request's own budget (the filmography fan-out
+    ' asks for less so one dead server cannot hold the serialized queue), else
+    ' 30s. 0 means "not given".
+    function waitMs(explicitMs as integer) as integer
+        if explicitMs > 0 then return explicitMs
+        if m.httpTimeoutMs <> invalid and m.httpTimeoutMs > 0 then return m.httpTimeoutMs
+        return 30000
+    end function
+
     ' Percent-encode a value for use in a query string. roUrlTransfer.Escape is
     ' the platform's encoder; anything interpolated into a URL must go through
     ' it. A raw multi-word search term turned the space into a literal space,
@@ -20,9 +47,9 @@ namespace Http
         appInfo = CreateObject("roAppInfo")
         if appInfo <> invalid then ver = appInfo.GetVersion()
         parts.push("Version=""" + ver + """")
-        token = m.global.authToken
-        if token <> "" and token <> invalid
-            parts.push("Token=""" + token + """")
+        tok = token()
+        if tok <> invalid and tok <> ""
+            parts.push("Token=""" + tok + """")
         end if
 
         result = ""
@@ -43,7 +70,7 @@ namespace Http
     '
     ' timeoutMs: 30s suits a fetch behind an already-populated screen. Sign-in
     ' passes a much shorter budget (SignInError.TIMEOUT_MS).
-    function getJson(url as string, meta = invalid as object, timeoutMs = 30000 as integer) as dynamic
+    function getJson(url as string, meta = invalid as object, timeoutMs = 0 as integer) as dynamic
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")
         request.SetMessagePort(port)
@@ -55,7 +82,7 @@ namespace Http
         request.RetainBodyOnError(true)
 
         if request.AsyncGetToString()
-            msg = wait(timeoutMs, port)
+            msg = wait(waitMs(timeoutMs), port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 code = msg.GetResponseCode()
                 if meta <> invalid
@@ -96,7 +123,7 @@ namespace Http
     ' a valid JSON document under RFC 7159 but not an object or array, and
     ' Roku's parser is not guaranteed to accept a scalar root. Returns invalid
     ' on any non-2xx, with the same { statusCode } meta convention as getJson.
-    function getText(url as string, meta = invalid as object, timeoutMs = 30000 as integer) as dynamic
+    function getText(url as string, meta = invalid as object, timeoutMs = 0 as integer) as dynamic
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")
         request.SetMessagePort(port)
@@ -108,7 +135,7 @@ namespace Http
         request.RetainBodyOnError(true)
 
         if request.AsyncGetToString()
-            msg = wait(timeoutMs, port)
+            msg = wait(waitMs(timeoutMs), port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 code = msg.GetResponseCode()
                 if meta <> invalid
@@ -135,7 +162,7 @@ namespace Http
     ' meta (optional): the same { statusCode } convention as getJson. A POST
     ' that returns invalid can mean rejected credentials, a redirect, a dead
     ' server or a timeout, and the sign-in screen has to say which.
-    function postJson(url as string, body as dynamic, meta = invalid as object, timeoutMs = 30000 as integer) as dynamic
+    function postJson(url as string, body as dynamic, meta = invalid as object, timeoutMs = 0 as integer) as dynamic
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")
         request.SetMessagePort(port)
@@ -153,7 +180,7 @@ namespace Http
         end if
 
         if request.AsyncPostFromString(bodyStr)
-            msg = wait(timeoutMs, port)
+            msg = wait(waitMs(timeoutMs), port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 code = msg.GetResponseCode()
                 if meta <> invalid
@@ -187,7 +214,7 @@ namespace Http
         return invalid
     end function
 
-    function deleteRequest(url as string, timeoutMs = 30000 as integer) as integer
+    function deleteRequest(url as string, timeoutMs = 0 as integer) as integer
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")
         request.SetMessagePort(port)
@@ -199,7 +226,7 @@ namespace Http
         request.RetainBodyOnError(true)
 
         if request.AsyncGetToString()
-            msg = wait(timeoutMs, port)
+            msg = wait(waitMs(timeoutMs), port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 return msg.GetResponseCode()
             end if
@@ -237,7 +264,7 @@ namespace Http
     end function
 
     function apiUrl(path as string) as string
-        serverUrl = m.global.serverUrl
+        serverUrl = baseUrl()
         if Right(serverUrl, 1) = "/"
             serverUrl = Left(serverUrl, Len(serverUrl) - 1)
         end if

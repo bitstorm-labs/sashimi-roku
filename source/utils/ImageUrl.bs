@@ -1,15 +1,29 @@
 namespace ImageUrl
 
+    ' The server artwork comes from. A screen showing a title from a saved
+    ' server that is not the active one (MediaDetailScreen pinned to another
+    ' server, #120) sets m.imageServerUrl: item ids, and so their images, only
+    ' resolve on the server they came from.
+    function base() as string
+        if m.imageServerUrl <> invalid and m.imageServerUrl <> "" then return m.imageServerUrl
+        return m.global.serverUrl
+    end function
+
     function primary(itemId as string, maxWidth as integer) as string
-        return m.global.serverUrl + "/Items/" + itemId + "/Images/Primary?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
+        return primaryAt(base(), itemId, maxWidth)
+    end function
+
+    ' For screens that mix servers item by item (PersonScreen).
+    function primaryAt(serverUrl as string, itemId as string, maxWidth as integer) as string
+        return serverUrl + "/Items/" + itemId + "/Images/Primary?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
     end function
 
     function backdrop(itemId as string, maxWidth as integer) as string
-        return m.global.serverUrl + "/Items/" + itemId + "/Images/Backdrop?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
+        return base() + "/Items/" + itemId + "/Images/Backdrop?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
     end function
 
     function art(itemId as string, maxWidth as integer) as string
-        return m.global.serverUrl + "/Items/" + itemId + "/Images/Art?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
+        return base() + "/Items/" + itemId + "/Images/Art?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
     end function
 
     ' A channel's logo (Channels plugin 0.8.0+). Anonymous like item images;
@@ -17,13 +31,13 @@ namespace ImageUrl
     ' laid over the picture.
     function channelLogo(channelId as string, key as dynamic, mono = false as boolean) as string
         if key = invalid or key = "" then return ""
-        url = m.global.serverUrl + "/VirtualChannels/" + channelId + "/Logo?key=" + key
+        url = base() + "/VirtualChannels/" + channelId + "/Logo?key=" + key
         if mono then url += "&style=mono"
         return url
     end function
 
     function thumb(itemId as string, maxWidth as integer) as string
-        return m.global.serverUrl + "/Items/" + itemId + "/Images/Thumb?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
+        return base() + "/Items/" + itemId + "/Images/Thumb?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
     end function
 
 end namespace

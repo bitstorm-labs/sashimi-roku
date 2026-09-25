@@ -624,6 +624,25 @@ sub onPersonSelected(event as object)
     screen.personData = person
 end sub
 
+' "Switch to <server>" on a detail screen showing another saved server's title
+' (#120), after the viewer confirmed it. Same path as the sidebar's server
+' switch, then the title reopens on the now-active server, playable. The stack
+' built on the old server (home, the person) goes with the switch, as it does
+' for any server switch: its ids belong to the old server.
+sub onDetailSwitchServer(event as object)
+    req = event.getData()
+    if req = invalid or req.serverId = invalid or req.item = invalid then return
+    entry = Servers.activate(req.serverId)
+    if entry = invalid
+        m.global.toastMessage = { message: "That server is no longer saved." }
+        return
+    end if
+    clearAllScreens()
+    restoreSession()
+    enterMainUI()
+    showDetailScreen(req.item)
+end sub
+
 sub pushScreen(screen as object)
     if m.currentScreen <> invalid
         m.currentScreen.visible = false
@@ -643,6 +662,7 @@ sub showDetailScreen(itemData as object)
     screen.observeFieldScoped("selectedItem", "onItemSelected")
     screen.observeFieldScoped("playItem", "onPlayItem")
     screen.observeFieldScoped("selectedPerson", "onPersonSelected")
+    screen.observeFieldScoped("switchServer", "onDetailSwitchServer")
 
     ' Remember which show this screen counts towards, so popScreen can close the
     ' visit without re-deriving it from an item the screen may have replaced by
@@ -667,6 +687,9 @@ end sub
 ' and never plays.
 function themeKeyFor(item as object) as string
     if item = invalid then return ""
+    ' A title on another saved server (#120): the theme player fetches from the
+    ' active session, where this id means nothing.
+    if item._server <> invalid then return ""
     itemType = ""
     if item.Type <> invalid then itemType = item.Type
     if itemType = "Series"
@@ -702,6 +725,11 @@ sub onPlayItem(event as object)
     ' the home screen the viewer was just returned to.
     src = event.getRoSGNode()
     if src <> invalid and src.getParent() = invalid then return
+    ' The player only knows the active session, so a detail screen browsing
+    ' another saved server must never reach it (#120). Its Play controls are
+    ' already replaced by "Switch to"; this backs that up for any late
+    ' response that would otherwise start playback.
+    if src <> invalid and src.hasField("pinnedServerId") and src.pinnedServerId <> "" then return
     ' Whatever it was waiting on has arrived — including a deep link handing off.
     endDeepLinkWait()
     #if DEBUG

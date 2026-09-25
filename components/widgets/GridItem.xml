@@ -59,6 +59,10 @@
                width="40" height="30" translation="[56, 277]" visible="false">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
         </Label>
+        <!-- Server source pills (top-left), person filmography across servers
+             only: which saved servers have this title. Built per item in
+             applySourcePills; empty everywhere else. -->
+        <Group id="sourcePills" translation="[8, 8]" />
         <!-- tvOS MarqueeText equivalent: scrolls when title overflows -->
         <ScrollingLabel
             id="titleLabel"

@@ -1,6 +1,7 @@
 import "pkg:/source/utils/Http.bs"
 import "pkg:/source/utils/ViewMode.bs"
 import "pkg:/source/utils/SignInError.bs"
+import "pkg:/source/utils/Filmography.bs"
 
 sub init()
     m.top.functionName = "taskLoop"
@@ -28,6 +29,16 @@ end sub
 sub processRequest()
     request = m.top.request
     if request = invalid then return
+
+    ' Per-request server and timeout (see Http.baseUrl). Reset on EVERY request:
+    ' this task is long-lived and a stale override would silently aim the next
+    ' request at another server with another user's token.
+    m.httpServer = invalid
+    m.httpTimeoutMs = 0
+    if request.server <> invalid and request.server.url <> invalid and request.server.url <> ""
+        m.httpServer = request.server
+    end if
+    if request.timeoutMs <> invalid then m.httpTimeoutMs = request.timeoutMs
 
     action = request.action
     if action = invalid or action = ""
@@ -91,6 +102,8 @@ sub processRequest()
         doGetItems(request)
     else if action = "getShuffleShowEpisode"
         doGetShuffleShowEpisode(request)
+    else if action = "getPersonFilmography"
+        doGetPersonFilmography(request)
     else if action = "getItem"
         doGetItem(request)
     else if action = "getAncestors"
@@ -299,6 +312,13 @@ end function
 
 ' Anything the user cannot act on and must never see the internals of. Callers
 ' log the specifics behind #if DEBUG.
+' The user the current request acts as: the named server's user when the
+' request carries one (see processRequest), else the active session's.
+function requestUserId() as string
+    if m.httpServer <> invalid and m.httpServer.userId <> invalid then return m.httpServer.userId
+    return m.global.userId
+end function
+
 function genericFailureMessage() as string
     return "Something went wrong. Try again."
 end function
@@ -580,7 +600,7 @@ sub doValidateSession()
     #if DEBUG
         print "[API] Validating session"
     #end if
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Views")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Views")
     result = Http.getJson(url)
 
     if result <> invalid and result.Items <> invalid
@@ -607,7 +627,7 @@ sub doGetLibraryViews()
     #if DEBUG
         print "[API] Getting library views"
     #end if
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Views")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Views")
     meta = {}
     result = Http.getJson(url, meta)
     if result <> invalid and result.Items <> invalid
@@ -652,7 +672,7 @@ sub doGetResumeItems(request as object)
     #if DEBUG
         print "[API] Getting resume items (limit=" + str(limit) + ")"
     #end if
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items/Resume")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items/Resume")
     url += "?Limit=" + str(limit).Trim()
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
@@ -828,7 +848,7 @@ function channelItemsById(wantedIds as object) as object
         if i > 0 then idStr += ","
         idStr += idList[i]
     end for
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items?Ids=" + idStr)
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items?Ids=" + idStr)
     url += "&Fields=Overview,CommunityRating,OfficialRating,ParentBackdropImageTags,PrimaryImageAspectRatio"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     result = Http.getJson(url)
@@ -1042,7 +1062,7 @@ sub doGetItemsByIds(request as object)
         if i > 0 then idStr += ","
         idStr += ids[i]
     end for
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items?Ids=" + idStr + "&Fields=UserData,CommunityRating")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items?Ids=" + idStr + "&Fields=UserData,CommunityRating")
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
         m.top.response = { success: true, action: "getItemsByIds", items: result.Items }
@@ -1071,7 +1091,7 @@ sub doGetNewestChannelVideos(request as object)
     limit = 250
     if request.limit <> invalid then limit = request.limit
 
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
     url += "?ParentId=" + parentId
     url += "&IncludeItemTypes=Episode&Recursive=true"
     url += "&SortBy=DateCreated&SortOrder=Descending"
@@ -1103,7 +1123,7 @@ sub doGetLatestMedia(request as object)
         ' Fetching Episodes and deduping to one per channel looks the same most
         ' days, but a channel that uploads a burst then fills the whole limit and
         ' the row collapses to one or two avatars until someone else posts.
-        url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+        url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
         url += "?ParentId=" + parentId
         url += "&IncludeItemTypes=Series&Recursive=true"
         url += "&SortBy=DateLastContentAdded,SortName&SortOrder=Descending"
@@ -1160,7 +1180,7 @@ end sub
 ' Movie and Series. Returns [] on any failure, which every caller renders as an
 ' empty row / no hero slides.
 function fetchLatestItems(parentId as string, limit as integer, groupItems = true as boolean) as object
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items/Latest")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items/Latest")
     url += "?Limit=" + str(limit).Trim()
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
@@ -1209,7 +1229,7 @@ sub doGetItems(request as object)
         print "[API] Getting items (parentId=" + parentId + ", sort=" + sortBy + ", start=" + str(startIndex) + ")"
     #end if
 
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
     url += "?SortBy=" + sortBy
     url += "&SortOrder=" + sortOrder
     url += "&Recursive=true"
@@ -1224,10 +1244,6 @@ sub doGetItems(request as object)
     url += "&StartIndex=" + str(startIndex).Trim()
 
     if parentId <> "" then url += "&ParentId=" + parentId
-    ' Filmography: everything this person is credited on (PersonScreen).
-    if request.personIds <> invalid and request.personIds <> ""
-        url += "&PersonIds=" + Http.escape(request.personIds)
-    end if
 
     if request.includeTypes <> invalid and request.includeTypes <> ""
         url += "&IncludeItemTypes=" + request.includeTypes
@@ -1296,6 +1312,92 @@ sub doGetItems(request as object)
     end if
 end sub
 
+' One server's share of a person's filmography (#120). PersonScreen sends one
+' of these per saved server, one after another through its request queue, each
+' carrying that server's own url/token/userId (request.server) and a short
+' timeoutMs. The person is resolved here, on the task thread:
+'   - personId given (the server the person was opened from): use it
+'   - otherwise: /Persons by name, matched on Filmography.nameKey, because
+'     person ids are server-scoped and never match across servers
+' A person who is not on this server is a success with no items, not a
+' failure. Anything that goes wrong is a failure, and the screen counts it as
+' a server it couldn't reach. Nothing here touches m.global auth or
+' sessionExpired: a 401 from some other server must not sign anyone out.
+sub doGetPersonFilmography(request as object)
+    resp = { action: "getPersonFilmography", success: false, items: [] }
+    resp.serverId = request.serverId
+    if request.context <> invalid then resp.context = request.context
+    ' A request without its own server would silently query the active one.
+    if m.httpServer = invalid
+        m.top.response = resp
+        return
+    end if
+
+    personId = ""
+    if request.personId <> invalid then personId = request.personId
+    if personId = ""
+        name = ""
+        if request.personName <> invalid then name = request.personName
+        key = Filmography.nameKey(name)
+        if key = ""
+            resp.success = true
+            m.top.response = resp
+            return
+        end if
+        url = Http.apiUrl("/Persons") + "?SearchTerm=" + Http.escape(name) + "&UserId=" + requestUserId() + "&Limit=20&EnableImages=false"
+        meta = {}
+        found = Http.getJson(url, meta)
+        if found = invalid or found.Items = invalid
+            resp.statusCode = meta.statusCode
+            m.top.response = resp
+            return
+        end if
+        for each p in found.Items
+            if p.Id <> invalid and Filmography.nameKey(p.Name) = key
+                personId = p.Id
+                exit for
+            end if
+        end for
+        if personId = ""
+            resp.success = true
+            m.top.response = resp
+            return
+        end if
+    end if
+
+    pageSize = 100
+    items = []
+    startIndex = 0
+    ' Bounded: a server that keeps reporting more than it returns must not
+    ' spin this thread forever.
+    for pageNo = 1 to 50
+        url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
+        url += "?PersonIds=" + Http.escape(personId)
+        url += "&IncludeItemTypes=Movie,Series&Recursive=true"
+        url += "&SortBy=SortName&SortOrder=Ascending"
+        url += "&Fields=PrimaryImageAspectRatio,CommunityRating,ProductionYear,PremiereDate,MediaStreams"
+        url += "&EnableImageTypes=Primary"
+        url += "&Limit=" + str(pageSize).Trim() + "&StartIndex=" + str(startIndex).Trim()
+        meta = {}
+        result = Http.getJson(url, meta)
+        if result = invalid or result.Items = invalid
+            ' A page missing from the middle would pass for a short filmography.
+            resp.statusCode = meta.statusCode
+            m.top.response = resp
+            return
+        end if
+        items.append(result.Items)
+        startIndex += result.Items.count()
+        total = 0
+        if result.TotalRecordCount <> invalid then total = result.TotalRecordCount
+        if result.Items.count() < pageSize or startIndex >= total then exit for
+    end for
+
+    resp.success = true
+    resp.items = items
+    m.top.response = resp
+end sub
+
 sub doGetItem(request as object)
     itemId = request.itemId
     ctx = ""
@@ -1303,7 +1405,7 @@ sub doGetItem(request as object)
     #if DEBUG
         print "[API] Getting item: " + itemId
     #end if
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items/" + itemId)
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items/" + itemId)
     url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags,Path,LocalTrailerCount"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     result = Http.getJson(url)
@@ -1321,7 +1423,7 @@ end sub
 sub doGetAncestors(request as object)
     itemId = request.itemId
     url = Http.apiUrl("/Items/" + itemId + "/Ancestors")
-    url += "?UserId=" + m.global.userId
+    url += "?UserId=" + requestUserId()
     result = Http.getJson(url)
     ancestors = []
     if result <> invalid and GetInterface(result, "ifArray") <> invalid then ancestors = result
@@ -1332,7 +1434,7 @@ end sub
 ' Trailer items. Returns a JSON array directly (not wrapped in Items).
 sub doGetLocalTrailers(request as object)
     itemId = request.itemId
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items/" + itemId + "/LocalTrailers")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items/" + itemId + "/LocalTrailers")
     result = Http.getJson(url)
     trailers = []
     if result <> invalid and GetInterface(result, "ifArray") <> invalid then trailers = result
@@ -1351,7 +1453,7 @@ end sub
 sub doGetThemeMedia(request as object)
     itemId = request.itemId
     url = Http.apiUrl("/Items/" + itemId + "/ThemeMedia")
-    url += "?UserId=" + m.global.userId
+    url += "?UserId=" + requestUserId()
     ' The theme belongs to the series folder and the caller always asks about a
     ' series, so a season/episode must never borrow one from further up.
     url += "&InheritFromParent=false"
@@ -1384,7 +1486,7 @@ function themeStreamUrl(themeItemId as string) as string
     ' No Static=true: the server then guarantees an mp3 body, which is what the
     ' Audio node is told to expect. A direct-play source already in mp3 is
     ' still remuxed rather than re-encoded, so this costs nothing.
-    return Http.apiUrl("/Audio/" + themeItemId + "/stream.mp3") + "?api_key=" + m.global.authToken + "&DeviceId=" + m.global.deviceId
+    return Http.apiUrl("/Audio/" + themeItemId + "/stream.mp3") + "?api_key=" + Http.token() + "&DeviceId=" + m.global.deviceId
 end function
 
 ' Media source details for the detail screen's codec/resolution badges
@@ -1394,7 +1496,7 @@ sub doGetPlaybackInfo(request as object)
         print "[API] Getting playback info: " + itemId
     #end if
     url = Http.apiUrl("/Items/" + itemId + "/PlaybackInfo")
-    url += "?UserId=" + m.global.userId
+    url += "?UserId=" + requestUserId()
     result = Http.getJson(url)
     if result <> invalid and result.MediaSources <> invalid and result.MediaSources.count() > 0
         m.top.response = { success: true, action: "getPlaybackInfo", mediaSource: result.MediaSources[0], itemId: itemId }
@@ -1409,7 +1511,7 @@ sub doGetSeasons(request as object)
         print "[API] Getting seasons for: " + seriesId
     #end if
     url = Http.apiUrl("/Shows/" + seriesId + "/Seasons")
-    url += "?UserId=" + m.global.userId
+    url += "?UserId=" + requestUserId()
     url += "&Fields=Overview,PrimaryImageAspectRatio"
     ' UserData (Played / UnplayedItemCount) drives the season options menu's
     ' Mark Season Watched vs Unwatched label.
@@ -1430,7 +1532,7 @@ sub doGetEpisodes(request as object)
         print "[API] Getting episodes for series: " + seriesId
     #end if
     url = Http.apiUrl("/Shows/" + seriesId + "/Episodes")
-    url += "?UserId=" + m.global.userId
+    url += "?UserId=" + requestUserId()
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,ImageTags,UserData,MediaStreams"
     url += "&EnableImageTypes=Primary,Thumb"
     if seasonId <> "" then url += "&SeasonId=" + seasonId
@@ -1449,7 +1551,7 @@ sub doSearch(request as object)
     #if DEBUG
         print "[API] Searching: " + query
     #end if
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
     url += "?SearchTerm=" + Http.escape(query)
     url += "&Limit=" + str(limit).Trim()
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path,MediaStreams"
@@ -1519,7 +1621,7 @@ sub doGetPlaybackStream(request as object)
     streamingBitrate = autoBitrateCapBps()
     if maxBitrate > 0 then streamingBitrate = maxBitrate
 
-    url = Http.apiUrl("/Items/" + itemId + "/PlaybackInfo?UserId=" + m.global.userId)
+    url = Http.apiUrl("/Items/" + itemId + "/PlaybackInfo?UserId=" + requestUserId())
     ' Jellyfin IGNORES SubtitleStreamIndex/AudioStreamIndex in the POST body
     ' (verified against 10.x) — they only take effect as query parameters,
     ' and ONLY when MediaSourceId pins the source (else user defaults win).
@@ -1528,7 +1630,7 @@ sub doGetPlaybackStream(request as object)
     if request.subtitleStreamIndex <> invalid then url += "&SubtitleStreamIndex=" + str(request.subtitleStreamIndex).Trim()
     if request.audioStreamIndex <> invalid then url += "&AudioStreamIndex=" + str(request.audioStreamIndex).Trim()
     body = {
-        UserId: m.global.userId
+        UserId: requestUserId()
         MaxStreamingBitrate: streamingBitrate
         DeviceProfile: rokuDeviceProfile(streamingBitrate)
         EnableDirectPlay: true
@@ -1592,7 +1694,7 @@ sub doGetPlaybackStream(request as object)
         if ms.Container <> invalid and ms.Container <> "" then container = ms.Container
         msId = ""
         if ms.Id <> invalid then msId = ms.Id
-        streamUrl = Http.apiUrl("/Videos/" + itemId + "/stream." + container) + "?Static=true&MediaSourceId=" + msId + "&api_key=" + m.global.authToken + "&DeviceId=" + m.global.deviceId
+        streamUrl = Http.apiUrl("/Videos/" + itemId + "/stream." + container) + "?Static=true&MediaSourceId=" + msId + "&api_key=" + Http.token() + "&DeviceId=" + m.global.deviceId
         streamFormat = "mp4"
         ' Static=true = original file untouched -> Direct Play (not a remux)
         playMethod = "DirectPlay"
@@ -1726,7 +1828,7 @@ end function
 ' their own query string incl. api_key) against the server base.
 function resolveServerPath(path as string) as string
     if Left(path, 4) = "http" then return path
-    base = m.global.serverUrl
+    base = Http.baseUrl()
     if Right(base, 1) = "/" then base = Left(base, Len(base) - 1)
     if Left(path, 1) <> "/" then path = "/" + path
     return base + path
@@ -1781,7 +1883,7 @@ end sub
 ' Sibling episodes of a season, sorted by index (for auto-next-episode).
 sub doGetSiblingEpisodes(request as object)
     parentId = request.parentId
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
     url += "?ParentId=" + parentId
     url += "&IncludeItemTypes=Episode&SortBy=IndexNumber&SortOrder=Ascending&Recursive=true&Limit=200"
     ' Chapters: auto-play-next hands these straight to the player, which has no
@@ -1817,7 +1919,7 @@ sub doMarkPlayed(request as object)
     #if DEBUG
         print "[API] Marking played: " + itemId
     #end if
-    url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
+    url = Http.apiUrl("/Users/" + requestUserId() + "/PlayedItems/" + itemId)
     ok = (Http.postJson(url, invalid) <> invalid)
     m.top.response = { success: ok, action: "markPlayed", itemId: itemId, context: request.context }
 end sub
@@ -1827,7 +1929,7 @@ sub doMarkUnplayed(request as object)
     #if DEBUG
         print "[API] Marking unplayed: " + itemId
     #end if
-    url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
+    url = Http.apiUrl("/Users/" + requestUserId() + "/PlayedItems/" + itemId)
     ok = isOkStatus(Http.deleteRequest(url))
     m.top.response = { success: ok, action: "markUnplayed", itemId: itemId, context: request.context }
 end sub
@@ -1837,7 +1939,7 @@ sub doMarkFavorite(request as object)
     #if DEBUG
         print "[API] Marking favorite: " + itemId
     #end if
-    url = Http.apiUrl("/Users/" + m.global.userId + "/FavoriteItems/" + itemId)
+    url = Http.apiUrl("/Users/" + requestUserId() + "/FavoriteItems/" + itemId)
     ok = (Http.postJson(url, invalid) <> invalid)
     m.top.response = { success: ok, action: "markFavorite", itemId: itemId }
 end sub
@@ -1847,7 +1949,7 @@ sub doRemoveFavorite(request as object)
     #if DEBUG
         print "[API] Removing favorite: " + itemId
     #end if
-    url = Http.apiUrl("/Users/" + m.global.userId + "/FavoriteItems/" + itemId)
+    url = Http.apiUrl("/Users/" + requestUserId() + "/FavoriteItems/" + itemId)
     ok = isOkStatus(Http.deleteRequest(url))
     m.top.response = { success: ok, action: "removeFavorite", itemId: itemId }
 end sub
@@ -1860,11 +1962,11 @@ end function
 ' isPlayed like the query they precede. Zero for a season or a series without
 ' specials.
 function specialsCount(parentId as string, isPlayed as dynamic) as integer
-    seasons = Http.getJson(Http.apiUrl("/Shows/" + parentId + "/Seasons") + "?UserId=" + m.global.userId)
+    seasons = Http.getJson(Http.apiUrl("/Shows/" + parentId + "/Seasons") + "?UserId=" + requestUserId())
     if seasons = invalid or seasons.Items = invalid then return 0
     for each season in seasons.Items
         if season.IndexNumber <> invalid and season.IndexNumber = 0
-            url = Http.apiUrl("/Users/" + m.global.userId + "/Items") + "?ParentId=" + season.Id + "&IncludeItemTypes=Episode&Recursive=true&Limit=0"
+            url = Http.apiUrl("/Users/" + requestUserId() + "/Items") + "?ParentId=" + season.Id + "&IncludeItemTypes=Episode&Recursive=true&Limit=0"
             if isPlayed <> invalid
                 if isPlayed then url += "&IsPlayed=true" else url += "&IsPlayed=false"
             end if
@@ -1881,7 +1983,7 @@ function firstRegularEpisode(seriesId as string, unplayedOnly as boolean) as dyn
     isPlayed = invalid
     if unplayedOnly then isPlayed = false
     skip = specialsCount(seriesId, isPlayed)
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items") + "?ParentId=" + seriesId
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items") + "?ParentId=" + seriesId
     url += "&Recursive=true&IncludeItemTypes=Episode&SortBy=ParentIndexNumber,IndexNumber&Limit=1"
     url += "&StartIndex=" + skip.toStr()
     if unplayedOnly then url += "&IsPlayed=false"
@@ -1895,7 +1997,7 @@ end function
 ' /Shows/NextUp for the whole Next Up row, or for one series ("" = all).
 function nextUpUrl(limit as integer, seriesId as string) as string
     url = Http.apiUrl("/Shows/NextUp")
-    url += "?UserId=" + m.global.userId
+    url += "?UserId=" + requestUserId()
     url += "&Limit=" + str(limit).Trim()
     if seriesId <> "" then url += "&SeriesId=" + seriesId
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
@@ -1910,7 +2012,7 @@ end function
 sub doGetShuffleShowEpisode(request as object)
     ctx = ""
     if request.context <> invalid then ctx = request.context
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
     url += "?ParentId=" + request.parentId
     url += "&Recursive=true&IncludeItemTypes=Series&SortBy=Random&Limit=1"
     result = Http.getJson(url)
@@ -1945,7 +2047,7 @@ function seriesNextEpisode(seriesId as string) as dynamic
     if restart <> invalid then return restart
 
     ' A specials-only show (firstRegularEpisode skipped past all of them).
-    url = Http.apiUrl("/Users/" + m.global.userId + "/Items") + "?ParentId=" + seriesId
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items") + "?ParentId=" + seriesId
     url += "&Recursive=true&IncludeItemTypes=Episode&SortBy=ParentIndexNumber,IndexNumber&Limit=1"
     url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"

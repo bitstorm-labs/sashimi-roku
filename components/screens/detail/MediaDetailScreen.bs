@@ -1,6 +1,7 @@
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/TimeFormat.bs"
+import "pkg:/source/utils/Filmography.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -75,6 +76,7 @@ sub init()
     m.rowContent = invalid
     m.reqQueue = []             ' serialized API requests (avoid coalescing)
     m.reqActive = false
+    m.pinned = invalid          ' { id, name, url, token, userId }: see pinServer
 
     m.top.observeField("focusedChild", "onFocusDelegate")
 end sub
@@ -84,8 +86,65 @@ end sub
 ' the first. Queue guarantees one in flight at a time.
 
 sub enqueue(req as object)
+    ' A pinned screen sends every request to its own server, with that
+    ' server's credentials (see pinServer).
+    if m.pinned <> invalid then req.server = { url: m.pinned.url, token: m.pinned.token, userId: m.pinned.userId }
     m.reqQueue.push(req)
     pumpQueue()
+end sub
+
+' ---------- Another saved server (#120) ----------
+' A title opened from the person filmography can live on a saved server that
+' is not the active one. It arrives with _server, and this screen then browses
+' that server directly: every request carries its url/token/userId, artwork
+' comes from its URL, and episodes/cast opened from here stay pinned to it.
+' m.global and the active server are never touched, so a 401 from that server
+' cannot sign the user out either.
+'
+' Playback is out of reach: the player, playback reporting and theme songs all
+' run against the active session. Play, Start Over, Shuffle and Trailer are
+' replaced by an explicit "Switch to <server>", which makes that server active
+' and reopens this title there (MainScene.onDetailSwitchServer). Nothing
+' switches servers on its own.
+sub pinServer(server as dynamic)
+    m.pinned = invalid
+    m.imageServerUrl = ""
+    if server <> invalid and server.id <> invalid and server.url <> invalid and server.token <> invalid and server.userId <> invalid
+        if server.url <> "" and server.token <> "" and server.userId <> ""
+            m.pinned = server
+            m.imageServerUrl = server.url
+        end if
+    end if
+    if m.pinned <> invalid then m.top.pinnedServerId = m.pinned.id else m.top.pinnedServerId = ""
+end sub
+
+' Items handed to another screen from here (episodes, the cast's person) keep
+' the pin: their ids only exist on this server.
+function withPin(data as object) as object
+    if m.pinned <> invalid then data._server = m.pinned
+    return data
+end function
+
+sub confirmSwitchServer()
+    label = Filmography.serverLabel(m.pinned)
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Switch to " + label + "?"
+    dialog.message = ["This title is on " + label + ". Playing it makes " + label + " your active server, and Sashimi reloads there."]
+    dialog.buttons = ["Switch", "Cancel"]
+    dialog.observeFieldScoped("buttonSelected", "onSwitchServerDialog")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onSwitchServerDialog()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    dialog.close = true
+    if idx = 0 and m.pinned <> invalid and m.item <> invalid
+        m.top.switchServer = { serverId: m.pinned.id, item: { Id: m.item.Id, Type: m.item.Type, Name: m.item.Name } }
+    else
+        focusZone("buttons")
+    end if
 end sub
 
 sub pumpQueue()
@@ -209,6 +268,7 @@ end sub
 sub onItemDataChanged()
     data = m.top.itemData
     if data = invalid then return
+    pinServer(data._server)
     ' forceYouTubeStyle threaded from the originating screen (tvOS parity) —
     ' the fresh getItem result loses the flag, so remember it here.
     m.forceYouTube = (data._forceYouTube <> invalid and data._forceYouTube = true)
@@ -686,7 +746,7 @@ sub setBackdrop(item as object)
     if m.itemType = "Episode"
         uri = ImageUrl.primary(itemId, 1280)              ' episode thumbnail (own id)
     else if m.isYouTube and m.itemType = "Series"
-        uri = m.global.serverUrl + "/Items/" + itemId + "/Images/Banner?maxWidth=1280&quality=90"
+        uri = ImageUrl.base() + "/Items/" + itemId + "/Images/Banner?maxWidth=1280&quality=90"
     else if item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
         uri = ImageUrl.backdrop(itemId, 1280)
     else if item.ParentBackdropItemId <> invalid
@@ -794,12 +854,12 @@ sub setHeader(item as object)
         m.channelImage.uri = ImageUrl.primary(channelId, 240)
     else if m.itemType = "Series"
         ' Series swap the title text for the logo (onLogoStatus hides title).
-        m.logoImage.uri = m.global.serverUrl + "/Items/" + item.Id + "/Images/Logo?maxWidth=1240&quality=90"
+        m.logoImage.uri = ImageUrl.base() + "/Items/" + item.Id + "/Images/Logo?maxWidth=1240&quality=90"
         m.logoImage.visible = true
     else if m.itemType = "Episode" and item.SeriesId <> invalid
         ' Episodes show the series logo ABOVE the title (tvOS parity) — the
         ' title stays visible because onLogoStatus only hides it for Series.
-        m.logoImage.uri = m.global.serverUrl + "/Items/" + item.SeriesId + "/Images/Logo?maxWidth=1240&quality=90"
+        m.logoImage.uri = ImageUrl.base() + "/Items/" + item.SeriesId + "/Images/Logo?maxWidth=1240&quality=90"
         m.logoImage.visible = true
     end if
 end sub
@@ -1064,7 +1124,10 @@ sub buildButtons()
     if item.UserData <> invalid and item.UserData.Played <> invalid then isPlayed = item.UserData.Played
 
     defs = []
-    if hasProgress
+    if m.pinned <> invalid
+        ' Another server's title cannot play from here (see pinServer).
+        defs.push({ kind: "switchServer", label: "Switch to " + Filmography.serverLabel(m.pinned), primary: true })
+    else if hasProgress
         defs.push({ kind: "resume", label: "Resume" + epSuffix, primary: true })
         ' "Start Over" only makes sense for a concrete playable item.
         if not isContainer then defs.push({ kind: "play", label: "Start Over", primary: false })
@@ -1079,10 +1142,10 @@ sub buildButtons()
     if m.itemType = "Episode" and item.SeriesId <> invalid
         defs.push({ kind: "series", label: "Series", primary: false })
     end if
-    if m.itemType = "Series"
+    if m.itemType = "Series" and m.pinned = invalid
         defs.push({ kind: "shuffle", label: "Shuffle", primary: false })
     end if
-    if item.LocalTrailerCount <> invalid and item.LocalTrailerCount > 0
+    if item.LocalTrailerCount <> invalid and item.LocalTrailerCount > 0 and m.pinned = invalid
         defs.push({ kind: "trailer", label: "Trailer", primary: false })
     end if
     defs.push({ kind: "more", label: "More", primary: false })
@@ -1094,7 +1157,9 @@ sub onButtonActivated(event as object)
     kind = event.getData()
     item = m.item
     if item = invalid then return
-    if kind = "play" or kind = "resume"
+    if kind = "switchServer"
+        if m.pinned <> invalid then confirmSwitchServer()
+    else if kind = "play" or kind = "resume"
         ' Series/Season are containers, not playable. The target episode is
         ' resolved at load (m.playTarget) so the button already reflects it —
         ' just launch it. If the viewer beat the resolution, remember the intent
@@ -1393,7 +1458,7 @@ sub onRowItemSelected()
         child = row.getChild(itemIndex)
         if child = invalid or child.itemJson = "" then return
         itemData = ParseJSON(child.itemJson)
-        if itemData <> invalid then m.top.selectedItem = itemData
+        if itemData <> invalid then m.top.selectedItem = withPin(itemData)
     else if kind = "cast"
         row = m.rowContent.getChild(rowIndex)
         if row = invalid then return
@@ -1404,7 +1469,8 @@ sub onRowItemSelected()
         if person = invalid then return
         ' PersonScreen leaves this title out of "what else they're in".
         person._excludeItemId = m.item.Id
-        m.top.selectedPerson = person
+        ' The person id is this screen's server's, so the filmography starts there.
+        m.top.selectedPerson = withPin(person)
     end if
 end sub
 
