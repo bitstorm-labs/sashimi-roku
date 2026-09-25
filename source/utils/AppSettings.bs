@@ -54,6 +54,12 @@ namespace AppSettings
         return Val(read("resumeThresholdSeconds", "30")).ToStr().ToInt()
     end function
 
+    ' TV library Shuffle (issue #141): "randomEpisode" (the original, default)
+    ' or "randomShowNextEpisode". A series' own Shuffle is always random.
+    function tvShuffleMode() as string
+        return read("tvShuffleMode", "randomEpisode")
+    end function
+
     function use24HourTime() as boolean
         return read("use24HourTime", "false") = "true"
     end function

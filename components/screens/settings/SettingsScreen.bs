@@ -50,6 +50,12 @@ sub init()
     ' track, which is also what an unset value reads as.
     m.languageOptions = LanguagePrefs.options()
 
+    ' First option is the default (currentValueLabel falls back to it).
+    m.tvShuffleOptions = [
+        { label: "Random Episode", value: "randomEpisode" },
+        { label: "Random Show, Next Episode", value: "randomShowNextEpisode" }
+    ]
+
     appInfo = CreateObject("roAppInfo")
     m.versionText = "v" + appInfo.GetVersion()
 
@@ -62,6 +68,7 @@ sub init()
         { key: "autoSkipIntro", title: "Auto-Skip Intro", kind: "toggle", default: "false" },
         { key: "autoSkipCredits", title: "Auto-Skip Credits", kind: "toggle", default: "false" },
         { key: "resumeThresholdSeconds", title: "Resume Threshold", kind: "picker", options: m.resumeOptions },
+        { key: "tvShuffleMode", title: "TV Shuffle", kind: "picker", options: m.tvShuffleOptions },
         { key: "preferredAudioLanguage", title: "Audio Language", kind: "picker", options: m.languageOptions },
         { key: "subtitlesDefaultOn", title: "Subtitles On By Default", kind: "toggle", default: "false" },
         { key: "preferredSubtitleLanguage", title: "Subtitle Language", kind: "picker", options: m.languageOptions },
@@ -133,9 +140,11 @@ sub buildRows()
 
         value = CreateObject("roSGNode", "Label")
         value.text = currentValueLabel(item)
-        value.translation = [m.rowW - 328, 0]
+        ' Wide enough for "Random Show, Next Episode"; right-aligned, so the
+        ' short values sit where they always did.
+        value.translation = [m.rowW - 428, 0]
         value.height = m.rowH
-        value.width = 300
+        value.width = 400
         value.vertAlign = "center"
         value.horizAlign = "right"
         value.color = "#BFBFBF"

@@ -643,6 +643,8 @@ end function
 sub onVideoState()
     state = m.video.state
     if state = "playing"
+        ' Launch beacon for a deep link that went straight into playback.
+        if m.global.launchMilestone <> "playback" then m.global.launchMilestone = "playback"
         m.statusLabel.visible = false
         m.bufferTimer.control = "stop"
         m.isPaused = false

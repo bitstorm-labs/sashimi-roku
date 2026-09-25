@@ -1,4 +1,5 @@
 import "pkg:/source/utils/Http.bs"
+import "pkg:/source/utils/SignInError.bs"
 
 sub init()
     m.top.functionName = "taskLoop"
@@ -87,6 +88,8 @@ sub processRequest()
         doGetGuide(request)
     else if action = "getItems"
         doGetItems(request)
+    else if action = "getShuffleShowEpisode"
+        doGetShuffleShowEpisode(request)
     else if action = "getItem"
         doGetItem(request)
     else if action = "getAncestors"
@@ -169,7 +172,7 @@ sub doGetPublicInfo(request as object)
             ' A scheme-less address is normalized to http, so an https-only
             ' server would otherwise be permanently unreachable. Skipped after
             ' a timeout (statusCode 0): nothing answered on that port, and a
-            ' second 10s wait is a long time to hold someone on a spinner.
+            ' second 12s wait is a long time to hold someone on a spinner.
             secure = probePublicInfo(secureUrl)
             if secure.ok
                 serverUrl = secureUrl
@@ -228,13 +231,13 @@ function probePublicInfo(serverUrl as string) as object
         return { ok: false, info: invalid, statusCode: -1, error: "Could not reach the server. Check the address and that the server is running." }
     end if
 
-    msg = wait(10000, port)
+    msg = wait(SignInError.TIMEOUT_MS, port)
     if msg = invalid
         transfer.AsyncCancel()
         #if DEBUG
             print "[API] Request timed out"
         #end if
-        return { ok: false, info: invalid, statusCode: 0, error: "Could not reach the server. Check the address and that the server is running." }
+        return { ok: false, info: invalid, statusCode: 0, error: SignInError.transport(0, "") }
     end if
 
     if type(msg) <> "roUrlEvent"
@@ -250,10 +253,13 @@ function probePublicInfo(serverUrl as string) as object
     #end if
 
     if code < 0
+        reason = msg.GetFailureReason()
         #if DEBUG
-            print "[API] Connection error: " + msg.GetFailureReason()
+            print "[API] Connection error: " + str(code).Trim() + " " + reason
         #end if
-        return { ok: false, info: invalid, statusCode: code, error: "Could not reach the server. Check the address and that the server is running." }
+        failure = SignInError.transport(code, reason)
+        if failure = "" then failure = "Could not reach the server. Check the address and that the server is running."
+        return { ok: false, info: invalid, statusCode: code, error: failure }
     end if
 
     if code >= 300 and code < 400
@@ -311,14 +317,16 @@ sub doAuthenticate(request as object)
     url = Http.apiUrl("/Users/AuthenticateByName")
     body = { Username: username, Pw: password }
     meta = {}
-    result = Http.postJson(url, body, meta)
+    result = Http.postJson(url, body, meta, SignInError.TIMEOUT_MS)
 
     failure = "Authentication failed. Check your username and password."
     if result = invalid
+        code = metaCode(meta)
         #if DEBUG
-            print "[API] Auth request failed: " + str(meta.statusCode).Trim()
+            print "[API] Auth request failed: " + str(code).Trim()
         #end if
-        failure = authFailureMessage(meta.statusCode)
+        failure = SignInError.authenticate(code, metaReason(meta))
+        if failure = "" then failure = authFailureMessage(code)
     end if
 
     emitAuthResponse("authenticate", result, serverUrl, failure)
@@ -376,6 +384,18 @@ function authFailureMessage(code as integer) as string
     return "Could not reach the server. Check the address and that the server is running."
 end function
 
+' The { statusCode, failureReason } an Http call left in its meta AA. A request
+' that never started leaves no statusCode at all.
+function metaCode(meta as object) as integer
+    if meta.statusCode = invalid then return -1
+    return meta.statusCode
+end function
+
+function metaReason(meta as object) as string
+    if meta.failureReason = invalid then return ""
+    return meta.failureReason
+end function
+
 ' ---------- Quick Connect ----------
 '
 ' Roku has no keyboard: every character of a password is a D-pad walk across an
@@ -394,7 +414,9 @@ end function
 ' only question the screen is asking.
 sub doQuickConnectEnabled(request as object)
     m.global.serverUrl = request.serverUrl
-    body = Http.getText(Http.apiUrl("/QuickConnect/Enabled"))
+    ' Sign-in budget: this sits in the screen's serialized queue straight after
+    ' the address probe, so a stalled answer would hold up a Connect press.
+    body = Http.getText(Http.apiUrl("/QuickConnect/Enabled"), invalid, SignInError.TIMEOUT_MS)
     enabled = false
     if body <> invalid then enabled = (LCase(body.Trim()) = "true")
     #if DEBUG
@@ -416,13 +438,17 @@ sub doQuickConnectInitiate(request as object)
     m.global.serverUrl = request.serverUrl
     url = Http.apiUrl("/QuickConnect/Initiate")
 
-    result = Http.getJson(url)
+    meta = {}
+    result = Http.getJson(url, meta, SignInError.TIMEOUT_MS)
     ' Jellyfin has moved this route between GET and POST across releases, and
     ' the wrong verb is a 404/405 rather than anything descriptive. Try the
     ' other one before giving up; an unused pending request costs the server
-    ' nothing and expires on its own.
-    if result = invalid or result.Secret = invalid
-        result = Http.postJson(url, invalid)
+    ' nothing and expires on its own. Only when the server actually answered,
+    ' though: after a timeout or a failed connection the POST would fail the
+    ' same way, and double the wait.
+    if (result = invalid or result.Secret = invalid) and metaCode(meta) > 0
+        meta = {}
+        result = Http.postJson(url, invalid, meta, SignInError.TIMEOUT_MS)
     end if
 
     if result <> invalid and result.Secret <> invalid and result.Code <> invalid
@@ -435,10 +461,12 @@ sub doQuickConnectInitiate(request as object)
         return
     end if
 
+    failure = SignInError.transport(metaCode(meta), metaReason(meta))
+    if failure = "" then failure = "Could not start Quick Connect on this server."
     m.top.response = {
         success: false
         action: "quickConnectInitiate"
-        error: "Could not start Quick Connect on this server."
+        error: failure
     }
 end sub
 
@@ -489,19 +517,19 @@ sub doAuthenticateWithQuickConnect(request as object)
     #end if
 
     meta = {}
-    result = Http.postJson(Http.apiUrl("/Users/AuthenticateWithQuickConnect"), { Secret: request.secret }, meta)
+    result = Http.postJson(Http.apiUrl("/Users/AuthenticateWithQuickConnect"), { Secret: request.secret }, meta, SignInError.TIMEOUT_MS)
 
     failure = "Quick Connect sign-in failed. Try again."
     if result = invalid
-        code = 0
-        if meta.statusCode <> invalid then code = meta.statusCode
+        code = metaCode(meta)
         ' The server 404s an unapproved or expired secret; 401/403 means it
         ' will not honour this one either. None of those are a password
         ' problem, so authFailureMessage's wording would only mislead.
         if code = 404 or code = 401 or code = 403
             failure = "That Quick Connect code is no longer valid. Start again to get a new one."
         else
-            failure = authFailureMessage(code)
+            failure = SignInError.transport(code, metaReason(meta))
+            if failure = "" then failure = authFailureMessage(code)
         end if
     end if
 
@@ -645,16 +673,11 @@ sub doGetNextUp(request as object)
     #if DEBUG
         print "[API] Getting next up (limit=" + str(limit) + ")"
     #end if
-    url = Http.apiUrl("/Shows/NextUp")
-    url += "?UserId=" + m.global.userId
-    url += "&Limit=" + str(limit).Trim()
     ' Deep-link mediaType="series" needs the *next* episode for this one show
     ' (Roku calls this a smart bookmark), not the global Next Up row.
-    if request.seriesId <> invalid and request.seriesId <> "" then url += "&SeriesId=" + request.seriesId
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
-    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
-    url += "&EnableRewatching=false&DisableFirstEpisode=false"
-    result = Http.getJson(url)
+    seriesId = ""
+    if request.seriesId <> invalid then seriesId = request.seriesId
+    result = Http.getJson(nextUpUrl(limit, seriesId))
     if result <> invalid and result.Items <> invalid
         ' Jellyfin's Next Up hands a never-started show's special (S0E1, S0E9)
         ' as its next episode. Specials come after the regular seasons.
@@ -1383,11 +1406,14 @@ sub doGetSeasons(request as object)
     url = Http.apiUrl("/Shows/" + seriesId + "/Seasons")
     url += "?UserId=" + m.global.userId
     url += "&Fields=Overview,PrimaryImageAspectRatio"
+    ' UserData (Played / UnplayedItemCount) drives the season options menu's
+    ' Mark Season Watched vs Unwatched label.
+    url += "&EnableUserData=true"
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
-        m.top.response = { success: true, action: "getSeasons", items: result.Items, seriesId: seriesId }
+        m.top.response = { success: true, action: "getSeasons", items: result.Items, seriesId: seriesId, context: request.context }
     else
-        m.top.response = { success: true, action: "getSeasons", items: [], seriesId: seriesId }
+        m.top.response = { success: true, action: "getSeasons", items: [], seriesId: seriesId, context: request.context }
     end if
 end sub
 
@@ -1782,7 +1808,7 @@ sub doMarkPlayed(request as object)
     #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
     ok = (Http.postJson(url, invalid) <> invalid)
-    m.top.response = { success: ok, action: "markPlayed", itemId: itemId }
+    m.top.response = { success: ok, action: "markPlayed", itemId: itemId, context: request.context }
 end sub
 
 sub doMarkUnplayed(request as object)
@@ -1792,7 +1818,7 @@ sub doMarkUnplayed(request as object)
     #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
     ok = isOkStatus(Http.deleteRequest(url))
-    m.top.response = { success: ok, action: "markUnplayed", itemId: itemId }
+    m.top.response = { success: ok, action: "markUnplayed", itemId: itemId, context: request.context }
 end sub
 
 sub doMarkFavorite(request as object)
@@ -1853,4 +1879,66 @@ function firstRegularEpisode(seriesId as string, unplayedOnly as boolean) as dyn
     result = Http.getJson(url)
     if result = invalid or result.Items = invalid or result.Items.count() = 0 then return invalid
     return result.Items[0]
+end function
+
+' /Shows/NextUp for the whole Next Up row, or for one series ("" = all).
+function nextUpUrl(limit as integer, seriesId as string) as string
+    url = Http.apiUrl("/Shows/NextUp")
+    url += "?UserId=" + m.global.userId
+    url += "&Limit=" + str(limit).Trim()
+    if seriesId <> "" then url += "&SeriesId=" + seriesId
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    url += "&EnableRewatching=false&DisableFirstEpisode=false"
+    return url
+end function
+
+' TV Shuffle "Random Show, Next Episode" (issue #141): a random series from the
+' library, then the episode its Play button starts. Answers like a getItems
+' shuffle (one item, or none) so the library screen handles both modes alike.
+sub doGetShuffleShowEpisode(request as object)
+    ctx = ""
+    if request.context <> invalid then ctx = request.context
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url += "?ParentId=" + request.parentId
+    url += "&Recursive=true&IncludeItemTypes=Series&SortBy=Random&Limit=1"
+    result = Http.getJson(url)
+    if result = invalid or result.Items = invalid
+        m.top.response = { success: false, action: "getShuffleShowEpisode", items: [], context: ctx }
+        return
+    end if
+    items = []
+    if result.Items.count() > 0
+        episode = seriesNextEpisode(result.Items[0].Id)
+        if episode <> invalid then items.push(episode)
+    end if
+    m.top.response = { success: true, action: "getShuffleShowEpisode", items: items, context: ctx }
+end sub
+
+' The episode a series' Play button starts: the server's Next Up, else the
+' first unwatched regular episode, else (all watched) the first regular one.
+' Specials never win while a regular episode is unwatched.
+function seriesNextEpisode(seriesId as string) as dynamic
+    nextUp = invalid
+    result = Http.getJson(nextUpUrl(1, seriesId))
+    if result <> invalid and result.Items <> invalid and result.Items.count() > 0 then nextUp = result.Items[0]
+    isSpecial = (nextUp <> invalid and nextUp.ParentIndexNumber <> invalid and nextUp.ParentIndexNumber = 0)
+    if nextUp <> invalid and not isSpecial then return nextUp
+
+    unwatched = firstRegularEpisode(seriesId, true)
+    if unwatched <> invalid then return unwatched
+    ' Every regular episode watched: an unwatched special Next Up offers is
+    ' next, otherwise the show starts over.
+    if nextUp <> invalid then return nextUp
+    restart = firstRegularEpisode(seriesId, false)
+    if restart <> invalid then return restart
+
+    ' A specials-only show (firstRegularEpisode skipped past all of them).
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items") + "?ParentId=" + seriesId
+    url += "&Recursive=true&IncludeItemTypes=Episode&SortBy=ParentIndexNumber,IndexNumber&Limit=1"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    fallback = Http.getJson(url)
+    if fallback = invalid or fallback.Items = invalid or fallback.Items.count() = 0 then return invalid
+    return fallback.Items[0]
 end function
