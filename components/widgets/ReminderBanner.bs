@@ -34,7 +34,6 @@ sub check()
 
     minutes = Int((r.startEpoch - now + 59) / 60)
     station = UCase(valueOr(r.channelName))
-    if r.channelNumber <> invalid and r.channelNumber > 0 then station = r.channelNumber.toStr() + "  " + station
     ' The title gets the whole first line; when and where go underneath, so a
     ' long title never cuts off the part that says when it starts.
     m.top.findNode("headline").text = r.title

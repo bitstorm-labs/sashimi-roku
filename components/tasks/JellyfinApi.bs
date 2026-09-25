@@ -798,7 +798,6 @@ sub doGetChannelCards()
         now = Http.getJson(Http.apiUrl("/VirtualChannels/" + id + "/NowPlaying"), meta)
         card = {
             channelId: id,
-            channelNumber: valueOrNumber(channel.Number, 0),
             channelLogo: valueOr(channel.Logo, ""),
             channelName: valueOr(channel.Name, ""),
             channelDescription: valueOr(channel.Description, ""),
@@ -933,7 +932,6 @@ sub doGetGuide(request as object)
         end if
         out.push({
             id: valueOr(row.Id, ""),
-            number: valueOrNumber(row.Number, 0),
             logo: valueOr(row.Logo, ""),
             name: valueOr(row.Name, ""),
             description: valueOr(row.Description, ""),

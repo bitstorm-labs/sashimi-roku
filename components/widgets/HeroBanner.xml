@@ -56,10 +56,7 @@
         <Label id="heroLiveLabel" text="LIVE" color="#FFFFFF" visible="false">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="22" />
         </Label>
-        <!-- Number, logo, name: the way every channel label reads. -->
-        <Label id="heroChannelNumber" text="" color="#8C5CC7" visible="false">
-            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="22" />
-        </Label>
+        <!-- Logo, name: the way every channel label reads. -->
         <Poster id="heroChannelLogo" width="28" height="28" loadDisplayMode="scaleToFit" visible="false" />
         <Label id="heroChannelLabel" text="" color="#8C5CC7" visible="false">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="22" />
