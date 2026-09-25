@@ -1261,7 +1261,8 @@ sub buildCastRow(item as object)
         if person.Name <> invalid and person.Name <> ""
             pType = ""
             if person.Type <> invalid then pType = person.Type
-            if LCase(pType) = "actor" then actors.push(person) else crew.push(person)
+            ' Episode guests come back as GuestStar; they are cast, not crew.
+            if LCase(pType) = "actor" or LCase(pType) = "gueststar" then actors.push(person) else crew.push(person)
         end if
     end for
     actors.SortBy("Name", "i")
@@ -1290,7 +1291,7 @@ sub buildCastRow(item as object)
             desc = ""
             if person.Role <> invalid and person.Role <> ""
                 desc = person.Role
-            else if person.Type <> invalid and person.Type <> "Actor"
+            else if person.Type <> invalid and person.Type <> "Actor" and person.Type <> "GuestStar"
                 desc = person.Type
             end if
             child.description = desc
