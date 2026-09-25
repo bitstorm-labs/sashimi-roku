@@ -24,20 +24,17 @@
 
         <!-- ============ Station bar ============
              A channel's only on-screen control: the bottom-edge mirror of
-             the OSD's top bar — full width, translucent black. Logo, number,
-             station, clock; what is on with progress; what is next; how the
+             the OSD's top bar — full width, translucent black. Logo, station,
+             clock; what is on with progress; what is next; how the
              remote drives a channel. Children are placed absolutely. -->
         <Group id="stationBanner" visible="false">
             <Rectangle width="1920" height="300" color="#00000066" translation="[0, 780]" />
-            <Label id="bannerNumber" text="" color="#8C5CC7" width="100" translation="[80, 814]">
-                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="60" />
-            </Label>
-            <Poster id="bannerLogo" width="96" height="96" loadDisplayMode="scaleToFit" translation="[186, 804]" />
-            <Label id="bannerName" text="" color="#FFFFFF" width="1000" maxLines="1" translation="[300, 808]">
+            <Poster id="bannerLogo" width="96" height="96" loadDisplayMode="scaleToFit" translation="[80, 804]" />
+            <Label id="bannerName" text="" color="#FFFFFF" width="1000" maxLines="1" translation="[196, 808]">
                 <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="36" />
             </Label>
             <Label id="bannerDescription" text="" color="#BFBFBF" width="1000" maxLines="1"
-                   ellipsizeOnBoundary="true" translation="[300, 858]">
+                   ellipsizeOnBoundary="true" translation="[196, 858]">
                 <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="22" />
             </Label>
             <Label id="bannerClock" text="" color="#FFFFFF" width="300" horizAlign="right" translation="[1540, 808]">
@@ -65,8 +62,8 @@
             </Label>
         </Group>
         <!-- The station's mark, faint in the corner while the bar is down:
-             white logo, then number and name in small type. -->
-        <!-- Stacked: logo over name, centred on one column. -->
+             white logo stacked over the name in small type, centred on one
+             column. -->
         <Group id="stationBug" opacity="0.45" translation="[-38, 12]" visible="false">
             <Poster id="stationBugLogo" width="72" height="72" loadDisplayMode="scaleToFit" translation="[84, 0]" />
             <Label id="stationBugName" text="" color="#FFFFFF" width="240" horizAlign="center" maxLines="1" translation="[0, 78]">

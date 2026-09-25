@@ -2075,7 +2075,7 @@ end function
 
 ' ---------- Stations: banner and flipping ----------
 
-' A four-hour guide (long enough to see past a feature film) carries the whole line-up in number order and what each
+' A four-hour guide (long enough to see past a feature film) carries the whole line-up in channel order and what each
 ' station has on now and next, so it serves both the banner and flipping.
 sub onStationGuide(r as object)
     if not r.success or r.rows = invalid or r.rows.count() = 0 then return
@@ -2104,17 +2104,6 @@ function stationRow(channelId as string) as dynamic
 end function
 
 sub showStationBanner(row as object)
-    number = ""
-    if row.number <> invalid and row.number > 0 then number = row.number.toStr()
-    m.top.findNode("bannerNumber").text = number
-    ' Number, logo, name: the logo and name follow the number's width
-    ' (~36px a digit at 60pt) so a one-digit channel has no gap.
-    logoX = 80
-    if number <> "" then logoX = 80 + Len(number) * 36 + 18
-    m.top.findNode("bannerLogo").translation = [logoX, 804]
-    nameX = logoX + 116
-    m.top.findNode("bannerName").translation = [nameX, 808]
-    m.top.findNode("bannerDescription").translation = [nameX, 858]
     m.top.findNode("bannerName").text = UCase(row.name)
     m.top.findNode("bannerDescription").text = row.description
     logoKey = ""
@@ -2267,10 +2256,10 @@ function bannerClock(epoch as integer) as string
     dt.FromSeconds(epoch)
     dt.ToLocalTime()
     ' Same format as the guide, so a time reads identically in both places.
-    return dt.AsTimeStringLoc("short")
+    return TimeFormat.clock(dt.GetHours(), dt.GetMinutes())
 end function
 
-' Step to the next (+1) or previous (-1) station in number order, wrapping.
+' Step to the next (+1) or previous (-1) station in line-up order, wrapping.
 ' A station that is off air right now is skipped, like an empty channel on a
 ' scan.
 sub changeStation(dir as integer)
@@ -2290,8 +2279,8 @@ end sub
 sub flipTo(index as integer)
     m.flipTarget = index
     row = m.stations[index]
-    ' Show the station at once — the stream takes a moment, the number should
-    ' not.
+    ' Show the station at once — the stream takes a moment, the station
+    ' should not.
     showStationBanner(row)
     enqueue({ action: "getChannelNowPlaying", channelId: row.id, context: "flip" })
 end sub
@@ -2430,18 +2419,14 @@ end sub
 sub fillUpNextStation(channelId as string)
     row = stationRow(channelId)
     name = ""
-    number = ""
     logo = ""
     if row <> invalid
         name = UCase(row.name)
-        if row.number <> invalid and row.number > 0 then number = row.number.toStr()
         logo = ImageUrl.channelLogo(row.id, row.logo)
     else if m.top.channelContext.channelName <> invalid
         name = UCase(m.top.channelContext.channelName)
     end if
-    station = name
-    if number <> "" then station = number + "   " + name
-    m.top.findNode("upNextStation").text = station
+    m.top.findNode("upNextStation").text = name
     m.top.findNode("upNextLogo").uri = logo
 end sub
 
