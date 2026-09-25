@@ -6,6 +6,13 @@
         <field id="playItem" type="assocarray" alwaysNotify="true" />
         <!-- A cast/crew cell was selected: MainScene pushes PersonScreen. -->
         <field id="selectedPerson" type="assocarray" alwaysNotify="true" />
+        <!-- Set when the title is on a saved server other than the active one
+             (itemData._server, #120). MainScene refuses playItem from such a
+             screen; the Play controls are hidden there anyway. -->
+        <field id="pinnedServerId" type="string" value="" />
+        <!-- "Switch to <server>" confirmed: { serverId, item }. MainScene makes
+             that server active and reopens the item there. -->
+        <field id="switchServer" type="assocarray" alwaysNotify="true" />
         <field id="autoPlay" type="boolean" value="false" />
         <!-- Deep link (cert 5.2) could not be resolved: MainScene pops to home
              and shows an error rather than stranding the user on a blank

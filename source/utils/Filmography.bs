@@ -1,0 +1,219 @@
+import "pkg:/source/utils/Quality.bs"
+
+' Cross-server person filmography (#120): matching keys, per-server source
+' selection and the merge. Pure functions over item AAs so PersonScreen (render
+' thread) and JellyfinApi (task thread) share one definition of "the same
+' person" and "the same title". Mirrors sashimi-apple ServerMediaResultGrouping
+' and PersonInfo.matchingNameKey; the sort is deterministic, unlike Apple's,
+' whose order depends on which server answered first.
+namespace Filmography
+
+    ' Matching key for a person or a title: diacritics folded, lower-cased,
+    ' whitespace and punctuation dropped, so "Zoë Kravitz" = "Zoe Kravitz" and
+    ' "Jr." = "Jr". Letters outside the fold table (CJK, Cyrillic...) are kept
+    ' as they are rather than dropped, so a non-Latin name still has a key.
+    '
+    ' Character by character on purpose: roRegex's Unicode handling is not
+    ' documented, and a multi-byte punctuation mark in a character class is
+    ' exactly where a byte-wise engine would corrupt neighbouring letters.
+    ' LCase is only ever applied to ASCII A-Z, and the fold table spells out
+    ' both cases itself, so nothing here depends on the device locale.
+    function nameKey(text as dynamic) as string
+        if text = invalid then return ""
+        fold = foldTable()
+        out = ""
+        n = Len(text)
+        for i = 1 to n
+            c = Mid(text, i, 1)
+            if fold.doesExist(c)
+                out += fold[c]
+            else
+                code = Asc(c)
+                if code >= 48 and code <= 57
+                    out += c
+                else if code >= 65 and code <= 90
+                    out += LCase(c)
+                else if code >= 97 and code <= 122
+                    out += c
+                else if code > 127
+                    ' Anything non-ASCII not in the table: keep it.
+                    out += c
+                end if
+                ' ASCII punctuation, whitespace and control characters drop out.
+            end if
+        end for
+        return out
+    end function
+
+    ' Built once per component (m is per-thread), case-sensitive because an
+    ' AA's default lookup ignores case.
+    function foldTable() as object
+        if m.filmographyFold <> invalid then return m.filmographyFold
+        t = {}
+        t.SetModeCaseSensitive()
+        groups = [
+            ["ÀÁÂÃÄÅĀĂĄàáâãäåāăą", "a"]
+            ["ÇĆĈĊČçćĉċč", "c"]
+            ["ĎĐďđ", "d"]
+            ["ÈÉÊËĒĔĖĘĚèéêëēĕėęě", "e"]
+            ["ĜĞĠĢĝğġģ", "g"]
+            ["ĤĦĥħ", "h"]
+            ["ÌÍÎÏĨĪĬĮİìíîïĩīĭįı", "i"]
+            ["Ĵĵ", "j"]
+            ["Ķķ", "k"]
+            ["ĹĻĽĿŁĺļľŀł", "l"]
+            ["ÑŃŅŇñńņň", "n"]
+            ["ÒÓÔÕÖØŌŎŐòóôõöøōŏő", "o"]
+            ["ŔŖŘŕŗř", "r"]
+            ["ŚŜŞŠȘśŝşšș", "s"]
+            ["ŢŤŦȚţťŧț", "t"]
+            ["ÙÚÛÜŨŪŬŮŰŲùúûüũūŭůűų", "u"]
+            ["Ŵŵ", "w"]
+            ["ÝŸŶýÿŷ", "y"]
+            ["ŹŻŽźżž", "z"]
+        ]
+        for each g in groups
+            chars = g[0]
+            for i = 1 to Len(chars)
+                t[Mid(chars, i, 1)] = g[1]
+            end for
+        end for
+        t["ß"] = "ss"
+        t["Æ"] = "ae"
+        t["æ"] = "ae"
+        t["Œ"] = "oe"
+        t["œ"] = "oe"
+        t["Þ"] = "th"
+        t["þ"] = "th"
+        ' Typographic punctuation and spaces, which the ASCII test misses.
+        drop = "‘’‚‛“”„‟‹›«»‐‑‒–—―…·•¡¿" + Chr(160) + Chr(8203)
+        for i = 1 to Len(drop)
+            t[Mid(drop, i, 1)] = ""
+        end for
+        m.filmographyFold = t
+        return t
+    end function
+
+    ' ProductionYear, falling back to the PremiereDate year (tvOS displayYear).
+    function displayYear(item as object) as string
+        if item.ProductionYear <> invalid and item.ProductionYear > 0 then return str(item.ProductionYear).Trim()
+        if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 4
+            y = Left(item.PremiereDate, 4)
+            if Val(y) > 0 then return y
+        end if
+        return ""
+    end function
+
+    ' Same title on any server: type | year | folded name. Server and item ids
+    ' are deliberately left out -- they never match across servers.
+    function titleKey(item as object) as string
+        itemType = ""
+        if item.Type <> invalid then itemType = item.Type
+        return itemType + "|" + displayYear(item) + "|" + nameKey(item.Name)
+    end function
+
+    function qualityRank(badge as string) as integer
+        if badge = "4K" then return 3
+        if badge = "HD" then return 2
+        if badge = "SD" then return 1
+        return 0
+    end function
+
+    ' Two library copies of one title on the SAME server: keep the better one
+    ' (quality tier, then rating, then the lower id so the pick never depends
+    ' on response order).
+    function isBetter(candidate as object, current as object) as boolean
+        cq = qualityRank(Quality.badge(candidate))
+        kq = qualityRank(Quality.badge(current))
+        if cq <> kq then return cq > kq
+        cr = Quality.rating(candidate)
+        kr = Quality.rating(current)
+        if cr <> kr then return cr > kr
+        ci = ""
+        if candidate.Id <> invalid then ci = candidate.Id
+        ki = ""
+        if current.Id <> invalid then ki = current.Id
+        return ci < ki
+    end function
+
+    ' results: [{ serverId, items }] in server order, origin server first.
+    ' exclude: { serverId, itemId } of the title the person was opened from.
+    ' Its whole group is left out, other servers' copies included: it is the
+    ' same title the viewer just came from.
+    '
+    ' Returns [{ key, sortKey, sources: [{ serverId, item }] }], one source per
+    ' server in server order, sorted by folded title, then year, then type.
+    function merge(results as object, exclude as object) as object
+        groups = {}
+        groups.SetModeCaseSensitive()
+        excluded = {}
+        excluded.SetModeCaseSensitive()
+        for each r in results
+            for each item in r.items
+                if item <> invalid and item.Id <> invalid and item.Name <> invalid
+                    key = titleKey(item)
+                    if exclude <> invalid and r.serverId = exclude.serverId and item.Id = exclude.itemId
+                        excluded[key] = true
+                    end if
+                    g = groups[key]
+                    if g = invalid
+                        itemType = ""
+                        if item.Type <> invalid then itemType = item.Type
+                        g = {
+                            key: key
+                            sortKey: nameKey(item.Name) + Chr(1) + displayYear(item) + Chr(1) + itemType
+                            best: {}
+                        }
+                        groups[key] = g
+                    end if
+                    current = g.best[r.serverId]
+                    if current = invalid or isBetter(item, current) then g.best[r.serverId] = item
+                end if
+            end for
+        end for
+
+        ' Sort the (unique) sort keys as plain strings and read the groups back
+        ' in that order. Keys are unique per group, so there are no ties left
+        ' for response order to break.
+        byKey = {}
+        byKey.SetModeCaseSensitive()
+        sortKeys = []
+        for each key in groups
+            if not excluded.doesExist(key)
+                g = groups[key]
+                byKey[g.sortKey] = g
+                sortKeys.push(g.sortKey)
+            end if
+        end for
+        sortKeys.Sort()
+
+        out = []
+        for each sk in sortKeys
+            g = byKey[sk]
+            sources = []
+            for each r in results
+                item = g.best[r.serverId]
+                if item <> invalid then sources.push({ serverId: r.serverId, item: item })
+            end for
+            out.push({ key: g.key, sortKey: sk, sources: sources })
+        end for
+        return out
+    end function
+
+    ' Short, readable name for a saved server. Servers.bs stores the URL as the
+    ' name, so drop the scheme and any trailing slash.
+    function serverLabel(server as object) as string
+        name = ""
+        if server <> invalid and server.name <> invalid then name = server.name
+        lower = LCase(name)
+        if Left(lower, 8) = "https://"
+            name = Mid(name, 9)
+        else if Left(lower, 7) = "http://"
+            name = Mid(name, 8)
+        end if
+        if Right(name, 1) = "/" then name = Left(name, Len(name) - 1)
+        if name = "" then return "Server"
+        return name
+    end function
+
+end namespace
