@@ -80,6 +80,10 @@ function font(uri as string, size as integer) as object
     return f
 end function
 
+sub reloadSession()
+    onServerReady()
+end sub
+
 sub onServerReady()
     setAvatar()
     ' Server changed — re-fetch the rail's libraries so a server switch shows
@@ -95,9 +99,17 @@ end sub
 
 sub setAvatar()
     userName = Registry.getUserName()
-    if userName <> "" then m.avatarLabel.text = UCase(Left(userName, 1))
+    ' Reset, not just set: this reruns on every session change, and a letter
+    ' left over from the previous user is worse than the placeholder.
+    initial = "?"
+    if userName <> "" then initial = UCase(Left(userName, 1))
+    m.avatarLabel.text = initial
     userId = Registry.getUserId()
-    if userId <> "" and m.global.serverUrl <> invalid and m.global.serverUrl <> ""
+    if userId = "" or m.global.serverUrl = invalid or m.global.serverUrl = ""
+        m.avatarImg.uri = ""
+        m.avatarLabel.visible = true
+        m.avatarBg.visible = true
+    else
         m.avatarImg.uri = m.global.serverUrl + "/Users/" + userId + "/Images/Primary?maxWidth=140&quality=90"
         ' Roku ignores EXIF orientation — the photo is stored rotated; correct it.
         ' NOTE: server-image dependent — a server whose avatar is stored upright

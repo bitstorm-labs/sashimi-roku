@@ -8,6 +8,9 @@
         <field id="navChoice" type="assocarray" alwaysNotify="true" />
         <field id="descend" type="boolean" alwaysNotify="true" />
         <field id="switchServer" type="boolean" alwaysNotify="true" />
+        <!-- MainScene, whenever it enters the main UI with a session in place:
+             reload the libraries and avatar for it. -->
+        <function name="reloadSession" />
     </interface>
     <children>
         <!-- Dim scrim over content while the rail is pulled out -->

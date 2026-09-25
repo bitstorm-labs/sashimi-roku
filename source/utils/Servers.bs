@@ -77,6 +77,42 @@ namespace Servers
         return invalid
     end function
 
+    function get(id as string) as dynamic
+        if id = "" then return invalid
+        for each s in getAll()
+            if s.id = id then return s
+        end for
+        return invalid
+    end function
+
+    ' A saved login the server has rejected (401/403). The entry stays -- its
+    ' url and user name prefill the re-auth form, as on Apple -- but its token
+    ' is dropped, so neither a relaunch nor a later switch can restore it into
+    ' the same dead end (#163).
+    sub expire(id as string)
+        list = getAll()
+        for each s in list
+            if s.id = id then s.token = ""
+        end for
+        saveAll(list)
+    end sub
+
+    ' A saved login that may still work: has a token and is not excludeId.
+    ' preferId wins when it qualifies (the server the user just switched away
+    ' from). Tokens are only known bad once a server rejects them, so this is
+    ' "not known to be dead", not "known good"; a stale one is caught the same
+    ' way and falls through to the next.
+    function usableFallback(excludeId as string, preferId = "" as string) as dynamic
+        list = getAll()
+        for each s in list
+            if s.id = preferId and s.id <> excludeId and s.token <> invalid and s.token <> "" then return s
+        end for
+        for each s in list
+            if s.id <> excludeId and s.token <> invalid and s.token <> "" then return s
+        end for
+        return invalid
+    end function
+
     ' Remove a server; if it was active, activate the first remaining.
     ' Returns true if a server remains active, false if none left.
     function remove(id as string) as boolean
