@@ -1,3 +1,4 @@
+import "pkg:/source/utils/TimeFormat.bs"
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Reminders.bs"
 ' The Stations guide: channels down, time across.
@@ -771,7 +772,7 @@ function clockText(epoch as integer) as string
     dt = CreateObject("roDateTime")
     dt.FromSeconds(epoch)
     dt.ToLocalTime()
-    return dt.AsTimeStringLoc("short")
+    return TimeFormat.clock(dt.GetHours(), dt.GetMinutes())
 end function
 
 ' "13:55" today; "Sat 18:00" any other day — a week of guide makes a bare

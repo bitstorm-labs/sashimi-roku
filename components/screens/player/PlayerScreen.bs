@@ -2256,7 +2256,7 @@ function bannerClock(epoch as integer) as string
     dt.FromSeconds(epoch)
     dt.ToLocalTime()
     ' Same format as the guide, so a time reads identically in both places.
-    return dt.AsTimeStringLoc("short")
+    return TimeFormat.clock(dt.GetHours(), dt.GetMinutes())
 end function
 
 ' Step to the next (+1) or previous (-1) station in line-up order, wrapping.
