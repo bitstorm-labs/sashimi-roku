@@ -1259,27 +1259,56 @@ sub onEpisodesLoaded(response as object)
     buildCastRow(m.item)
     commitRows()
 end sub
+
+' Cast & Crew, ordered like tvOS PersonInfo.sortedForDisplay: actors ahead of
+' directors/writers/etc., each group by name, one entry per person, capped at
+' 20. Each cell carries its People entry so selecting it can open PersonScreen.
 sub buildCastRow(item as object)
     if item.People = invalid or item.People.count() = 0 then return
-    crow = m.rowContent.createChild("ContentNode")
-    crow.title = "Cast"
-    count = 0
+    actors = []
+    crew = []
     for each person in item.People
-        pType = ""
-        if person.Type <> invalid then pType = person.Type
-        if pType = "Actor"
-            if count >= 20 then exit for
+        if person.Name <> invalid and person.Name <> ""
+            pType = ""
+            if person.Type <> invalid then pType = person.Type
+            ' Episode guests come back as GuestStar; they are cast, not crew.
+            if LCase(pType) = "actor" or LCase(pType) = "gueststar" then actors.push(person) else crew.push(person)
+        end if
+    end for
+    actors.SortBy("Name", "i")
+    crew.SortBy("Name", "i")
+    ordered = []
+    ordered.append(actors)
+    ordered.append(crew)
+    ' An empty row with no matching m.rowKinds entry would shift every later
+    ' row's kind, so only create it once there is someone to put in it.
+    if ordered.count() = 0 then return
+
+    crow = m.rowContent.createChild("ContentNode")
+    crow.title = "Cast & Crew"
+    seen = {}
+    for each person in ordered
+        if crow.getChildCount() >= 20 then exit for
+        pid = ""
+        if person.Id <> invalid then pid = person.Id
+        if pid = "" or not seen.doesExist(pid)
+            if pid <> "" then seen[pid] = true
             child = crow.createChild("ContentNode")
-            child.addFields({ kind: "cast" })
+            child.addFields({ kind: "cast", personJson: "" })
             child.kind = "cast"
             child.title = person.Name
+            ' tvOS displayRole: the character/job, else the credit type.
             desc = ""
-            if person.Role <> invalid then desc = person.Role
-            child.description = desc
-            if person.Id <> invalid and person.PrimaryImageTag <> invalid
-                child.HDPosterUrl = ImageUrl.primary(person.Id, 200)
+            if person.Role <> invalid and person.Role <> ""
+                desc = person.Role
+            else if person.Type <> invalid and person.Type <> "Actor" and person.Type <> "GuestStar"
+                desc = person.Type
             end if
-            count = count + 1
+            child.description = desc
+            if pid <> "" and person.PrimaryImageTag <> invalid
+                child.HDPosterUrl = ImageUrl.primary(pid, 200)
+            end if
+            if pid <> "" then child.personJson = FormatJSON(person)
         end if
     end for
     if crow.getChildCount() > 0 then m.rowKinds.push("cast")
@@ -1365,6 +1394,17 @@ sub onRowItemSelected()
         if child = invalid or child.itemJson = "" then return
         itemData = ParseJSON(child.itemJson)
         if itemData <> invalid then m.top.selectedItem = itemData
+    else if kind = "cast"
+        row = m.rowContent.getChild(rowIndex)
+        if row = invalid then return
+        child = row.getChild(itemIndex)
+        ' A People entry without an Id has no filmography to look up.
+        if child = invalid or child.personJson = "" then return
+        person = ParseJSON(child.personJson)
+        if person = invalid then return
+        ' PersonScreen leaves this title out of "what else they're in".
+        person._excludeItemId = m.item.Id
+        m.top.selectedPerson = person
     end if
 end sub
 

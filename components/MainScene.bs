@@ -206,6 +206,7 @@ sub processDeepLink()
     if screen = invalid then return
     screen.observeFieldScoped("selectedItem", "onItemSelected")
     screen.observeFieldScoped("playItem", "onPlayItem")
+    screen.observeFieldScoped("selectedPerson", "onPersonSelected")
     screen.observeFieldScoped("deepLinkFailed", "onDeepLinkFailed")
     if isDirectPlayType(dl.mediaType)
         screen.autoPlay = true
@@ -610,6 +611,19 @@ sub onItemSelected(event as object)
     end if
 end sub
 
+' A cast/crew member on a detail screen. PersonScreen stacks on top of that
+' detail, so Back returns to it; a title picked from the filmography opens as
+' a normal detail screen on top of the person.
+sub onPersonSelected(event as object)
+    person = event.getData()
+    if person = invalid or person.Id = invalid then return
+    screen = createObject("roSGNode", "PersonScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("selectedItem", "onItemSelected")
+    pushScreen(screen)
+    screen.personData = person
+end sub
+
 sub pushScreen(screen as object)
     if m.currentScreen <> invalid
         m.currentScreen.visible = false
@@ -628,6 +642,7 @@ sub showDetailScreen(itemData as object)
 
     screen.observeFieldScoped("selectedItem", "onItemSelected")
     screen.observeFieldScoped("playItem", "onPlayItem")
+    screen.observeFieldScoped("selectedPerson", "onPersonSelected")
 
     ' Remember which show this screen counts towards, so popScreen can close the
     ' visit without re-deriving it from an item the screen may have replaced by
