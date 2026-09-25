@@ -1,4 +1,5 @@
 import "pkg:/source/utils/AppSettings.bs"
+import "pkg:/source/utils/LanguagePrefs.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/TimeFormat.bs"
@@ -494,40 +495,33 @@ sub onStreamReady(r as object)
     applyViewMode()
     if r.audioTracks <> invalid then m.audTracks = r.audioTracks
 
-    ' Subtitle continuity: tracks are only known after negotiation, so on the
-    ' FIRST response per file (guarded), re-match the session's remembered
-    ' track title — or the Subtitles-On-By-Default setting when nothing was
-    ' chosen this session — and renegotiate once with that stream index.
-    if m.curSubIdx = -1 and not m.subPrefApplied
+    ' Start-of-playback track choice. Tracks are only known after negotiation,
+    ' so on the FIRST response per file (guarded) decide both tracks and
+    ' renegotiate at most once with the chosen indexes. Video has not started
+    ' yet, so the second negotiation costs a request, not a visible restart.
+    if not m.subPrefApplied
         m.subPrefApplied = true
-        want = m.global.sessionSubtitleTitle
-        pick = -1
-
-        ' WHICH track: the one remembered this session, if this file has it.
-        remembered = -1
-        if want <> invalid and want <> "" and want <> "OFF"
-            for each t in m.subTracks
-                if t.title = want and remembered = -1 then remembered = t.index
-            end for
+        renegotiate = false
+        if m.curSubIdx = -1
+            pick = initialSubtitleIndex()
+            if pick >= 0
+                m.curSubIdx = pick
+                renegotiate = true
+            end if
         end if
-
-        ' WHETHER subtitles are on. Precedence, cert 4.8: the Roku global caption
-        ' setting wins at the start of every playback. An in-app "Subtitles Off"
-        ' applies to the playback it was made in — it used to write "OFF" here and
-        ' suppress captions for the whole app session, silently overriding a
-        ' system setting the user had turned on. Below the global: an explicit
-        ' in-session track choice, then Subtitles-On-By-Default.
-        if captionsMode() = "On" and m.subTracks.count() > 0
-            pick = remembered
-            if pick = -1 then pick = m.subTracks[0].index
-        else if remembered >= 0
-            pick = remembered
-        else if (want = invalid or want = "") and m.subTracks.count() > 0 and AppSettings.subtitlesDefaultOn()
-            pick = m.subTracks[0].index
+        ' Preferred audio language (Apple/Android parity). No preference or no
+        ' match leaves the file's default. Only renegotiate when the match is
+        ' not what the server already chose.
+        if m.curAudIdx = -1
+            aPick = LanguagePrefs.preferredAudioIndex(m.audTracks, AppSettings.preferredAudioLanguage())
+            if aPick >= 0
+                m.curAudIdx = aPick
+                defAud = -1
+                if r.defaultAudioIndex <> invalid then defAud = r.defaultAudioIndex
+                if aPick <> defAud then renegotiate = true
+            end if
         end if
-
-        if pick >= 0
-            m.curSubIdx = pick
+        if renegotiate
             requestStream(m.item)
             return
         end if
@@ -593,6 +587,40 @@ sub onStreamReady(r as object)
     end if
 end sub
 
+' Subtitle stream to start with, or -1 for none. WHETHER subtitles are on
+' comes first; the preferred language only picks WHICH track once they are.
+'
+' Precedence, cert 4.8: the Roku global caption setting wins at the start of
+' every playback. An in-app "Subtitles Off" applies to the playback it was made
+' in -- it used to suppress captions for the whole app session, silently
+' overriding a system setting the user had turned on. Below the global: an
+' explicit in-session track choice (m.global.sessionSubtitleTitle, matched by
+' title because indexes are per-file), then Subtitles-On-By-Default. The
+' session choice beats the Settings language, as on Apple.
+function initialSubtitleIndex() as integer
+    want = m.global.sessionSubtitleTitle
+    remembered = -1
+    if want <> invalid and want <> "" and want <> "OFF"
+        for each t in m.subTracks
+            if t.title = want and remembered = -1 then remembered = t.index
+        end for
+    end if
+    if remembered >= 0
+        ' Captions On or not, a track the user picked this session is the one.
+        return remembered
+    end if
+    if m.subTracks.count() = 0 then return -1
+    if captionsMode() = "On" then return preferredSubtitleIndex()
+    if (want = invalid or want = "") and AppSettings.subtitlesDefaultOn() then return preferredSubtitleIndex()
+    return -1
+end function
+
+' Preferred subtitle language, then the file's default-flagged track, then the
+' first full track (see LanguagePrefs.preferredSubtitleIndex).
+function preferredSubtitleIndex() as integer
+    return LanguagePrefs.preferredSubtitleIndex(m.subTracks, AppSettings.preferredSubtitleLanguage())
+end function
+
 ' Menu ordering that avoids the "picked Forced, saw nothing" trap:
 ' full (non-forced) tracks first, forced tracks last.
 function sortSubTracks(tracks as object) as object
@@ -623,6 +651,8 @@ end function
 sub onVideoState()
     state = m.video.state
     if state = "playing"
+        ' Launch beacon for a deep link that went straight into playback.
+        if m.global.launchMilestone <> "playback" then m.global.launchMilestone = "playback"
         m.statusLabel.visible = false
         m.bufferTimer.control = "stop"
         m.isPaused = false
@@ -1298,8 +1328,10 @@ end sub
 sub applyCaptionsMode(mode as string)
     if mode = "On"
         if m.curSubIdx <> -1 or m.subTracks.count() = 0 then return
-        m.curSubIdx = m.subTracks[0].index
-        m.global.sessionSubtitleTitle = m.subTracks[0].title
+        m.curSubIdx = preferredSubtitleIndex()
+        for each t in m.subTracks
+            if t.index = m.curSubIdx then m.global.sessionSubtitleTitle = t.title
+        end for
         restartStream()
     else
         if m.curSubIdx = -1 then return

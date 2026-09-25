@@ -1,5 +1,6 @@
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/AppSettings.bs"
+import "pkg:/source/utils/LanguagePrefs.bs"
 import "pkg:/source/utils/Servers.bs"
 import "pkg:/source/utils/ViewMode.bs"
 
@@ -46,6 +47,15 @@ sub init()
         { label: "5 minutes", value: "300" },
         { label: "10 minutes", value: "600" }
     ]
+    ' Same list as tvOS; the first entry ("Default") keeps the file's default
+    ' track, which is also what an unset value reads as.
+    m.languageOptions = LanguagePrefs.options()
+
+    ' First option is the default (currentValueLabel falls back to it).
+    m.tvShuffleOptions = [
+        { label: "Random Episode", value: "randomEpisode" },
+        { label: "Random Show, Next Episode", value: "randomShowNextEpisode" }
+    ]
 
     ' Normal first: it is the default when nothing is stored.
     m.viewModeOptions = []
@@ -66,7 +76,10 @@ sub init()
         { key: "autoSkipCredits", title: "Auto-Skip Credits", kind: "toggle", default: "false" },
         { key: "resumeThresholdSeconds", title: "Resume Threshold", kind: "picker", options: m.resumeOptions },
         { key: "defaultViewMode", title: "Default View Mode", kind: "picker", options: m.viewModeOptions },
+        { key: "tvShuffleMode", title: "TV Shuffle", kind: "picker", options: m.tvShuffleOptions },
+        { key: "preferredAudioLanguage", title: "Audio Language", kind: "picker", options: m.languageOptions },
         { key: "subtitlesDefaultOn", title: "Subtitles On By Default", kind: "toggle", default: "false" },
+        { key: "preferredSubtitleLanguage", title: "Subtitle Language", kind: "picker", options: m.languageOptions },
         { key: "use24HourTime", title: "24-Hour Time", kind: "toggle", default: "false" },
         { key: "showQualityBadges", title: "Show Quality Badges", kind: "toggle", default: "true" },
         { key: "showReviewRatings", title: "Show Review Ratings", kind: "toggle", default: "true" },
@@ -135,9 +148,11 @@ sub buildRows()
 
         value = CreateObject("roSGNode", "Label")
         value.text = currentValueLabel(item)
-        value.translation = [m.rowW - 328, 0]
+        ' Wide enough for "Random Show, Next Episode"; right-aligned, so the
+        ' short values sit where they always did.
+        value.translation = [m.rowW - 428, 0]
         value.height = m.rowH
-        value.width = 300
+        value.width = 400
         value.vertAlign = "center"
         value.horizAlign = "right"
         value.color = "#BFBFBF"

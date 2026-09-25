@@ -109,6 +109,16 @@ sub init()
     ' Set by any screen that gets a 401/403 back: the stored token is no longer
     ' valid, so the only correct move is to sign out and re-authenticate.
     m.global.addFields({ sessionExpired: false })
+    ' Cert 3.2: AppLaunchComplete marks a fully rendered first screen. Screens
+    ' report "home" (rows or the can't-reach-server message are up) and
+    ' "playback" (video is playing); onLaunchMilestone fires the beacon once.
+    m.global.addFields({ launchMilestone: "" })
+    m.global.observeFieldScoped("launchMilestone", "onLaunchMilestone")
+    m.launchBeaconSent = false
+    m.homeRendered = false
+    ' A direct-play deep link at launch must fire on playback, not on the Home
+    ' rendering behind it.
+    m.awaitingLaunchPlayback = false
     m.global.observeField("sessionExpired", "onSessionExpired")
     m.global.observeFieldScoped("switchServerId", "onSwitchServer")
 
@@ -130,6 +140,21 @@ sub init()
     else
         showAuthScreen()
     end if
+end sub
+
+' ---------- Launch beacon (cert 3.2) ----------
+sub onLaunchMilestone()
+    milestone = m.global.launchMilestone
+    if milestone = "home" then m.homeRendered = true
+    if milestone = "home" and m.awaitingLaunchPlayback then return
+    if milestone = "home" or milestone = "playback" then signalLaunchComplete()
+end sub
+
+sub signalLaunchComplete()
+    if m.launchBeaconSent then return
+    m.launchBeaconSent = true
+    m.awaitingLaunchPlayback = false
+    m.top.signalBeacon("AppLaunchComplete")
 end sub
 
 ' ---------- Deep linking (cert 5.2) ----------
@@ -184,6 +209,7 @@ sub processDeepLink()
     screen.observeFieldScoped("deepLinkFailed", "onDeepLinkFailed")
     if isDirectPlayType(dl.mediaType)
         screen.autoPlay = true
+        if not m.launchBeaconSent then m.awaitingLaunchPlayback = true
         ' Direct to Play means the viewer goes from the voice command straight
         ' into video. Keep the springboard hidden until it hands off to the
         ' player; the detail screen reveals itself at that moment so backing
@@ -221,6 +247,9 @@ end sub
 
 sub failDeepLink()
     endDeepLinkWait()
+    ' Nothing will play, so the launch ends at Home instead.
+    m.awaitingLaunchPlayback = false
+    if m.homeRendered then signalLaunchComplete()
     while m.navStack.count() > 0
         popScreen()
     end while

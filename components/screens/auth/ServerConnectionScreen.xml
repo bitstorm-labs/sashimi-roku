@@ -64,10 +64,11 @@
             translation="[0, 790]"
         />
 
-        <!-- Loading -->
+        <!-- Loading: the elapsed count is rewritten every second by
+             elapsedTimer, so a slow server reads as slow, not as a hang. -->
         <Label
             id="loadingLabel"
-            text="Connecting..."
+            text="Connecting…"
             font="font:MediumSystemFont"
             color="#888888"
             horizAlign="center"
@@ -75,6 +76,17 @@
             translation="[0, 500]"
             visible="false"
         />
+        <Label
+            id="loadingHint"
+            text="Press Back to cancel"
+            font="font:SmallSystemFont"
+            color="#666666"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 560]"
+            visible="false"
+        />
+        <Timer id="elapsedTimer" repeat="true" duration="1" />
 
         <!-- Discovery panel -->
         <Rectangle
