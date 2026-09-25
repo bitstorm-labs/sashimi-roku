@@ -656,6 +656,15 @@ sub doGetNextUp(request as object)
     url += "&EnableRewatching=false&DisableFirstEpisode=false"
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
+        ' Jellyfin's Next Up hands a never-started show's special (S0E1, S0E9)
+        ' as its next episode. Specials come after the regular seasons.
+        for i = 0 to result.Items.count() - 1
+            ep = result.Items[i]
+            if ep.ParentIndexNumber <> invalid and ep.ParentIndexNumber = 0 and ep.SeriesId <> invalid
+                regular = firstRegularEpisode(ep.SeriesId, true)
+                if regular <> invalid then result.Items[i] = regular
+            end if
+        end for
         #if DEBUG
             print "[API] Found " + str(result.Items.count()) + " next up items"
         #end if
@@ -1163,6 +1172,15 @@ sub doGetItems(request as object)
     startIndex = 0
     if request.startIndex <> invalid then startIndex = request.startIndex
 
+    ' Specials last (issue #134): a series sorted by season puts Season 0
+    ' first, so "first (unwatched) episode" was a special. Step over them;
+    ' if nothing regular is left, the specials are what remains to play.
+    specialsSkipped = 0
+    if request.regularFirst = true and parentId <> ""
+        specialsSkipped = specialsCount(parentId, request.isPlayed)
+        startIndex = startIndex + specialsSkipped
+    end if
+
     #if DEBUG
         print "[API] Getting items (parentId=" + parentId + ", sort=" + sortBy + ", start=" + str(startIndex) + ")"
     #end if
@@ -1216,6 +1234,10 @@ sub doGetItems(request as object)
     end if
 
     result = Http.getJson(url)
+    if specialsSkipped > 0 and result <> invalid and result.Items <> invalid and result.Items.count() = 0
+        ' Every regular episode is spoken for: the specials come now.
+        result = Http.getJson(url.Replace("&StartIndex=" + str(startIndex).Trim(), "&StartIndex=" + str(startIndex - specialsSkipped).Trim()))
+    end if
 
     if result <> invalid and result.Items <> invalid
         #if DEBUG
@@ -1784,4 +1806,40 @@ end sub
 
 function isOkStatus(code as integer) as boolean
     return (code >= 200 and code < 300)
+end function
+
+' How many episodes of a series are specials (Season 0) — played or not, per
+' isPlayed like the query they precede. Zero for a season or a series without
+' specials.
+function specialsCount(parentId as string, isPlayed as dynamic) as integer
+    seasons = Http.getJson(Http.apiUrl("/Shows/" + parentId + "/Seasons") + "?UserId=" + m.global.userId)
+    if seasons = invalid or seasons.Items = invalid then return 0
+    for each season in seasons.Items
+        if season.IndexNumber <> invalid and season.IndexNumber = 0
+            url = Http.apiUrl("/Users/" + m.global.userId + "/Items") + "?ParentId=" + season.Id + "&IncludeItemTypes=Episode&Recursive=true&Limit=0"
+            if isPlayed <> invalid
+                if isPlayed then url += "&IsPlayed=true" else url += "&IsPlayed=false"
+            end if
+            counted = Http.getJson(url)
+            if counted <> invalid and counted.TotalRecordCount <> invalid then return counted.TotalRecordCount
+            return 0
+        end if
+    end for
+    return 0
+end function
+
+' The first regular (non-special) episode of a series, optionally unwatched.
+function firstRegularEpisode(seriesId as string, unplayedOnly as boolean) as dynamic
+    isPlayed = invalid
+    if unplayedOnly then isPlayed = false
+    skip = specialsCount(seriesId, isPlayed)
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items") + "?ParentId=" + seriesId
+    url += "&Recursive=true&IncludeItemTypes=Episode&SortBy=ParentIndexNumber,IndexNumber&Limit=1"
+    url += "&StartIndex=" + skip.toStr()
+    if unplayedOnly then url += "&IsPlayed=false"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    result = Http.getJson(url)
+    if result = invalid or result.Items = invalid or result.Items.count() = 0 then return invalid
+    return result.Items[0]
 end function

@@ -141,7 +141,9 @@ sub onApiResponse()
             m.global.toastMessage = { message: watchStateFailureMessage() }
         end if
     else if action = "getItems"
-        if response.context <> invalid and response.context = "playTargetUnwatched"
+        if response.context <> invalid and response.context = "deepLinkPlay"
+            onDeepLinkFirstEpisode(response)
+        else if response.context <> invalid and response.context = "playTargetUnwatched"
             onPlayTargetUnwatched(response)
         else if response.context <> invalid and response.context = "playTargetFirst"
             onPlayTargetFirst(response)
@@ -406,7 +408,8 @@ sub onDeepLinkNextUp(response as object)
         m.top.deepLinkFailed = true
         return
     end if
-    enqueue({ action: "getEpisodes", seriesId: m.item.Id, context: "deepLinkPlay" })
+    ' Fully watched: start over at S1E1, not the first special.
+    enqueue({ action: "getItems", parentId: m.item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, regularFirst: true, context: "deepLinkPlay" })
 end sub
 
 sub onDeepLinkFirstEpisode(response as object)
@@ -436,7 +439,7 @@ sub onPlayTargetNextUp(response as object)
     ' No Next Up (fully watched, or a never-started show NextUp didn't surface):
     ' fall through to the first unwatched episode.
     if m.item = invalid then return
-    enqueue({ action: "getItems", parentId: m.item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, context: "playTargetUnwatched" })
+    enqueue({ action: "getItems", parentId: m.item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, regularFirst: true, context: "playTargetUnwatched" })
 end sub
 
 sub onPlayTargetUnwatched(response as object)
@@ -446,7 +449,7 @@ sub onPlayTargetUnwatched(response as object)
     end if
     ' Fully-watched season/series: fall back to the first episode.
     if m.item = invalid then return
-    enqueue({ action: "getItems", parentId: m.item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, context: "playTargetFirst" })
+    enqueue({ action: "getItems", parentId: m.item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, regularFirst: true, context: "playTargetFirst" })
 end sub
 
 sub onPlayTargetFirst(response as object)
