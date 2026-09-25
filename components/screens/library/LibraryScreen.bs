@@ -1,3 +1,4 @@
+import "pkg:/source/utils/AppSettings.bs"
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Quality.bs"
 import "pkg:/source/utils/YouTube.bs"
@@ -262,6 +263,8 @@ sub onApiResponse()
         else
             onItemsLoaded(response)
         end if
+    else if response.action = "getShuffleShowEpisode"
+        onShuffleResult(response)
     end if
     pumpQueue()
 end sub
@@ -500,9 +503,14 @@ sub focusShuffle(on as boolean)
 end sub
 
 ' Shuffle: request one random item (a movie, or an episode for TV) and play it.
+' TV follows the TV Shuffle setting: any episode, or a random show's next one.
 sub doShuffle()
     itemType = "Movie"
     if Instr(1, m.includeTypes, "Series") > 0 then itemType = "Episode"
+    if itemType = "Episode" and AppSettings.tvShuffleMode() = "randomShowNextEpisode"
+        enqueue({ action: "getShuffleShowEpisode", parentId: m.libraryId, context: "shuffle" })
+        return
+    end if
     enqueue({
         action: "getItems"
         parentId: m.libraryId

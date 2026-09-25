@@ -88,6 +88,8 @@ sub processRequest()
         doGetGuide(request)
     else if action = "getItems"
         doGetItems(request)
+    else if action = "getShuffleShowEpisode"
+        doGetShuffleShowEpisode(request)
     else if action = "getItem"
         doGetItem(request)
     else if action = "getAncestors"
@@ -671,16 +673,11 @@ sub doGetNextUp(request as object)
     #if DEBUG
         print "[API] Getting next up (limit=" + str(limit) + ")"
     #end if
-    url = Http.apiUrl("/Shows/NextUp")
-    url += "?UserId=" + m.global.userId
-    url += "&Limit=" + str(limit).Trim()
     ' Deep-link mediaType="series" needs the *next* episode for this one show
     ' (Roku calls this a smart bookmark), not the global Next Up row.
-    if request.seriesId <> invalid and request.seriesId <> "" then url += "&SeriesId=" + request.seriesId
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
-    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
-    url += "&EnableRewatching=false&DisableFirstEpisode=false"
-    result = Http.getJson(url)
+    seriesId = ""
+    if request.seriesId <> invalid then seriesId = request.seriesId
+    result = Http.getJson(nextUpUrl(limit, seriesId))
     if result <> invalid and result.Items <> invalid
         ' Jellyfin's Next Up hands a never-started show's special (S0E1, S0E9)
         ' as its next episode. Specials come after the regular seasons.
@@ -1871,4 +1868,66 @@ function firstRegularEpisode(seriesId as string, unplayedOnly as boolean) as dyn
     result = Http.getJson(url)
     if result = invalid or result.Items = invalid or result.Items.count() = 0 then return invalid
     return result.Items[0]
+end function
+
+' /Shows/NextUp for the whole Next Up row, or for one series ("" = all).
+function nextUpUrl(limit as integer, seriesId as string) as string
+    url = Http.apiUrl("/Shows/NextUp")
+    url += "?UserId=" + m.global.userId
+    url += "&Limit=" + str(limit).Trim()
+    if seriesId <> "" then url += "&SeriesId=" + seriesId
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    url += "&EnableRewatching=false&DisableFirstEpisode=false"
+    return url
+end function
+
+' TV Shuffle "Random Show, Next Episode" (issue #141): a random series from the
+' library, then the episode its Play button starts. Answers like a getItems
+' shuffle (one item, or none) so the library screen handles both modes alike.
+sub doGetShuffleShowEpisode(request as object)
+    ctx = ""
+    if request.context <> invalid then ctx = request.context
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url += "?ParentId=" + request.parentId
+    url += "&Recursive=true&IncludeItemTypes=Series&SortBy=Random&Limit=1"
+    result = Http.getJson(url)
+    if result = invalid or result.Items = invalid
+        m.top.response = { success: false, action: "getShuffleShowEpisode", items: [], context: ctx }
+        return
+    end if
+    items = []
+    if result.Items.count() > 0
+        episode = seriesNextEpisode(result.Items[0].Id)
+        if episode <> invalid then items.push(episode)
+    end if
+    m.top.response = { success: true, action: "getShuffleShowEpisode", items: items, context: ctx }
+end sub
+
+' The episode a series' Play button starts: the server's Next Up, else the
+' first unwatched regular episode, else (all watched) the first regular one.
+' Specials never win while a regular episode is unwatched.
+function seriesNextEpisode(seriesId as string) as dynamic
+    nextUp = invalid
+    result = Http.getJson(nextUpUrl(1, seriesId))
+    if result <> invalid and result.Items <> invalid and result.Items.count() > 0 then nextUp = result.Items[0]
+    isSpecial = (nextUp <> invalid and nextUp.ParentIndexNumber <> invalid and nextUp.ParentIndexNumber = 0)
+    if nextUp <> invalid and not isSpecial then return nextUp
+
+    unwatched = firstRegularEpisode(seriesId, true)
+    if unwatched <> invalid then return unwatched
+    ' Every regular episode watched: an unwatched special Next Up offers is
+    ' next, otherwise the show starts over.
+    if nextUp <> invalid then return nextUp
+    restart = firstRegularEpisode(seriesId, false)
+    if restart <> invalid then return restart
+
+    ' A specials-only show (firstRegularEpisode skipped past all of them).
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items") + "?ParentId=" + seriesId
+    url += "&Recursive=true&IncludeItemTypes=Episode&SortBy=ParentIndexNumber,IndexNumber&Limit=1"
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
+    url += "&EnableImageTypes=Primary,Backdrop,Thumb"
+    fallback = Http.getJson(url)
+    if fallback = invalid or fallback.Items = invalid or fallback.Items.count() = 0 then return invalid
+    return fallback.Items[0]
 end function
