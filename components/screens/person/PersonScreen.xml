@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="PersonScreen" extends="Group">
+    <interface>
+        <!-- A People entry from the originating item ({Id, Name, Role, Type,
+             PrimaryImageTag}) plus _excludeItemId, the title it was opened
+             from, which the filmography leaves out (tvOS parity). -->
+        <field id="personData" type="assocarray" onChange="onPersonDataChanged" />
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <!-- Background (matches the detail screen) -->
+        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+
+        <!-- Header: circular portrait + name + role (tvOS PersonDetailView) -->
+        <MaskGroup maskUri="pkg:/images/circle_mask.png" maskSize="[160, 160]" translation="[96, 56]">
+            <Rectangle width="160" height="160" color="#1F1F1F" />
+            <Poster id="personImage" width="160" height="160" loadWidth="320" loadHeight="320"
+                    loadDisplayMode="scaleToZoom" />
+        </MaskGroup>
+        <Label id="personInitial" text="" color="#8C8C8C" width="160" height="160"
+               horizAlign="center" vertAlign="center" translation="[96, 56]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="64" />
+        </Label>
+        <Label id="nameLabel" text="" color="#FFFFFF" width="1500" maxLines="1"
+               translation="[292, 88]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="46" />
+        </Label>
+        <Label id="roleLabel" text="" color="#BFBFBF" width="1500" maxLines="1"
+               translation="[292, 152]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+        </Label>
+
+        <Label id="sectionLabel" text="Movies &amp; Shows" color="#FFFFFF" translation="[96, 250]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="28" />
+        </Label>
+
+        <!-- Same poster cards as the library grid -->
+        <MarkupGrid
+            id="posterGrid"
+            translation="[96, 300]"
+            itemSize="[240, 380]"
+            itemSpacing="[30, 40]"
+            numColumns="6"
+            numRows="2"
+            vertFocusAnimationStyle="fixedFocus"
+            drawFocusFeedback="false"
+            itemComponentName="GridItem"
+            visible="false"
+        />
+
+        <Label id="loadingLabel" text="Loading..." color="#8C8C8C"
+               horizAlign="center" width="1920" translation="[0, 560]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="28" />
+        </Label>
+
+        <!-- Empty / error state. Retry is a real focusable node so a failed
+             load always has somewhere to put focus. -->
+        <Label id="statusLabel" text="" color="#888888"
+               horizAlign="center" width="1920" translation="[0, 520]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="28" />
+        </Label>
+        <Group id="retryBtn" translation="[860, 610]" visible="false">
+            <Rectangle width="200" height="56" color="#8C5CC7FF" />
+            <Label text="Retry" color="#FFFFFF" width="200" height="56" horizAlign="center" vertAlign="center">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+            </Label>
+        </Group>
+
+        <JellyfinApi id="apiTask" />
+    </children>
+</component>
