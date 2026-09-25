@@ -6,6 +6,10 @@
              a Cancel button and Back returns to the main UI instead of exiting. -->
         <field id="canCancel" type="boolean" value="false" />
         <field id="cancelled" type="boolean" value="false" alwaysNotify="true" />
+        <!-- { serverUrl, userName }: signing back in to a saved server whose
+             login expired. Fills the form and checks the address straight
+             away, so Quick Connect is offered without any typing. -->
+        <field id="prefill" type="assocarray" onChange="onPrefill" />
     </interface>
     <children>
         <!-- Background -->

@@ -20,6 +20,9 @@ sub init()
     m.qcTimer = m.top.findNode("qcTimer")
 
     m.isLoading = false
+    ' Shown once the address checks out when this screen was opened to sign
+    ' back in to an expired server (see onPrefill); empty otherwise.
+    m.reauthNotice = ""
 
     ' Form values
     m.serverUrl = ""
@@ -82,6 +85,14 @@ end sub
 sub onCanCancelChanged()
     updateFormButtons()
     m.formButtons.setFocus(true)
+end sub
+
+sub onPrefill()
+    p = m.top.prefill
+    if p = invalid or p.serverUrl = invalid or p.serverUrl = "" then return
+    if p.userName <> invalid then m.username = p.userName
+    m.reauthNotice = "Your sign-in to this server expired. Sign in again."
+    setServerUrl(p.serverUrl)
 end sub
 
 sub enqueue(req as object)
@@ -219,6 +230,8 @@ sub onKeyboardButton()
     if buttonIndex = 0 ' OK
         text = dialog.text
         if m.editingField = "serverUrl"
+            ' A different address is no longer the expired server.
+            if text <> m.serverUrl then m.reauthNotice = ""
             setServerUrl(text)
         else if m.editingField = "username"
             m.username = text
@@ -542,7 +555,7 @@ sub onPublicInfo(response as object)
     m.resolvedServerUrl = response.serverUrl
 
     if context = "probe"
-        showStatus("")
+        showStatus(m.reauthNotice)
         ' Show the address the server actually answered on — it is what the app
         ' will talk to and what gets persisted, so it should not be a surprise.
         m.serverUrl = response.serverUrl

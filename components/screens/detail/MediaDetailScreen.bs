@@ -68,7 +68,6 @@ sub init()
     m.selectedSeasonIndex = 0
     m.selectedEpisodes = []     ' episodes of the selected season, as loaded
     m.seasonAction = invalid    ' { season, index, played } awaiting confirmation
-    m.restoreSeasonFocus = false
     m.playTarget = invalid      ' resolved episode a Series/Season Play button launches
     m.pendingPlay = false       ' Play pressed before the target resolved
     m.zone = "buttons"          ' buttons | rows
@@ -363,6 +362,13 @@ sub onItemLoaded(response as object)
     end if
 
     m.isYouTube = YT.isItem(item, m.forceYouTube)
+
+    ' Media badges come from getPlaybackInfo, which only movies and episodes
+    ' request. When "Series" reloads an episode screen as its series, the
+    ' episode's 1080p / codec / Dolby chips would otherwise stay on the series.
+    while m.badgesGroup.getChildCount() > 0
+        m.badgesGroup.removeChildIndex(0)
+    end while
 
     setBackdrop(item)
     setHeader(item)
@@ -856,6 +862,14 @@ sub setHeader(item as object)
         ' Series swap the title text for the logo (onLogoStatus hides title).
         m.logoImage.uri = ImageUrl.base() + "/Items/" + item.Id + "/Images/Logo?maxWidth=1240&quality=90"
         m.logoImage.visible = true
+        ' An episode's "Series" button reloads THIS screen as the series, and
+        ' the episode header already showed the series logo from this exact
+        ' URL. Same uri means no reload, so loadStatus stays "ready", never
+        ' changes, and onLogoStatus never ran: the title stayed visible at its
+        ' own y while the meta line was anchored under the logo, drawing
+        ' "The 100" over "2014 • 7 Seasons" (#161). Apply the logo state now;
+        ' a logo that is actually loading still lands in onLogoStatus.
+        applyLogoState()
     else if m.itemType = "Episode" and item.SeriesId <> invalid
         ' Episodes show the series logo ABOVE the title (tvOS parity) — the
         ' title stays visible because onLogoStatus only hides it for Series.
@@ -865,6 +879,10 @@ sub setHeader(item as object)
 end sub
 
 sub onLogoStatus()
+    applyLogoState()
+end sub
+
+sub applyLogoState()
     if m.logoImage.loadStatus = "ready" and m.itemType = "Series"
         m.titleLabel.visible = false
         ' The metadata was anchored to the hidden title's box; now that the
@@ -1410,32 +1428,46 @@ sub commitRows()
     m.rowList.rowHeights = heights
     m.rowList.content = m.rowContent
     m.rowList.visible = true
+    resetRowFocus()
+end sub
 
-    ' tvOS parity: scroll the episode strip to the CURRENT episode so its
-    ' breathing ring is on-screen (it was always drawn, but for episodes deep
-    ' in a season it sat scrolled off to the right where nobody saw it).
-    ' jumpToRowItem also pre-positions descent focus onto that episode; if the
-    ' episode row isn't the first row, jump back vertically so the layout
-    ' still opens at the top.
-    if m.currentEpIndex <> invalid
-        epRow = -1
-        for i = 0 to m.rowKinds.count() - 1
-            if m.rowKinds[i] = "episode" then epRow = i : exit for
-        end for
-        if epRow >= 0
-            m.rowList.jumpToRowItem = [epRow, m.currentEpIndex]
-            if epRow > 0 then m.rowList.jumpToItem = 0
+' Put every row's horizontal position where this content wants it.
+'
+' RowList remembers a focused item index PER ROW NUMBER, and replacing its
+' content does not clear that memory. This screen rebuilds its rows in place --
+' on every season pick, and when an episode's "Series" button turns the same
+' screen into the series -- so row 0 inherited whatever index row 0 had before.
+' An episode screen jumps its episode row (row 0 there) to the current episode;
+' after "Series", row 0 is the Seasons row, so The 100 opened from S2:E7 came up
+' scrolled to chip index 6: "Season 7" at the left edge and Seasons 1-6
+' scrolled off-screen (#160). An index past the end is dropped, which is why
+' M*A*S*H from S3:E24 looked fine. Nothing inherited is ever wanted: the Seasons
+' row belongs on the selected season, the episode row on the current episode or
+' the first, the cast row at its start.
+'
+' Jump each row, last to first, so the final jump leaves the list resting on
+' row 0 and the layout opens at the top. rowItemFocused lags these writes, so
+' nothing here reads it back.
+sub resetRowFocus()
+    rows = m.rowContent.getChildCount()
+    if rows = 0 then return
+    for i = rows - 1 to 0 step -1
+        target = 0
+        if i < m.rowKinds.count()
+            kind = m.rowKinds[i]
+            if kind = "season"
+                target = m.selectedSeasonIndex
+            else if kind = "episode" and m.currentEpIndex <> invalid
+                ' tvOS parity: the CURRENT episode's breathing ring on-screen,
+                ' not scrolled off to the right where nobody sees it.
+                target = m.currentEpIndex
+            end if
         end if
-    end if
-
-    ' After a season watched toggle the rows are rebuilt; put focus back on
-    ' the season chip the viewer acted on instead of the list's first item.
-    if m.restoreSeasonFocus
-        m.restoreSeasonFocus = false
-        if m.rowKinds.count() > 0 and m.rowKinds[0] = "season"
-            m.rowList.jumpToRowItem = [0, m.selectedSeasonIndex]
-        end if
-    end if
+        count = m.rowContent.getChild(i).getChildCount()
+        if target >= count then target = count - 1
+        if target < 0 then target = 0
+        m.rowList.jumpToRowItem = [i, target]
+    end for
 end sub
 
 sub onRowItemSelected()
@@ -1622,7 +1654,6 @@ sub onSeasonWatchResponse(response as object)
         end if
         if m.seasons.count() = 0 then return
         if m.selectedSeasonIndex >= m.seasons.count() then m.selectedSeasonIndex = 0
-        m.restoreSeasonFocus = (m.zone = "rows")
         ' Unscoped context: the episode reload goes through onEpisodesLoaded.
         enqueue({ action: "getEpisodes", seriesId: m.item.Id, seasonId: m.seasons[m.selectedSeasonIndex].Id })
     end if
