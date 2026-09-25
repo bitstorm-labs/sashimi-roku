@@ -1482,7 +1482,8 @@ sub onChannelNowPlayingLoaded(response as object)
         channelId: card.channelId,
         channelName: card.channelName,
         startPositionSeconds: valueOrZero(now.StartPositionSeconds),
-        nextItemId: ""
+        nextItemId: "",
+        breakUntil: valueOrZero(now.BreakUntil)
     }
     if now.NextItemId <> invalid then m.pendingChannelContext.nextItemId = now.NextItemId
     m.apiTask.request = { action: "getItem", itemId: itemId, context: "channelTune" }

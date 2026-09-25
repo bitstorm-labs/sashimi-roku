@@ -61,6 +61,12 @@ sub init()
     m.okHeld = false
     m.channelMenu = false
     m.okHoldTimer = m.top.findNode("okHoldTimer")
+    m.upNextCard = m.top.findNode("upNextCard")
+    m.upNextUntil = 0
+    m.upNextTimer = CreateObject("roSGNode", "Timer")
+    m.upNextTimer.duration = 1
+    m.upNextTimer.repeat = true
+    m.upNextTimer.observeFieldScoped("fire", "tickUpNext")
     m.guide = invalid
     m.rollRetries = 0
     m.rollRetryTimer = CreateObject("roSGNode", "Timer")
@@ -209,6 +215,15 @@ sub onItemDataChanged()
     ' top while it buffers — on a channel, straight over the corner mark, and
     ' the station bar already says both. Off for channels only.
     m.video.enableUI = not isChannelMode()
+    ' Tuned during a break between slots: the programme starts when its slot
+    ' opens, so hold on the Up Next card until then instead of streaming.
+    ctx = m.top.channelContext
+    if isChannelMode() and ctx.breakUntil <> invalid and ctx.breakUntil > CreateObject("roDateTime").AsSeconds()
+        showUpNext(data, ctx)
+        enqueue({ action: "getGuide", hours: 4 })
+        return
+    end if
+    hideUpNext()
     requestStream(data)
     ' Every programme a channel plays — the first, each roll-over and each
     ' flip — announces the station.
@@ -434,6 +449,7 @@ sub onChannelRolledOver(r as object)
     start = 0
     if r.nowPlaying.StartPositionSeconds <> invalid then start = Int(r.nowPlaying.StartPositionSeconds)
     ctx.startPositionSeconds = start
+    ctx.breakUntil = r.nowPlaying.BreakUntil
     m.top.channelContext = ctx
 
     enqueue({ action: "getItem", itemId: itemId, context: "channelRoll" })
@@ -1969,6 +1985,10 @@ sub onStationGuide(r as object)
     if not r.success or r.rows = invalid or r.rows.count() = 0 then return
     m.stations = r.rows
     if not isChannelMode() then return
+    if m.upNextCard.visible
+        fillUpNextStation(m.top.channelContext.channelId)
+        return
+    end if
     row = stationRow(m.top.channelContext.channelId)
     if row = invalid then return
     showStationBanner(row)
@@ -2208,7 +2228,8 @@ sub onFlipResolved(r as object)
         channelId: row.id,
         channelName: row.name,
         startPositionSeconds: start,
-        nextItemId: nextId
+        nextItemId: nextId,
+        breakUntil: r.nowPlaying.BreakUntil
     }
     enqueue({ action: "getItem", itemId: r.nowPlaying.ItemId, context: "channelRoll" })
 end sub
@@ -2278,4 +2299,79 @@ sub onGuidePick()
     m.stationPausedAt = -1
     m.behindLiveSecs = 0
     m.top.itemData = pick.item
+end sub
+
+' ---------- Up Next (breaks between slots) ----------
+
+sub showUpNext(item as object, ctx as object)
+    m.upNextUntil = ctx.breakUntil
+    m.statusLabel.visible = false
+    hideStationBanner()
+    m.stationBug.visible = false
+    title = ""
+    if item.Type = "Episode" and item.SeriesName <> invalid then title = YT.cleanTitle(item.SeriesName) else if item.Name <> invalid then title = item.Name
+    detail = ""
+    if item.Type = "Episode"
+        if YT.hasDatedEpisodeNumbers(item)
+            if item.Name <> invalid then detail = item.Name
+        else if item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+            detail = "S" + item.ParentIndexNumber.toStr() + "E" + item.IndexNumber.toStr()
+            if item.Name <> invalid then detail += "  ·  " + item.Name
+        end if
+    else if item.ProductionYear <> invalid
+        detail = item.ProductionYear.toStr()
+    end if
+    m.top.findNode("upNextTitle").text = title
+    m.top.findNode("upNextDetail").text = detail
+    m.top.findNode("upNextWhen").text = "UP NEXT  ·  " + bannerClock(m.upNextUntil)
+    fillUpNextStation(ctx.channelId)
+    m.upNextCard.visible = true
+    tickUpNext()
+    m.upNextTimer.control = "start"
+end sub
+
+' The station half of the card; the line-up may still be on its way.
+sub fillUpNextStation(channelId as string)
+    row = stationRow(channelId)
+    name = ""
+    number = ""
+    logo = ""
+    if row <> invalid
+        name = UCase(row.name)
+        if row.number <> invalid and row.number > 0 then number = row.number.toStr()
+        logo = ImageUrl.channelLogo(row.id, row.logo)
+    else if m.top.channelContext.channelName <> invalid
+        name = UCase(m.top.channelContext.channelName)
+    end if
+    station = name
+    if number <> "" then station = number + "   " + name
+    m.top.findNode("upNextStation").text = station
+    m.top.findNode("upNextLogo").uri = logo
+end sub
+
+sub tickUpNext()
+    nowSecs = CreateObject("roDateTime").AsSeconds()
+    left = m.upNextUntil - nowSecs
+    m.top.findNode("upNextClock").text = bannerClock(nowSecs)
+    if left <= 0
+        ' The slot has opened: play the programme from its beginning.
+        hideUpNext()
+        ctx = m.top.channelContext
+        ctx.breakUntil = 0
+        ctx.startPositionSeconds = 0
+        m.top.channelContext = ctx
+        m.statusLabel.visible = true
+        m.statusLabel.text = "Loading..."
+        requestStream(m.item)
+        return
+    end if
+    secs = left MOD 60
+    pad = ""
+    if secs < 10 then pad = "0"
+    m.top.findNode("upNextCountdown").text = "starts in " + Int(left / 60).toStr() + ":" + pad + secs.toStr()
+end sub
+
+sub hideUpNext()
+    if m.upNextTimer <> invalid then m.upNextTimer.control = "stop"
+    if m.upNextCard <> invalid then m.upNextCard.visible = false
 end sub

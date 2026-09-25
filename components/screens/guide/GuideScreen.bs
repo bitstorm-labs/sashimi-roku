@@ -758,7 +758,8 @@ sub onTuneResolved(r as object)
         channelId: channel.id,
         channelName: channel.name,
         startPositionSeconds: start,
-        nextItemId: ""
+        nextItemId: "",
+        breakUntil: r.nowPlaying.BreakUntil
     }
     if r.nowPlaying.NextItemId <> invalid then m.pendingContext.nextItemId = r.nowPlaying.NextItemId
     m.apiTask.request = { action: "getItem", itemId: itemId, context: "guideTune" }
