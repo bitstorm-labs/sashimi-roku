@@ -6,6 +6,8 @@ sub init()
     m.formBg = m.top.findNode("formBg")
     m.statusLabel = m.top.findNode("statusLabel")
     m.loadingLabel = m.top.findNode("loadingLabel")
+    m.loadingHint = m.top.findNode("loadingHint")
+    m.elapsedTimer = m.top.findNode("elapsedTimer")
     m.errorDialog = m.top.findNode("errorDialog")
     m.apiTask = m.top.findNode("apiTask")
     m.discoveryTask = m.top.findNode("discoveryTask")
@@ -47,6 +49,15 @@ sub init()
     m.reqQueue = []
     m.reqBusy = false
 
+    ' Generation counter. Every request is stamped with it at enqueue time, and
+    ' anything that abandons work in flight (Back during a sign-in, a new
+    ' address, cancelling Quick Connect) bumps it. The Task thread cannot be
+    ' interrupted mid-wait, so the abandoned request still answers, up to 12s
+    ' later -- and without this that late answer would sign the user in, or
+    ' pop an error, on a screen that has moved on.
+    m.attempt = 0
+    m.inFlight = invalid
+
     ' Set up form button labels
     updateFormButtons()
 
@@ -57,6 +68,7 @@ sub init()
     m.discoveryTask.observeFieldScoped("servers", "onServersDiscovered")
     m.serverList.observeFieldScoped("itemSelected", "onServerSelected")
     m.qcTimer.observeFieldScoped("fire", "onQuickConnectTick")
+    m.elapsedTimer.observeFieldScoped("fire", "onElapsedTick")
     ' MainScene sets canCancel straight after createObject, which is already
     ' too late for the updateFormButtons() above — the Cancel button was
     ' missing from the first paint of every "add a server" visit.
@@ -73,15 +85,29 @@ sub onCanCancelChanged()
 end sub
 
 sub enqueue(req as object)
+    req.attempt = m.attempt
     m.reqQueue.push(req)
     pumpQueue()
 end sub
 
 sub pumpQueue()
     if m.reqBusy then return
+    ' Requests queued behind an attempt that has since been abandoned are
+    ' dropped here rather than sent and ignored: each one can cost 12s.
+    while m.reqQueue.count() > 0 and m.reqQueue[0].attempt <> m.attempt
+        m.reqQueue.shift()
+    end while
     if m.reqQueue.count() = 0 then return
     m.reqBusy = true
-    m.apiTask.request = m.reqQueue.shift()
+    m.inFlight = m.reqQueue.shift()
+    m.apiTask.request = m.inFlight
+end sub
+
+' Stop listening to whatever is in flight or queued. The queue is serialized,
+' so the next response always belongs to m.inFlight -- that is what lets the
+' stamp live on the screen side without the Task having to echo it.
+sub abandonPending()
+    m.attempt += 1
 end sub
 
 sub updateFormButtons()
@@ -217,6 +243,8 @@ sub setServerUrl(url as string)
     ' to probe again.
     if url = m.serverUrl and m.resolvedServerUrl <> "" then return
 
+    ' An answer about the previous address must not land on this one.
+    abandonPending()
     m.serverUrl = url
     m.quickConnectAvailable = false
     m.resolvedServerUrl = ""
@@ -419,6 +447,9 @@ sub onQuickConnectPolled(response as object)
 end sub
 
 sub endQuickConnect(message as string)
+    ' Covers a poll or sign-in still in flight: without it, cancelling and
+    ' starting again could let the old attempt's answer land on the new one.
+    abandonPending()
     m.qcTimer.control = "stop"
     m.qcActive = false
     m.qcSecret = ""
@@ -445,7 +476,14 @@ end function
 sub onApiResponse()
     response = m.apiTask.response
     m.reqBusy = false
+    sent = m.inFlight
+    m.inFlight = invalid
     if response = invalid
+        pumpQueue()
+        return
+    end if
+    if sent <> invalid and sent.attempt <> m.attempt
+        ' The answer to something the user already walked away from.
         pumpQueue()
         return
     end if
@@ -541,7 +579,35 @@ end sub
 sub showLoading(loading as boolean)
     m.isLoading = loading
     m.loadingLabel.visible = loading
+    m.loadingHint.visible = loading
     m.formButtons.visible = not loading
+    if loading
+        m.elapsedClock = CreateObject("roTimespan")
+        m.loadingLabel.text = elapsedText(0)
+        m.elapsedTimer.control = "start"
+    else
+        m.elapsedTimer.control = "stop"
+    end if
+end sub
+
+sub onElapsedTick()
+    if not m.isLoading then return
+    m.loadingLabel.text = elapsedText(m.elapsedClock.TotalSeconds())
+end sub
+
+' Copy shared with the Apple and Android clients.
+function elapsedText(seconds as integer) as string
+    return "Connecting… " + str(seconds).Trim() + "s"
+end function
+
+' Back during a sign-in: the form comes back as it was, with no error -- the
+' user chose to stop, nothing failed. The answer still on its way is dropped
+' by the attempt check in onApiResponse.
+sub abandonSignIn()
+    abandonPending()
+    showLoading(false)
+    showStatus("")
+    m.formButtons.setFocus(true)
 end sub
 
 sub showStatus(message as string)
@@ -551,6 +617,10 @@ end sub
 function onKeyEvent(key as string, press as boolean) as boolean
     if press
         if key = "back"
+            if m.isLoading
+                abandonSignIn()
+                return true
+            end if
             if m.qcActive
                 endQuickConnect("Quick Connect cancelled.")
                 return true

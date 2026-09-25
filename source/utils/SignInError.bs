@@ -1,0 +1,89 @@
+' What the sign-in screen tells someone whose attempt failed. Pure: no nodes, no
+' globals, no network, so the mapping can be reasoned about (and eventually
+' tested) on its own. The copy is shared word-for-word with the Apple and
+' Android clients -- change it in all three or none.
+'
+' Inputs are what the transfer layer records:
+'   code   > 0  an HTTP status: the server answered
+'   code   = 0  our own wait() budget expired with no answer at all
+'   code   < 0  roUrlTransfer's negated libcurl CURLcode (-6 = couldn't resolve)
+'   reason      roUrlEvent.GetFailureReason(), which is where "Connection
+'               refused" can be told apart from "No route to host" -- both are
+'               CURLE_COULDNT_CONNECT (7)
+namespace SignInError
+
+    ' Each sign-in network step gets this long. On a LAN a server that has not
+    ' answered in 12s is not going to, and a sign-in form is a bad place to sit
+    ' out the 30s that browsing requests get.
+    const TIMEOUT_MS = 12000
+
+    ' A specific sentence for a failure the network layer can name, or "" when
+    ' the server did answer (code > 0) or the failure is one we cannot name --
+    ' the caller keeps its own wording for those.
+    function transport(code as integer, reason as string) as string
+        if code > 0 then return ""
+        if code = 0 then return timeoutMessage()
+
+        curl = -code
+        why = LCase(reason)
+
+        ' CURLE_OPERATION_TIMEDOUT: libcurl's own clock ran out before ours.
+        if curl = 28 then return timeoutMessage()
+
+        ' COULDNT_RESOLVE_PROXY (5), COULDNT_RESOLVE_HOST (6)
+        if curl = 5 or curl = 6 then return unreachableMessage()
+
+        if curl = 7
+            ' COULDNT_CONNECT covers both "nothing is at that address" and "the
+            ' host is there but that port is closed". Only the reason text
+            ' separates them; without it, unreachable is the safer guess.
+            if Instr(1, why, "refused") > 0 then return refusedMessage()
+            return unreachableMessage()
+        end if
+
+        if isTlsCode(curl) then return tlsMessage()
+
+        ' Some builds report a certificate failure under a generic code; the
+        ' reason text still says what it was. Not "ssl": a connection dropped
+        ' mid-read also mentions SSL and has nothing to do with the certificate.
+        if Instr(1, why, "certificate") > 0 then return tlsMessage()
+
+        return ""
+    end function
+
+    ' AuthenticateByName: a 401 is the one answer that definitely means the
+    ' credentials. Returns "" when the caller's existing wording should stand.
+    function authenticate(code as integer, reason as string) as string
+        if code = 401 then return "Wrong username or password."
+        return transport(code, reason)
+    end function
+
+    function isTlsCode(curl as integer) as boolean
+        ' 35 SSL_CONNECT_ERROR (also what an https request to a plain-http port
+        ' gets), 51/60 peer certificate not trusted, 53/54/66 engine, 58 local
+        ' cert, 59 cipher, 64 USE_SSL_FAILED, 77 CA bundle, 80 shutdown,
+        ' 82/83 CRL/issuer, 90 pinned key, 91 cert status.
+        tls = [35, 51, 53, 54, 58, 59, 60, 64, 66, 77, 80, 82, 83, 90, 91]
+        for each c in tls
+            if c = curl then return true
+        end for
+        return false
+    end function
+
+    function unreachableMessage() as string
+        return "Can't reach a server at that address. Check the address and that you're on the same network."
+    end function
+
+    function refusedMessage() as string
+        return "The server refused the connection. Check the port, and that Jellyfin is running."
+    end function
+
+    function tlsMessage() as string
+        return "The server's security certificate was rejected. Check whether the address should start with http:// or https://."
+    end function
+
+    function timeoutMessage() as string
+        return "The server didn't answer within 12 seconds. It may be down or busy. Try again."
+    end function
+
+end namespace
