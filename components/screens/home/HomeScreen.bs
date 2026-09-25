@@ -514,6 +514,8 @@ sub collectChannelHeroItems(cards as object)
         ' Ride the channel stamp on the item AA, the way _forceYouTube does —
         ' it survives FormatJSON/ParseJSON into HeroBanner without a new field.
         item._channelName = card.channelName
+        item._channelNumber = valueOrZero(card.channelNumber)
+        item._channelLogoUri = ImageUrl.channelLogo(card.channelId, card.channelLogo)
         runtime = 0
         if item.RunTimeTicks <> invalid then runtime = Int(item.RunTimeTicks / 10000000&)
         if runtime > card.startPositionSeconds
@@ -735,6 +737,7 @@ sub addChannelsRow(cards as object)
             cardStyle: "landscape",
             channelName: card.channelName,
             channelNumber: valueOrZero(card.channelNumber),
+            channelLogoUri: ImageUrl.channelLogo(card.channelId, card.channelLogo, true),
             isLive: not card.offAir,
             playedPercentage: 0,
             remainingText: "",
@@ -1479,7 +1482,8 @@ sub onChannelNowPlayingLoaded(response as object)
         channelId: card.channelId,
         channelName: card.channelName,
         startPositionSeconds: valueOrZero(now.StartPositionSeconds),
-        nextItemId: ""
+        nextItemId: "",
+        breakUntil: valueOrZero(now.BreakUntil)
     }
     if now.NextItemId <> invalid then m.pendingChannelContext.nextItemId = now.NextItemId
     m.apiTask.request = { action: "getItem", itemId: itemId, context: "channelTune" }

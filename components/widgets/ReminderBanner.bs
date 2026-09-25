@@ -83,7 +83,8 @@ sub onApiResponse()
             channelId: m.pending.channelId,
             channelName: m.pending.channelName,
             startPositionSeconds: start,
-            nextItemId: nextId
+            nextItemId: nextId,
+            breakUntil: resp.nowPlaying.BreakUntil
         }
         m.apiTask.request = { action: "getItem", itemId: resp.nowPlaying.ItemId, context: "reminderTune" }
     else if resp.action = "getItem" and resp.context <> invalid and resp.context = "reminderTune"

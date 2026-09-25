@@ -54,6 +54,26 @@ sub init()
     m.bannerTimer = m.top.findNode("bannerTimer")
     m.bannerTimer.observeFieldScoped("fire", "hideStationBanner")
     m.stations = []
+    m.stationBug = m.top.findNode("stationBug")
+    m.stationBugUri = ""
+    m.stationPausedAt = -1
+    m.behindLiveSecs = 0
+    m.okHeld = false
+    m.channelMenu = false
+    m.okHoldTimer = m.top.findNode("okHoldTimer")
+    m.upNextCard = m.top.findNode("upNextCard")
+    m.upNextUntil = 0
+    m.upNextTimer = CreateObject("roSGNode", "Timer")
+    m.upNextTimer.duration = 1
+    m.upNextTimer.repeat = true
+    m.upNextTimer.observeFieldScoped("fire", "tickUpNext")
+    m.guide = invalid
+    m.rollRetries = 0
+    m.rollRetryTimer = CreateObject("roSGNode", "Timer")
+    m.rollRetryTimer.duration = 2
+    m.rollRetryTimer.repeat = false
+    m.rollRetryTimer.observeFieldScoped("fire", "onRollRetry")
+    m.okHoldTimer.observeFieldScoped("fire", "onOkHold")
     m.flipTarget = -1
     m.flipDir = 0
     m.flipTries = 0
@@ -191,6 +211,19 @@ sub onItemDataChanged()
     m.stepDownBps = 0
     setChapters(data)
     populateInfoBar()
+    ' The Video node's own loading UI draws the title and a clock across the
+    ' top while it buffers — on a channel, straight over the corner mark, and
+    ' the station bar already says both. Off for channels only.
+    m.video.enableUI = not isChannelMode()
+    ' Tuned during a break between slots: the programme starts when its slot
+    ' opens, so hold on the Up Next card until then instead of streaming.
+    ctx = m.top.channelContext
+    if isChannelMode() and ctx.breakUntil <> invalid and ctx.breakUntil > CreateObject("roDateTime").AsSeconds()
+        showUpNext(data, ctx)
+        enqueue({ action: "getGuide", hours: 4 })
+        return
+    end if
+    hideUpNext()
     requestStream(data)
     ' Every programme a channel plays — the first, each roll-over and each
     ' flip — announces the station.
@@ -393,17 +426,30 @@ sub onChannelRolledOver(r as object)
     end if
     itemId = ""
     if r.nowPlaying.ItemId <> invalid then itemId = r.nowPlaying.ItemId
-    if itemId = "" or itemId = m.item.Id
-        ' The schedule has not moved on yet, or the server is still serving the
-        ' programme that just finished. Either way there is nothing to roll to.
+    if itemId = ""
         exitPlayer()
         return
     end if
+    if itemId = m.item.Id
+        ' The stream finished a moment before the server's schedule did — its
+        ' clock runs a few seconds ahead, and a joined programme starts that
+        ' far out. Leaving here dropped the viewer out of the channel at every
+        ' such boundary; wait a beat and ask again instead, a few times.
+        m.rollRetries = m.rollRetries + 1
+        if m.rollRetries > 6
+            exitPlayer()
+            return
+        end if
+        m.rollRetryTimer.control = "start"
+        return
+    end if
+    m.rollRetries = 0
 
     ctx = m.top.channelContext
     start = 0
     if r.nowPlaying.StartPositionSeconds <> invalid then start = Int(r.nowPlaying.StartPositionSeconds)
     ctx.startPositionSeconds = start
+    ctx.breakUntil = r.nowPlaying.BreakUntil
     m.top.channelContext = ctx
 
     enqueue({ action: "getItem", itemId: itemId, context: "channelRoll" })
@@ -419,6 +465,9 @@ sub onChannelNextItem(r as object)
     m.startedReported = false
     m.stoppedReported = false
     m.segments = []
+    ' A roll-over or a flip joins at the channel's live offset.
+    m.stationPausedAt = -1
+    m.behindLiveSecs = 0
     m.top.itemData = r.item
 end sub
 
@@ -728,6 +777,10 @@ end sub
 
 ' Intro Skipper: show a skip pill while inside a segment; OK jumps past it
 sub checkSegment(posSecs as dynamic)
+    ' A channel runs on the clock: skipping an intro, by hand or automatically,
+    ' would put the viewer ahead of the schedule and the next programme would
+    ' start late. Live TV has no skip button.
+    if isChannelMode() then return
     if m.segments.count() = 0 then return
     active = invalid
     for each seg in m.segments
@@ -995,6 +1048,13 @@ sub openMenu(kind as string)
             if m.audTracks[i].index = m.curAudIdx then current = m.menuItems.count() - 1
         end for
         if m.curAudIdx = -1 then current = 0
+    else if kind = "channelOptions"
+        ' A channel's held-OK menu: the two track choices the OSD would offer.
+        m.osdMenuTitle.text = "Subtitles & Audio"
+        ' Integer values like every other menu (isCurrentValue is typed): 1
+        ' subtitles, 2 audio. A string here crashed the menu on open.
+        m.menuItems.push({ label: "Subtitles", value: 1 })
+        if m.audTracks.count() > 1 then m.menuItems.push({ label: "Audio", value: 2 })
     else if kind = "chapters"
         m.osdMenuTitle.text = "Chapters"
         for i = 0 to m.chapters.count() - 1
@@ -1106,7 +1166,10 @@ sub applyMenuSelection()
     if m.menuIdx < 0 or m.menuIdx >= m.menuItems.count() then return
     value = m.menuItems[m.menuIdx].value
 
-    if m.menuKind = "chapters"
+    if m.menuKind = "channelOptions"
+        if value = 1 then openMenu("subs") else openMenu("audio")
+        return
+    else if m.menuKind = "chapters"
         m.seeking = false
         m.video.seek = value
         updateScrubber()
@@ -1137,6 +1200,7 @@ sub applyMenuSelection()
         end if
     end if
     closeMenu()
+    if leaveChannelMenu() then return
     m.zone = "buttons"
     restyleButtons()
     bumpOsd()
@@ -1761,10 +1825,24 @@ function onKeyEvent(key as string, press as boolean) as boolean
     ' latch and block every later error. Any key reaching this screen proves the
     ' modal is gone — dialogs consume everything while they are up.
     if m.errorDialogUp then m.errorDialogUp = false
-    if not press then return false
 
     ' A reminder banner is up: Play is its "watch now", not pause.
     if key = "play" and m.global.reminderShowing = true then return false
+
+    ' The guide laid over the channel has the remote; what it does not use
+    ' stops here (Back closes it) so nothing reaches the channel underneath.
+    if m.guide <> invalid
+        if press and key = "back" then closeGuide()
+        return true
+    end if
+
+    ' A channel has its own remote (onChannelKey) — except inside a menu, and
+    ' except OK while the skip pill is up, which still skips.
+    if isChannelMode() and m.zone <> "menu" and not (key = "OK" and m.skipVisible)
+        return onChannelKey(key, press)
+    end if
+
+    if not press then return false
 
     ' Menu zone: up/down navigate, OK applies, back/left dismiss
     if m.zone = "menu"
@@ -1791,6 +1869,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
             return true
         else if key = "back" or key = "left"
             closeMenu()
+            if leaveChannelMenu() then return true
             m.zone = "buttons"
             restyleButtons()
             bumpOsd()
@@ -1860,18 +1939,6 @@ function onKeyEvent(key as string, press as boolean) as boolean
         return true
     end if
 
-    ' A channel with the controls hidden: up/down change station, the way a
-    ' cable remote does. Once the controls are up they navigate them instead.
-    if isChannelMode() and not m.osdVisible
-        if key = "up" or key = "channelup"
-            changeStation(1)
-            return true
-        else if key = "down" or key = "channeldown"
-            changeStation(-1)
-            return true
-        end if
-    end if
-
     ' Up climbs to the controls (buttons sit above the scrubber); Down hides
     if key = "up"
         if m.osdVisible
@@ -1918,6 +1985,10 @@ sub onStationGuide(r as object)
     if not r.success or r.rows = invalid or r.rows.count() = 0 then return
     m.stations = r.rows
     if not isChannelMode() then return
+    if m.upNextCard.visible
+        fillUpNextStation(m.top.channelContext.channelId)
+        return
+    end if
     row = stationRow(m.top.channelContext.channelId)
     if row = invalid then return
     showStationBanner(row)
@@ -1940,8 +2011,34 @@ sub showStationBanner(row as object)
     number = ""
     if row.number <> invalid and row.number > 0 then number = row.number.toStr()
     m.top.findNode("bannerNumber").text = number
+    ' Number, logo, name: the logo and name follow the number's width
+    ' (~36px a digit at 60pt) so a one-digit channel has no gap.
+    logoX = 80
+    if number <> "" then logoX = 80 + Len(number) * 36 + 18
+    m.top.findNode("bannerLogo").translation = [logoX, 804]
+    nameX = logoX + 116
+    m.top.findNode("bannerName").translation = [nameX, 808]
+    m.top.findNode("bannerDescription").translation = [nameX, 858]
     m.top.findNode("bannerName").text = UCase(row.name)
     m.top.findNode("bannerDescription").text = row.description
+    logoKey = ""
+    if row.logo <> invalid then logoKey = row.logo
+    m.top.findNode("bannerLogo").uri = ImageUrl.channelLogo(row.id, logoKey)
+    m.stationBugUri = ImageUrl.channelLogo(row.id, logoKey, true)
+    m.top.findNode("stationBugLogo").uri = m.stationBugUri
+    m.top.findNode("stationBugName").text = UCase(row.name)
+    ' Logo over name; without a logo the name moves up into its place.
+    nameY = 78
+    if m.stationBugUri = "" then nameY = 0
+    m.top.findNode("stationBugName").translation = [0, nameY]
+    m.top.findNode("bannerClock").text = bannerClock(CreateObject("roDateTime").AsSeconds())
+    status = ""
+    if m.stationPausedAt >= 0
+        status = "PAUSED"
+    else if m.behindLiveSecs >= 60
+        status = Int(m.behindLiveSecs / 60).toStr() + " min behind live"
+    end if
+    m.top.findNode("bannerStatus").text = status
 
     now = CreateObject("roDateTime").AsSeconds()
     current = invalid
@@ -1978,7 +2075,7 @@ sub showStationBanner(row as object)
     end if
     m.top.findNode("bannerNow").text = nowText
     m.top.findNode("bannerTimes").text = timesText
-    m.top.findNode("bannerFill").width = Int(700 * fraction)
+    m.top.findNode("bannerFill").width = Int(1400 * fraction)
     m.top.findNode("bannerTrack").visible = (current <> invalid)
     m.top.findNode("bannerFill").visible = (current <> invalid)
 
@@ -1989,13 +2086,84 @@ sub showStationBanner(row as object)
     ' The controls own the bottom of the screen while they are up.
     if m.osdVisible then return
     m.stationBanner.visible = true
+    m.stationBug.visible = false
     m.bannerTimer.control = "stop"
-    m.bannerTimer.control = "start"
+    ' A paused channel keeps its bar up: the picture is still, and "paused,
+    ' 4 min behind live" is the thing to know.
+    if m.stationPausedAt < 0 then m.bannerTimer.control = "start"
 end sub
 
 sub hideStationBanner()
     m.bannerTimer.control = "stop"
     m.stationBanner.visible = false
+    m.stationBug.visible = (isChannelMode() and m.top.findNode("stationBugName").text <> "" and not m.osdVisible)
+end sub
+
+' ---------- Channel remote ----------
+
+' A channel has no scrubber, skips or chapters, so it never shows the OSD. The
+' remote works like a TV's: up/down change channel, OK shows the info bar, a
+' held OK opens subtitles and audio, Play pauses (the bar then says how far
+' behind live), left/right do nothing, Back leaves. "*" is never taken —
+' certification reserves it for Roku's own overlay during playback.
+function onChannelKey(key as string, press as boolean) as boolean
+    if key = "OK"
+        if press
+            m.okHeld = false
+            m.okHoldTimer.control = "stop"
+            m.okHoldTimer.control = "start"
+        else
+            m.okHoldTimer.control = "stop"
+            if not m.okHeld then toggleStationInfo()
+        end if
+        return true
+    end if
+    if not press then return false
+
+    if key = "up" or key = "channelup"
+        changeStation(1)
+    else if key = "down" or key = "channeldown"
+        changeStation(-1)
+    else if key = "play"
+        toggleStationPause()
+    else if key = "left" or key = "right"
+        openGuide()
+    else if key = "rewind" or key = "fastforward" or key = "replay"
+        ' Live: nothing to seek.
+    else if key = "back"
+        exitPlayer()
+    else
+        return false
+    end if
+    return true
+end function
+
+sub onOkHold()
+    m.okHeld = true
+    hideStationBanner()
+    m.channelMenu = true
+    openMenu("channelOptions")
+end sub
+
+sub toggleStationInfo()
+    if m.stationBanner.visible and m.stationPausedAt < 0
+        hideStationBanner()
+        return
+    end if
+    enqueue({ action: "getGuide", hours: 4 })
+end sub
+
+sub toggleStationPause()
+    nowSecs = CreateObject("roDateTime").AsSeconds()
+    if m.stationPausedAt >= 0
+        m.behindLiveSecs = m.behindLiveSecs + (nowSecs - m.stationPausedAt)
+        m.stationPausedAt = -1
+        m.video.control = "resume"
+    else
+        m.stationPausedAt = nowSecs
+        m.video.control = "pause"
+    end if
+    enqueue({ action: "getGuide", hours: 4 })
 end sub
 
 function bannerClock(epoch as integer) as string
@@ -2060,7 +2228,8 @@ sub onFlipResolved(r as object)
         channelId: row.id,
         channelName: row.name,
         startPositionSeconds: start,
-        nextItemId: nextId
+        nextItemId: nextId,
+        breakUntil: r.nowPlaying.BreakUntil
     }
     enqueue({ action: "getItem", itemId: r.nowPlaying.ItemId, context: "channelRoll" })
 end sub
@@ -2074,4 +2243,135 @@ sub stopForHandoff()
     hideStationBanner()
     m.video.control = "stop"
     if m.startedReported then reportStopped(Int(m.lastPosition) * 10000000&)
+end sub
+
+' A menu opened from a channel (held OK) closes back to the picture, not to
+' the OSD a channel never shows.
+function leaveChannelMenu() as boolean
+    if not isChannelMode() then return false
+    m.zone = "scrub"
+    m.channelMenu = false
+    hideStationBanner()
+    return true
+end function
+
+sub onRollRetry()
+    if not isChannelMode() then return
+    enqueue({ action: "getChannelNowPlaying", channelId: m.top.channelContext.channelId })
+end sub
+
+' ---------- Guide over the channel ----------
+
+' The guide over the live picture, the way a cable box opens it: the channel
+' keeps playing behind; picking something airing tunes it here.
+sub openGuide()
+    if m.guide <> invalid then return
+    hideStationBanner()
+    m.stationBug.visible = false
+    m.guide = m.top.createChild("GuideScreen")
+    m.guide.overlay = true
+    m.guide.observeFieldScoped("playItem", "onGuidePick")
+    m.guide.setFocus(true)
+end sub
+
+sub closeGuide()
+    if m.guide = invalid then return
+    m.guide.unobserveFieldScoped("playItem")
+    m.top.removeChild(m.guide)
+    m.guide = invalid
+    m.top.setFocus(true)
+    hideStationBanner()
+end sub
+
+' The guide has already resolved what the channel airs and fetched it; play
+' it here the way a flip does, rather than MainScene opening a second player.
+sub onGuidePick()
+    pick = m.guide.playItem
+    closeGuide()
+    if pick = invalid or pick.item = invalid or pick.channelContext = invalid then return
+    m.video.control = "stop"
+    m.statusLabel.visible = true
+    m.statusLabel.text = "Tuning..."
+    m.top.channelContext = pick.channelContext
+    m.startedReported = false
+    m.stoppedReported = false
+    m.segments = []
+    m.stationPausedAt = -1
+    m.behindLiveSecs = 0
+    m.top.itemData = pick.item
+end sub
+
+' ---------- Up Next (breaks between slots) ----------
+
+sub showUpNext(item as object, ctx as object)
+    m.upNextUntil = ctx.breakUntil
+    m.statusLabel.visible = false
+    hideStationBanner()
+    m.stationBug.visible = false
+    title = ""
+    if item.Type = "Episode" and item.SeriesName <> invalid then title = YT.cleanTitle(item.SeriesName) else if item.Name <> invalid then title = item.Name
+    detail = ""
+    if item.Type = "Episode"
+        if YT.hasDatedEpisodeNumbers(item)
+            if item.Name <> invalid then detail = item.Name
+        else if item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
+            detail = "S" + item.ParentIndexNumber.toStr() + "E" + item.IndexNumber.toStr()
+            if item.Name <> invalid then detail += "  ·  " + item.Name
+        end if
+    else if item.ProductionYear <> invalid
+        detail = item.ProductionYear.toStr()
+    end if
+    m.top.findNode("upNextTitle").text = title
+    m.top.findNode("upNextDetail").text = detail
+    m.top.findNode("upNextWhen").text = "UP NEXT  ·  " + bannerClock(m.upNextUntil)
+    fillUpNextStation(ctx.channelId)
+    m.upNextCard.visible = true
+    tickUpNext()
+    m.upNextTimer.control = "start"
+end sub
+
+' The station half of the card; the line-up may still be on its way.
+sub fillUpNextStation(channelId as string)
+    row = stationRow(channelId)
+    name = ""
+    number = ""
+    logo = ""
+    if row <> invalid
+        name = UCase(row.name)
+        if row.number <> invalid and row.number > 0 then number = row.number.toStr()
+        logo = ImageUrl.channelLogo(row.id, row.logo)
+    else if m.top.channelContext.channelName <> invalid
+        name = UCase(m.top.channelContext.channelName)
+    end if
+    station = name
+    if number <> "" then station = number + "   " + name
+    m.top.findNode("upNextStation").text = station
+    m.top.findNode("upNextLogo").uri = logo
+end sub
+
+sub tickUpNext()
+    nowSecs = CreateObject("roDateTime").AsSeconds()
+    left = m.upNextUntil - nowSecs
+    m.top.findNode("upNextClock").text = bannerClock(nowSecs)
+    if left <= 0
+        ' The slot has opened: play the programme from its beginning.
+        hideUpNext()
+        ctx = m.top.channelContext
+        ctx.breakUntil = 0
+        ctx.startPositionSeconds = 0
+        m.top.channelContext = ctx
+        m.statusLabel.visible = true
+        m.statusLabel.text = "Loading..."
+        requestStream(m.item)
+        return
+    end if
+    secs = left MOD 60
+    pad = ""
+    if secs < 10 then pad = "0"
+    m.top.findNode("upNextCountdown").text = "starts in " + Int(left / 60).toStr() + ":" + pad + secs.toStr()
+end sub
+
+sub hideUpNext()
+    if m.upNextTimer <> invalid then m.upNextTimer.control = "stop"
+    if m.upNextCard <> invalid then m.upNextCard.visible = false
 end sub

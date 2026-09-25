@@ -12,6 +12,16 @@ namespace ImageUrl
         return m.global.serverUrl + "/Items/" + itemId + "/Images/Art?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
     end function
 
+    ' A channel's logo (Channels plugin 0.8.0+). Anonymous like item images;
+    ' the key in the URL makes a seasonal swap a new URL. mono = the white one
+    ' laid over the picture.
+    function channelLogo(channelId as string, key as dynamic, mono = false as boolean) as string
+        if key = invalid or key = "" then return ""
+        url = m.global.serverUrl + "/VirtualChannels/" + channelId + "/Logo?key=" + key
+        if mono then url += "&style=mono"
+        return url
+    end function
+
     function thumb(itemId as string, maxWidth as integer) as string
         return m.global.serverUrl + "/Items/" + itemId + "/Images/Thumb?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
     end function

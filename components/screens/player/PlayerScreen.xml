@@ -22,41 +22,83 @@
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="32" />
         </Label>
 
-        <!-- ============ Station banner ============
-             A channel says who it is when you arrive — the cable-box info
-             banner: number, name, what is on with how far in, what is next.
-             Shown on tune-in, on each flip and at each programme change; it
-             hides after a few seconds or when the OSD comes up. -->
-        <Group id="stationBanner" visible="false" translation="[80, 770]">
-            <Poster uri="pkg:/images/card_r16.9.png" width="1200" height="230" blendColor="#1A1A1FF0" />
-            <Label id="bannerNumber" text="" color="#8C5CC7" width="150" horizAlign="center"
-                   translation="[0, 34]">
-                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="64" />
+        <!-- ============ Station bar ============
+             A channel's only on-screen control: the bottom-edge mirror of
+             the OSD's top bar — full width, translucent black. Logo, number,
+             station, clock; what is on with progress; what is next; how the
+             remote drives a channel. Children are placed absolutely. -->
+        <Group id="stationBanner" visible="false">
+            <Rectangle width="1920" height="300" color="#00000066" translation="[0, 780]" />
+            <Label id="bannerNumber" text="" color="#8C5CC7" width="100" translation="[80, 814]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="60" />
             </Label>
-            <Label id="bannerName" text="" color="#FFFFFF" width="1000" maxLines="1"
-                   translation="[160, 26]">
-                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="34" />
+            <Poster id="bannerLogo" width="96" height="96" loadDisplayMode="scaleToFit" translation="[186, 804]" />
+            <Label id="bannerName" text="" color="#FFFFFF" width="1000" maxLines="1" translation="[300, 808]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="36" />
             </Label>
-            <Label id="bannerDescription" text="" color="#8C8C8C" width="1000" maxLines="1"
-                   ellipsizeOnBoundary="true" translation="[160, 70]">
-                <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="20" />
+            <Label id="bannerDescription" text="" color="#BFBFBF" width="1000" maxLines="1"
+                   ellipsizeOnBoundary="true" translation="[300, 858]">
+                <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="22" />
             </Label>
-            <Label id="bannerNow" text="" color="#FFFFFF" width="1000" maxLines="1"
-                   ellipsizeOnBoundary="true" translation="[160, 108]">
-                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+            <Label id="bannerClock" text="" color="#FFFFFF" width="300" horizAlign="right" translation="[1540, 808]">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="36" />
             </Label>
-            <Rectangle id="bannerTrack" width="700" height="6" color="#FFFFFF40" translation="[160, 152]" />
-            <Rectangle id="bannerFill" width="0" height="6" color="#8C5CC7" translation="[160, 152]" />
-            <Label id="bannerTimes" text="" color="#BFBFBF" width="280" horizAlign="right"
-                   translation="[880, 142]">
-                <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="20" />
+            <Label id="bannerStatus" text="" color="#8C5CC7" width="400" horizAlign="right" translation="[1440, 858]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
+            </Label>
+            <Label id="bannerNow" text="" color="#FFFFFF" width="1760" maxLines="1"
+                   ellipsizeOnBoundary="true" translation="[80, 914]">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="30" />
+            </Label>
+            <Rectangle id="bannerTrack" width="1400" height="6" color="#FFFFFF40" translation="[80, 972]" />
+            <Rectangle id="bannerFill" width="0" height="6" color="#8C5CC7" translation="[80, 972]" />
+            <Label id="bannerTimes" text="" color="#BFBFBF" width="340" horizAlign="right" translation="[1500, 960]">
+                <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="22" />
             </Label>
             <Label id="bannerNext" text="" color="#BFBFBF" width="1000" maxLines="1"
-                   ellipsizeOnBoundary="true" translation="[160, 174]">
-                <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="22" />
+                   ellipsizeOnBoundary="true" translation="[80, 1004]">
+                <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="26" />
+            </Label>
+            <Label id="bannerHints" text="▲▼ channels     ◀▶ guide     OK  info     hold OK  subtitles &amp; audio" color="#8C8C8C"
+                   width="900" horizAlign="right" translation="[940, 1008]">
+                <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="20" />
+            </Label>
+        </Group>
+        <!-- The station's mark, faint in the corner while the bar is down:
+             white logo, then number and name in small type. -->
+        <!-- Stacked: logo over name, centred on one column. -->
+        <Group id="stationBug" opacity="0.45" translation="[-38, 12]" visible="false">
+            <Poster id="stationBugLogo" width="72" height="72" loadDisplayMode="scaleToFit" translation="[84, 0]" />
+            <Label id="stationBugName" text="" color="#FFFFFF" width="240" horizAlign="center" maxLines="1" translation="[0, 78]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="16" />
+            </Label>
+        </Group>
+        <!-- ============ Up Next (a break between slots) ============ -->
+        <Group id="upNextCard" visible="false">
+            <Rectangle width="1920" height="1080" color="#000000F0" />
+            <Poster id="upNextLogo" width="120" height="120" loadDisplayMode="scaleToFit" translation="[900, 230]" />
+            <Label id="upNextStation" text="" color="#FFFFFF" width="1920" horizAlign="center" translation="[0, 370]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="40" />
+            </Label>
+            <Label id="upNextWhen" text="" color="#8C5CC7" width="1920" horizAlign="center" translation="[0, 470]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="26" />
+            </Label>
+            <Label id="upNextTitle" text="" color="#FFFFFF" width="1600" horizAlign="center" maxLines="2" wrap="true" translation="[160, 520]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="56" />
+            </Label>
+            <Label id="upNextDetail" text="" color="#BFBFBF" width="1600" horizAlign="center" maxLines="1" ellipsizeOnBoundary="true" translation="[160, 660]">
+                <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="30" />
+            </Label>
+            <Label id="upNextCountdown" text="" color="#D9D9D9" width="1920" horizAlign="center" translation="[0, 740]">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="32" />
+            </Label>
+            <Label id="upNextClock" text="" color="#B3B3B3" width="300" horizAlign="right" translation="[1540, 980]">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="30" />
             </Label>
         </Group>
         <Timer id="bannerTimer" duration="6" repeat="false" />
+        <!-- OK held this long opens subtitles & audio instead of the info bar. -->
+        <Timer id="okHoldTimer" duration="0.6" repeat="false" />
 
         <!-- ============ OSD overlay ============
              No child ever takes remote focus — the screen tracks a virtual
