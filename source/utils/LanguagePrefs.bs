@@ -1,0 +1,103 @@
+' Preferred audio/subtitle language matching. Same rule as Apple's
+' PlaybackSelection and Android's LanguageMatcher, so a given file starts with
+' the same tracks on every Sashimi client. Pure functions over plain track
+' arrays ([{index, language, isDefault, isForced}]) so they can be exercised
+' without a Video node.
+namespace LanguagePrefs
+
+    ' Settings picker entries. "" = Default: keep the file's own default track.
+    ' Same list and codes as the tvOS picker (ISO 639-1).
+    function options() as object
+        return [
+            { label: "Default", value: "" },
+            { label: "English", value: "en" },
+            { label: "Spanish", value: "es" },
+            { label: "French", value: "fr" },
+            { label: "German", value: "de" },
+            { label: "Italian", value: "it" },
+            { label: "Portuguese", value: "pt" },
+            { label: "Japanese", value: "ja" },
+            { label: "Korean", value: "ko" },
+            { label: "Chinese", value: "zh" },
+            { label: "Russian", value: "ru" },
+            { label: "Arabic", value: "ar" },
+            { label: "Hindi", value: "hi" },
+            { label: "Dutch", value: "nl" },
+            { label: "Polish", value: "pl" },
+            { label: "Swedish", value: "sv" },
+            { label: "Danish", value: "da" },
+            { label: "Norwegian", value: "no" },
+            { label: "Finnish", value: "fi" }
+        ]
+    end function
+
+    ' Jellyfin tags streams with ISO 639-2 ("eng", and both the /B and /T forms
+    ' such as "ger"/"deu"), while the setting stores 639-1 ("en"). Both sides
+    ' are reduced to 639-1; unknown codes compare as themselves, lowercased.
+    function normalize(code as dynamic) as string
+        if code = invalid or GetInterface(code, "ifString") = invalid then return ""
+        c = LCase(code.Trim())
+        if Len(c) <> 3 then return c
+        map = {
+            eng: "en", spa: "es", fra: "fr", fre: "fr", deu: "de", ger: "de"
+            ita: "it", por: "pt", rus: "ru", jpn: "ja", kor: "ko", zho: "zh"
+            chi: "zh", ara: "ar", hin: "hi", nld: "nl", dut: "nl", swe: "sv"
+            nor: "no", dan: "da", fin: "fi", pol: "pl", tur: "tr", ces: "cs"
+            cze: "cs", ell: "el", gre: "el", heb: "he", hun: "hu", tha: "th"
+            vie: "vi", ukr: "uk", ron: "ro", rum: "ro", ind: "id", msa: "ms"
+            may: "ms"
+        }
+        if map.DoesExist(c) then return map[c]
+        return c
+    end function
+
+    ' An empty or missing code on either side never matches.
+    function matches(a as dynamic, b as dynamic) as boolean
+        na = normalize(a)
+        if na = "" then return false
+        return na = normalize(b)
+    end function
+
+    ' Audio stream index for the preferred language, or -1 to leave the file's
+    ' default track playing (no preference, or nothing matches).
+    function preferredAudioIndex(tracks as object, preferred as string) as integer
+        if preferred = "" or tracks = invalid then return -1
+        for each t in tracks
+            if matches(t.language, preferred) then return t.index
+        end for
+        return -1
+    end function
+
+    ' Subtitle stream index to burn in once the caller has decided subtitles
+    ' are ON, or -1 when the file has none. Order, as on Apple/Android: the
+    ' preferred language, then the file's default-flagged track, then the
+    ' first track.
+    '
+    ' One Roku-specific refinement: forced tracks are considered only after
+    ' full ones at every step. Files commonly lead with "Forced - English -
+    ' Default"; burning that in shows almost no cues and reads as "subtitles
+    ' are broken" (the reason the player menu already sorts forced tracks
+    ' last). A forced track is still chosen when it is the only match.
+    function preferredSubtitleIndex(tracks as object, preferred as string) as integer
+        if tracks = invalid or tracks.count() = 0 then return -1
+        full = []
+        forced = []
+        for each t in tracks
+            if t.isForced <> invalid and t.isForced = true then forced.push(t) else full.push(t)
+        end for
+        ordered = []
+        ordered.append(full)
+        ordered.append(forced)
+
+        if preferred <> ""
+            for each t in ordered
+                if matches(t.language, preferred) then return t.index
+            end for
+        end if
+        for each t in full
+            if t.isDefault <> invalid and t.isDefault = true then return t.index
+        end for
+        return ordered[0].index
+    end function
+
+end namespace
