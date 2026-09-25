@@ -1409,11 +1409,14 @@ sub doGetSeasons(request as object)
     url = Http.apiUrl("/Shows/" + seriesId + "/Seasons")
     url += "?UserId=" + m.global.userId
     url += "&Fields=Overview,PrimaryImageAspectRatio"
+    ' UserData (Played / UnplayedItemCount) drives the season options menu's
+    ' Mark Season Watched vs Unwatched label.
+    url += "&EnableUserData=true"
     result = Http.getJson(url)
     if result <> invalid and result.Items <> invalid
-        m.top.response = { success: true, action: "getSeasons", items: result.Items, seriesId: seriesId }
+        m.top.response = { success: true, action: "getSeasons", items: result.Items, seriesId: seriesId, context: request.context }
     else
-        m.top.response = { success: true, action: "getSeasons", items: [], seriesId: seriesId }
+        m.top.response = { success: true, action: "getSeasons", items: [], seriesId: seriesId, context: request.context }
     end if
 end sub
 
@@ -1797,7 +1800,7 @@ sub doMarkPlayed(request as object)
     #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
     ok = (Http.postJson(url, invalid) <> invalid)
-    m.top.response = { success: ok, action: "markPlayed", itemId: itemId }
+    m.top.response = { success: ok, action: "markPlayed", itemId: itemId, context: request.context }
 end sub
 
 sub doMarkUnplayed(request as object)
@@ -1807,7 +1810,7 @@ sub doMarkUnplayed(request as object)
     #end if
     url = Http.apiUrl("/Users/" + m.global.userId + "/PlayedItems/" + itemId)
     ok = isOkStatus(Http.deleteRequest(url))
-    m.top.response = { success: ok, action: "markUnplayed", itemId: itemId }
+    m.top.response = { success: ok, action: "markUnplayed", itemId: itemId, context: request.context }
 end sub
 
 sub doMarkFavorite(request as object)

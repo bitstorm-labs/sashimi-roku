@@ -100,6 +100,9 @@ Movies use the same layout without seasons.*
 - **Seasons and episodes** — season pills plus an episode row for series; an
   episode's own screen shows a "More Episodes" strip with the current episode
   marked. A **Cast** row lists up to 20 actors.
+- **Mark a whole season** — press `*` on a season pill (or in its episode row)
+  for **Mark Season Watched**, or **Mark Season Unwatched** once every episode
+  in it is played. One server call covers the season, Specials included.
 - **Ratings** — the community score with the TMDb mark and, where Jellyfin has
   one, the critic score with a Rotten Tomatoes mark. Both logos are bundled
   images; Sashimi makes no requests to TMDb or Rotten Tomatoes.
