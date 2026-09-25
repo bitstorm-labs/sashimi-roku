@@ -54,6 +54,11 @@ namespace AppSettings
         return Val(read("resumeThresholdSeconds", "30")).ToStr().ToInt()
     end function
 
+    ' "normal" | "zoom" | "stretch" (ViewMode keys, shared with Apple).
+    function defaultViewMode() as string
+        return read("defaultViewMode", "normal")
+    end function
+
     ' TV library Shuffle (issue #141): "randomEpisode" (the original, default)
     ' or "randomShowNextEpisode". A series' own Shuffle is always random.
     function tvShuffleMode() as string
