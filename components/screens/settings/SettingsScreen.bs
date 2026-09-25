@@ -1,6 +1,7 @@
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/AppSettings.bs"
 import "pkg:/source/utils/Servers.bs"
+import "pkg:/source/utils/ViewMode.bs"
 
 ' tvOS Settings parity: card rows (maxWidth 800), focus = accent fill + scale.
 ' Pickers cycle values on OK (TV-simple equivalent of tvOS picker subscreens).
@@ -46,6 +47,12 @@ sub init()
         { label: "10 minutes", value: "600" }
     ]
 
+    ' Normal first: it is the default when nothing is stored.
+    m.viewModeOptions = []
+    for each mode in ViewMode.all()
+        m.viewModeOptions.push({ label: ViewMode.label(mode), value: ViewMode.key(mode) })
+    end for
+
     appInfo = CreateObject("roAppInfo")
     m.versionText = "v" + appInfo.GetVersion()
 
@@ -58,6 +65,7 @@ sub init()
         { key: "autoSkipIntro", title: "Auto-Skip Intro", kind: "toggle", default: "false" },
         { key: "autoSkipCredits", title: "Auto-Skip Credits", kind: "toggle", default: "false" },
         { key: "resumeThresholdSeconds", title: "Resume Threshold", kind: "picker", options: m.resumeOptions },
+        { key: "defaultViewMode", title: "Default View Mode", kind: "picker", options: m.viewModeOptions },
         { key: "subtitlesDefaultOn", title: "Subtitles On By Default", kind: "toggle", default: "false" },
         { key: "use24HourTime", title: "24-Hour Time", kind: "toggle", default: "false" },
         { key: "showQualityBadges", title: "Show Quality Badges", kind: "toggle", default: "true" },
@@ -207,6 +215,9 @@ sub activateRow(index as integer)
         end for
         idx = (idx + 1) mod item.options.count()
         AppSettings.write(item.key, item.options[idx].value)
+        ' A new default is the newer decision, so it replaces a mode picked in
+        ' the player earlier this session (same rule as the Apple client).
+        if item.key = "defaultViewMode" then m.global.sessionViewMode = ""
         m.rows[index].value.text = currentValueLabel(item)
     else if item.kind = "servers"
         openServersManager()

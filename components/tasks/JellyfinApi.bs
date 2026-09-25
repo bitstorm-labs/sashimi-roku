@@ -1,4 +1,5 @@
 import "pkg:/source/utils/Http.bs"
+import "pkg:/source/utils/ViewMode.bs"
 
 sub init()
     m.top.functionName = "taskLoop"
@@ -1580,6 +1581,7 @@ sub doGetPlaybackStream(request as object)
     videoRes = ""
     videoCodec = ""
     srcVideoBps = 0   ' source video stream bitrate, for the delivered-rate calc
+    videoAspect = 0.0 ' display aspect for the view modes; 0 = unknown
     if ms.MediaStreams <> invalid
         for each s in ms.MediaStreams
             t = ""
@@ -1609,6 +1611,10 @@ sub doGetPlaybackStream(request as object)
                     videoRes = str(h).Trim() + "p"
                 end if
                 if s.Codec <> invalid then videoCodec = UCase(s.Codec)
+                ' The source's display shape. A transcode keeps it (Jellyfin
+                ' scales to square pixels at the same display aspect), so the
+                ' source stream is the right answer for every play method.
+                videoAspect = ViewMode.displayAspect(s)
                 if s.BitRate <> invalid then srcVideoBps = s.BitRate
                 ' Fall back to the video stream's own bitrate when the source
                 ' omits an overall Bitrate, so the OSD speed chip is never blank
@@ -1658,6 +1664,7 @@ sub doGetPlaybackStream(request as object)
         audioTracks: audTracks
         videoResolution: videoRes
         videoCodec: videoCodec
+        videoAspect: videoAspect
         bitrate: msBitrate
     }
 end sub

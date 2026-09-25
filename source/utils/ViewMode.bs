@@ -1,0 +1,152 @@
+' Video view modes (#135) and the global default (#136). Names, order and the
+' stored keys ("normal"/"zoom"/"stretch") match the Apple client, so a user sees
+' the same three choices on every Sashimi platform.
+'
+' SceneGraph's Video node has no zoom or stretch setting of its own, so a mode
+' is applied by sizing and placing the node: Zoom makes it larger than the
+' screen at the picture's aspect and centres it (negative translation), Stretch
+' fills the screen whatever the picture's shape. Everything here is pure, so
+' the geometry can be checked without a device.
+namespace ViewMode
+
+    ' Menu values are integers: the player's isCurrentValue(value as integer)
+    ' is typed, and a string value there crashed the player before.
+    const NORMAL = 0
+    const ZOOM = 1
+    const STRETCH = 2
+
+    ' Aspect ratios closer than this to the screen's are treated as equal, so a
+    ' 1.77 or 1.78 source does not get a one-pixel border or crop.
+    const SAME_ASPECT_TOLERANCE = 0.01
+
+    function all() as object
+        return [ViewMode.NORMAL, ViewMode.ZOOM, ViewMode.STRETCH]
+    end function
+
+    function label(mode as integer) as string
+        if mode = ViewMode.ZOOM then return "Zoom"
+        if mode = ViewMode.STRETCH then return "Stretch"
+        return "Normal"
+    end function
+
+    ' The stored form: the session global and the "defaultViewMode" setting.
+    function key(mode as integer) as string
+        if mode = ViewMode.ZOOM then return "zoom"
+        if mode = ViewMode.STRETCH then return "stretch"
+        return "normal"
+    end function
+
+    ' Unknown or empty keys (a mode a later build dropped) read as Normal.
+    ' Comparing a non-string to a string is a runtime type mismatch in
+    ' BrightScript, hence the interface checks before every comparison here.
+    function fromKey(stored as dynamic) as integer
+        if not ViewMode.isText(stored) then return ViewMode.NORMAL
+        if stored = "zoom" then return ViewMode.ZOOM
+        if stored = "stretch" then return ViewMode.STRETCH
+        return ViewMode.NORMAL
+    end function
+
+    ' A mode picked in the player this session wins; otherwise the default.
+    function resolve(sessionKey as dynamic, defaultKey as dynamic) as integer
+        if ViewMode.isText(sessionKey) and sessionKey <> "" then return ViewMode.fromKey(sessionKey)
+        return ViewMode.fromKey(defaultKey)
+    end function
+
+    ' Jellyfin's AspectRatio is free text: "16:9", "2.40:1", sometimes a bare
+    ' "2.35". Returns 0 for anything unparseable or implausible.
+    function parseAspect(text as dynamic) as float
+        if not ViewMode.isText(text) then return 0.0
+        s = text.Trim()
+        if s = "" then return 0.0
+        colon = Instr(1, s, ":")
+        if colon > 0
+            num = Val(Left(s, colon - 1))
+            den = Val(Mid(s, colon + 1))
+            if num <= 0 or den <= 0 then return 0.0
+            return ViewMode.plausible(num / den)
+        end if
+        return ViewMode.plausible(Val(s))
+    end function
+
+    ' The picture's DISPLAY aspect from a PlaybackInfo video MediaStream, or 0
+    ' when it cannot be trusted. AspectRatio comes first because it is the
+    ' display shape: an anamorphic DVD is stored 720x480 but shown 16:9, so
+    ' Width/Height alone would squash it. When a stream is flagged anamorphic
+    ' and carries no usable AspectRatio, its stored size is the wrong shape by
+    ' definition, so it reports unknown rather than a confident wrong answer.
+    function displayAspect(stream as dynamic) as float
+        if stream = invalid or GetInterface(stream, "ifAssociativeArray") = invalid then return 0.0
+        fromText = ViewMode.parseAspect(stream.AspectRatio)
+        if fromText > 0 then return fromText
+        if ViewMode.isTrue(stream.IsAnamorphic) then return 0.0
+        w = ViewMode.number(stream.Width)
+        h = ViewMode.number(stream.Height)
+        if w <= 0 or h <= 0 then return 0.0
+        return ViewMode.plausible(w / h)
+    end function
+
+    ' Real video sits between about 1:1 (some vertical phone footage is
+    ' narrower) and 3.6:1 (Ultra Panavision is 2.76). Outside a generous band
+    ' the metadata is wrong, and zooming to it would crop most of the picture.
+    function plausible(aspect as float) as float
+        if aspect < 0.3 or aspect > 4.0 then return 0.0
+        return aspect
+    end function
+
+    ' Where the Video node goes: { width, height, x, y } in screen pixels.
+    '   Normal  - the largest rect of the picture's aspect inside the screen,
+    '             centred (bars on two sides).
+    '   Zoom    - the smallest rect of the picture's aspect covering the
+    '             screen, centred; x or y goes negative and the overflow is
+    '             cropped by the screen edge.
+    '   Stretch - the screen.
+    ' An unknown aspect (0) gives the screen for every mode: without the
+    ' picture's shape there is nothing to fit or zoom to, and the full screen
+    ' is what the player did before view modes existed.
+    function geometry(mode as integer, aspect as float, screenW as integer, screenH as integer) as object
+        full = { width: screenW, height: screenH, x: 0, y: 0 }
+        if mode = ViewMode.STRETCH or aspect <= 0 or screenW <= 0 or screenH <= 0 then return full
+        screenAspect = screenW / screenH
+        if Abs(aspect - screenAspect) / screenAspect < ViewMode.SAME_ASPECT_TOLERANCE then return full
+
+        wider = aspect > screenAspect
+        if mode = ViewMode.ZOOM then wider = not wider
+        if wider
+            ' Width-bound: full width, height from the aspect.
+            w = screenW
+            h = ViewMode.round(screenW / aspect)
+        else
+            ' Height-bound: full height, width from the aspect.
+            h = screenH
+            w = ViewMode.round(screenH * aspect)
+        end if
+        return { width: w, height: h, x: ViewMode.centre(screenW, w), y: ViewMode.centre(screenH, h) }
+    end function
+
+    function isText(value as dynamic) as boolean
+        return value <> invalid and GetInterface(value, "ifString") <> invalid
+    end function
+
+    function isTrue(value as dynamic) as boolean
+        return value <> invalid and GetInterface(value, "ifBoolean") <> invalid and value = true
+    end function
+
+    ' A JSON number of any numeric type, or 0.
+    function number(value as dynamic) as float
+        if value = invalid then return 0.0
+        if GetInterface(value, "ifInt") <> invalid or GetInterface(value, "ifFloat") <> invalid or GetInterface(value, "ifDouble") <> invalid or GetInterface(value, "ifLongInt") <> invalid then return value
+        return 0.0
+    end function
+
+    function round(value as float) as integer
+        return Int(value + 0.5)
+    end function
+
+    ' Offset that centres a span of `size` in `screen`; negative when it is
+    ' larger. Symmetric for both signs, so a zoom crops the same on each side.
+    function centre(screen as integer, size as integer) as integer
+        if size > screen then return -Int((size - screen) / 2)
+        return Int((screen - size) / 2)
+    end function
+
+end namespace

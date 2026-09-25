@@ -95,6 +95,10 @@ sub init()
     ' ("" = nothing chosen yet, "OFF" = explicitly disabled). Raw stream
     ' indexes are per-file, so the player re-matches by title each episode.
     m.global.addFields({ sessionSubtitleTitle: "" })
+    ' Session-scoped view mode (#135): the ViewMode key picked in the player
+    ' ("" = none this session, so the Default View Mode setting applies). Lasts
+    ' until the app exits, across videos, channels and stream restarts.
+    m.global.addFields({ sessionViewMode: "" })
     ' Physical folder roots of libraries NAMED "youtube" (from VirtualFolders,
     ' e.g. /media/pf/shows). A Continue Watching item "came from the YouTube
     ' library" iff its Path sits under one of these — the reliable signal, since
