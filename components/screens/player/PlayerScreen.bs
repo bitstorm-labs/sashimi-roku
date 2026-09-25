@@ -3,6 +3,7 @@ import "pkg:/source/utils/LanguagePrefs.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/TimeFormat.bs"
+import "pkg:/source/utils/ViewMode.bs"
 
 ' tvOS PlayerViewModel parity on Roku. Design rules learned the hard way:
 '  - The screen NEVER gives remote focus to a child node. Every key lands in
@@ -123,6 +124,7 @@ sub init()
     m.lastPosition = 0
     m.isPaused = false
     m.subtitleBase = ""
+    m.videoAspect = 0.0       ' display aspect of the current stream; 0 = unknown
     m.siblingsRetried = false ' one retry per autoplay handoff (reset in onPlaybackEnded)
 
     ' OSD virtual-highlight state
@@ -209,6 +211,7 @@ sub onItemDataChanged()
     ' would be reported as this one's stop position.
     m.lastPosition = 0
     m.stepDownIdx = -1        ' fresh item starts at full quality
+    m.videoAspect = 0.0       ' the new item's shape arrives with its stream
     m.stepDownBps = 0
     setChapters(data)
     populateInfoBar()
@@ -485,6 +488,11 @@ sub onStreamReady(r as object)
     if r.runTimeTicks <> invalid and r.runTimeTicks > 0 then m.durationSecs = Int(r.runTimeTicks / 10000000&)
     setTrickplay(r.trickplay, r.itemId)
     if r.subtitleTracks <> invalid then m.subTracks = sortSubTracks(r.subtitleTracks)
+    ' Every stream (first play, restart, next episode, channel flip) re-applies
+    ' the view mode, so a rebuilt stream keeps the framing the viewer chose.
+    m.videoAspect = 0.0
+    if r.videoAspect <> invalid then m.videoAspect = r.videoAspect
+    applyViewMode()
     if r.audioTracks <> invalid then m.audTracks = r.audioTracks
 
     ' Start-of-playback track choice. Tracks are only known after negotiation,
@@ -963,6 +971,7 @@ sub buildButtons()
     if m.audTracks.count() > 1 then defs.push({ kind: "audio", label: "Audio" })
     if m.chapters.count() > 1 then defs.push({ kind: "chapters", label: "Chapters" })
     defs.push({ kind: "quality", label: "Quality" })
+    defs.push({ kind: "viewMode", label: "View Mode" })
 
     x = 0
     for each d in defs
@@ -1053,6 +1062,8 @@ sub activateButton()
         openMenu("chapters")
     else if kind = "quality"
         openMenu("quality")
+    else if kind = "viewMode"
+        openMenu("viewMode")
     end if
     bumpOsd()
 end sub
@@ -1079,12 +1090,21 @@ sub openMenu(kind as string)
         end for
         if m.curAudIdx = -1 then current = 0
     else if kind = "channelOptions"
-        ' A channel's held-OK menu: the two track choices the OSD would offer.
-        m.osdMenuTitle.text = "Subtitles & Audio"
+        ' A channel's held-OK menu: the choices the OSD would offer.
+        m.osdMenuTitle.text = "Options"
         ' Integer values like every other menu (isCurrentValue is typed): 1
-        ' subtitles, 2 audio. A string here crashed the menu on open.
+        ' subtitles, 2 audio, 3 view mode. A string here crashed the menu on open.
         m.menuItems.push({ label: "Subtitles", value: 1 })
         if m.audTracks.count() > 1 then m.menuItems.push({ label: "Audio", value: 2 })
+        m.menuItems.push({ label: "View Mode", value: 3 })
+    else if kind = "viewMode"
+        m.osdMenuTitle.text = "View Mode"
+        active = currentViewMode()
+        for each mode in ViewMode.all()
+            m.menuItems.push({ label: ViewMode.label(mode), value: mode })
+            if mode = active then current = m.menuItems.count() - 1
+        end for
+        m.menuItems.push({ label: "Use for All Videos", value: VIEW_MODE_USE_FOR_ALL })
     else if kind = "chapters"
         m.osdMenuTitle.text = "Chapters"
         for i = 0 to m.chapters.count() - 1
@@ -1175,6 +1195,10 @@ function isCurrentValue(value as integer) as boolean
     if m.menuKind = "subs" then return value = m.curSubIdx
     if m.menuKind = "audio" then return (value = m.curAudIdx) or (m.curAudIdx = -1 and m.menuItems.count() > 0 and m.menuItems[0].value = value)
     if m.menuKind = "quality" then return value = m.qualityBps
+    ' "Use for All Videos" is bulleted once the active mode already is the
+    ' default, so the menu answers "is this saved?" (as on Apple TV).
+    if m.menuKind = "viewMode" and value = VIEW_MODE_USE_FOR_ALL then return currentViewMode() = ViewMode.fromKey(AppSettings.defaultViewMode())
+    if m.menuKind = "viewMode" then return value = currentViewMode()
     ' chapters are positions, not settings — no persistent bullet
     return false
 end function
@@ -1197,8 +1221,16 @@ sub applyMenuSelection()
     value = m.menuItems[m.menuIdx].value
 
     if m.menuKind = "channelOptions"
-        if value = 1 then openMenu("subs") else openMenu("audio")
+        if value = 1
+            openMenu("subs")
+        else if value = 2
+            openMenu("audio")
+        else
+            openMenu("viewMode")
+        end if
         return
+    else if m.menuKind = "viewMode"
+        selectViewMode(value)
     else if m.menuKind = "chapters"
         m.seeking = false
         m.video.seek = value
@@ -1234,6 +1266,38 @@ sub applyMenuSelection()
     m.zone = "buttons"
     restyleButtons()
     bumpOsd()
+end sub
+
+' ---------- View modes (#135, #136) ----------
+
+' Menu value for "Use for All Videos"; clear of the ViewMode ids (0-2).
+const VIEW_MODE_USE_FOR_ALL = 10
+
+' The mode picked this session, else the Default View Mode setting.
+function currentViewMode() as integer
+    return ViewMode.resolve(m.global.sessionViewMode, AppSettings.defaultViewMode())
+end function
+
+' No stream restart: the mode is only the Video node's size and place, so it
+' changes under a playing stream. The overlays are siblings of the node, not
+' children, so none of them move with it.
+sub applyViewMode()
+    g = ViewMode.geometry(currentViewMode(), m.videoAspect, 1920, 1080)
+    m.video.width = g.width
+    m.video.height = g.height
+    m.video.translation = [g.x, g.y]
+end sub
+
+sub selectViewMode(value as integer)
+    if value = VIEW_MODE_USE_FOR_ALL
+        ' Saving the active mode as the default makes the session pick
+        ' redundant; clearing it keeps a later Settings change effective.
+        AppSettings.write("defaultViewMode", ViewMode.key(currentViewMode()))
+        m.global.sessionViewMode = ""
+    else
+        m.global.sessionViewMode = ViewMode.key(value)
+    end if
+    applyViewMode()
 end sub
 
 ' ---------- Global captions (cert 4.8) ----------

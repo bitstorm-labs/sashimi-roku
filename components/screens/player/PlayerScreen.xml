@@ -59,7 +59,7 @@
                    ellipsizeOnBoundary="true" translation="[80, 1004]">
                 <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="26" />
             </Label>
-            <Label id="bannerHints" text="▲▼ channels     ◀▶ guide     OK  info     hold OK  subtitles &amp; audio" color="#8C8C8C"
+            <Label id="bannerHints" text="▲▼ channels     ◀▶ guide     OK  info     hold OK  options" color="#8C8C8C"
                    width="900" horizAlign="right" translation="[940, 1008]">
                 <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="20" />
             </Label>
@@ -97,7 +97,7 @@
             </Label>
         </Group>
         <Timer id="bannerTimer" duration="6" repeat="false" />
-        <!-- OK held this long opens subtitles & audio instead of the info bar. -->
+        <!-- OK held this long opens the options (subtitles, audio, view mode) instead of the info bar. -->
         <Timer id="okHoldTimer" duration="0.6" repeat="false" />
 
         <!-- ============ OSD overlay ============
@@ -157,7 +157,7 @@
             </Label>
         </Group>
 
-        <!-- Popup menu (subtitles / audio / quality) -->
+        <!-- Popup menu (subtitles / audio / quality / view mode) -->
         <Group id="osdMenu" visible="false">
             <Poster id="osdMenuBg" uri="pkg:/images/card_r16.9.png" width="560" height="400" translation="[80,400]" />
             <Label id="osdMenuTitle" text="" color="#FFFFFF" width="480" translation="[116,430]">
