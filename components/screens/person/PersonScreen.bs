@@ -1,0 +1,271 @@
+import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/Quality.bs"
+
+' A cast or crew member and what else they are in on THIS server (tvOS
+' PersonDetailView, single-server — the cross-server fan-out is #120).
+' Movies and series come from /Users/{id}/Items?PersonIds=, sorted by SortName
+' like tvOS, paged until the server says there is no more.
+
+const PAGE_SIZE = 100
+
+sub init()
+    m.personImage = m.top.findNode("personImage")
+    m.personInitial = m.top.findNode("personInitial")
+    m.nameLabel = m.top.findNode("nameLabel")
+    m.roleLabel = m.top.findNode("roleLabel")
+    m.sectionLabel = m.top.findNode("sectionLabel")
+    m.posterGrid = m.top.findNode("posterGrid")
+    m.loadingLabel = m.top.findNode("loadingLabel")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.retryBtn = m.top.findNode("retryBtn")
+    m.apiTask = m.top.findNode("apiTask")
+
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.posterGrid.observeFieldScoped("itemSelected", "onItemSelected")
+
+    m.personId = ""
+    m.excludeItemId = ""
+    m.items = []
+    m.seenKeys = {}
+    m.titleRegex = CreateObject("roRegex", "[^a-z0-9]", "i")
+    m.gridContent = invalid
+    m.reqQueue = []
+    m.reqActive = false
+
+    m.top.observeField("focusedChild", "onFocusDelegate")
+end sub
+
+' ---------- Serialized request queue ----------
+' Paging issues several requests; apiTask keeps only the latest write per tick,
+' so they go through the same queue as MediaDetailScreen.
+
+sub enqueue(req as object)
+    m.reqQueue.push(req)
+    pumpQueue()
+end sub
+
+sub pumpQueue()
+    if m.reqActive then return
+    if m.reqQueue.count() = 0 then return
+    m.reqActive = true
+    m.apiTask.request = m.reqQueue.shift()
+end sub
+
+sub onApiResponse()
+    response = m.apiTask.response
+    if response = invalid then return
+    m.reqActive = false
+    if response.action = "getItems" and response.context = "filmography"
+        onFilmographyPage(response)
+    end if
+    pumpQueue()
+end sub
+
+' ---------- Header ----------
+
+sub onPersonDataChanged()
+    person = m.top.personData
+    if person = invalid then return
+
+    m.personId = ""
+    if person.Id <> invalid then m.personId = person.Id
+    m.excludeItemId = ""
+    if person._excludeItemId <> invalid then m.excludeItemId = person._excludeItemId
+
+    name = ""
+    if person.Name <> invalid then name = person.Name
+    m.nameLabel.text = name
+    m.roleLabel.text = displayRole(person)
+
+    if m.personId <> "" and person.PrimaryImageTag <> invalid and person.PrimaryImageTag <> ""
+        m.personImage.uri = ImageUrl.primary(m.personId, 320)
+        m.personInitial.text = ""
+    else
+        m.personImage.uri = ""
+        m.personInitial.text = UCase(Left(name, 1))
+    end if
+
+    loadFilmography()
+end sub
+
+' tvOS displayRole: the character/job, else the person type, else a generic
+' caption so the header never has an empty second line.
+function displayRole(person as object) as string
+    if person.Role <> invalid and person.Role.Trim() <> "" then return person.Role
+    if person.Type <> invalid and person.Type.Trim() <> "" then return person.Type
+    return "Cast & Crew"
+end function
+
+' ---------- Filmography ----------
+
+sub loadFilmography()
+    m.items = []
+    m.seenKeys = {}
+    hideStatus()
+    if m.personId = ""
+        showStatus("Couldn't load this person.", false)
+        return
+    end if
+    m.posterGrid.visible = false
+    m.loadingLabel.visible = true
+    requestPage(0)
+end sub
+
+sub requestPage(startIndex as integer)
+    enqueue({
+        action: "getItems"
+        personIds: m.personId
+        includeItemTypes: "Movie,Series"
+        sortBy: "SortName"
+        sortOrder: "Ascending"
+        limit: PAGE_SIZE
+        startIndex: startIndex
+        context: "filmography"
+    })
+end sub
+
+sub onFilmographyPage(response as object)
+    if not response.success
+        m.loadingLabel.visible = false
+        showStatus("Couldn't load this filmography. Check your server connection.", true)
+        return
+    end if
+
+    page = []
+    if response.items <> invalid then page = response.items
+    for each item in page
+        if keepItem(item) then m.items.push(item)
+    end for
+
+    nextIndex = response.startIndex + page.count()
+    total = 0
+    if response.totalRecordCount <> invalid then total = response.totalRecordCount
+    if page.count() = PAGE_SIZE and nextIndex < total
+        requestPage(nextIndex)
+        return
+    end if
+
+    m.loadingLabel.visible = false
+    buildGrid()
+end sub
+
+' Leave out the title the screen was opened from, and collapse duplicate
+' library copies of the same title (tvOS: type|year|normalised name).
+function keepItem(item as object) as boolean
+    if item.Id = invalid then return false
+    if item.Id = m.excludeItemId then return false
+    key = titleKey(item)
+    if m.seenKeys.doesExist(key) then return false
+    m.seenKeys[key] = true
+    return true
+end function
+
+function titleKey(item as object) as string
+    itemType = ""
+    if item.Type <> invalid then itemType = item.Type
+    name = ""
+    if item.Name <> invalid then name = item.Name
+    return itemType + "|" + displayYear(item) + "|" + m.titleRegex.ReplaceAll(LCase(name), "")
+end function
+
+' ProductionYear, falling back to the PremiereDate year (tvOS displayYear).
+function displayYear(item as object) as string
+    if item.ProductionYear <> invalid and item.ProductionYear > 0 then return str(item.ProductionYear).Trim()
+    if item.PremiereDate <> invalid and Len(item.PremiereDate) >= 4
+        y = Left(item.PremiereDate, 4)
+        if Val(y) > 0 then return y
+    end if
+    return ""
+end function
+
+sub buildGrid()
+    if m.items.count() = 0
+        showStatus("No other movies or shows with this person on this server.", false)
+        return
+    end if
+
+    m.gridContent = CreateObject("roSGNode", "ContentNode")
+    for each item in m.items
+        child = m.gridContent.createChild("ContentNode")
+        title = ""
+        if item.Name <> invalid then title = item.Name
+        child.shortDescriptionLine1 = title
+
+        parts = []
+        year = displayYear(item)
+        if year <> "" then parts.push(year)
+        itemType = ""
+        if item.Type <> invalid then itemType = item.Type
+        if itemType = "Series"
+            parts.push("Show")
+        else if itemType = "Movie"
+            parts.push("Movie")
+        end if
+        subtitle = ""
+        for i = 0 to parts.count() - 1
+            if i > 0 then subtitle += " " + Chr(8226) + " "
+            subtitle += parts[i]
+        end for
+        child.shortDescriptionLine2 = subtitle
+
+        if item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+            child.HDPosterUrl = ImageUrl.primary(item.Id, 210)
+        end if
+
+        child.addFields({ itemJson: "", isCircular: false, quality: Quality.badge(item), communityRating: Quality.rating(item) })
+        child.itemJson = FormatJSON(item)
+    end for
+
+    m.posterGrid.content = m.gridContent
+    m.posterGrid.visible = true
+    if m.top.isInFocusChain() then m.posterGrid.setFocus(true)
+end sub
+
+sub onItemSelected()
+    index = m.posterGrid.itemSelected
+    if index < 0 or m.gridContent = invalid then return
+    child = m.gridContent.getChild(index)
+    if child = invalid or child.itemJson = "" then return
+    itemData = ParseJSON(child.itemJson)
+    if itemData <> invalid then m.top.selectedItem = itemData
+end sub
+
+' ---------- Status / focus ----------
+
+sub showStatus(text as string, retry as boolean)
+    m.posterGrid.visible = false
+    m.statusLabel.text = text
+    m.statusLabel.visible = true
+    m.retryBtn.visible = retry
+    if retry and m.top.isInFocusChain() then m.retryBtn.setFocus(true)
+end sub
+
+sub hideStatus()
+    m.statusLabel.visible = false
+    m.retryBtn.visible = false
+end sub
+
+' Something inside the screen must hold focus once there is something to
+' focus; while loading (or on an empty result) the screen itself keeps it and
+' Back still bubbles to MainScene.
+sub onFocusDelegate()
+    if not m.top.hasFocus() then return
+    if m.retryBtn.visible
+        m.retryBtn.setFocus(true)
+    else if m.posterGrid.visible
+        m.posterGrid.setFocus(true)
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "OK" and m.retryBtn.hasFocus()
+        ' Retry is hidden now; take focus off it, or the invisible node keeps
+        ' swallowing every keypress. The grid claims focus when it lands.
+        loadFilmography()
+        m.top.setFocus(true)
+        return true
+    end if
+    return false
+end function

@@ -4,6 +4,8 @@
         <field id="itemData" type="assocarray" onChange="onItemDataChanged" />
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
         <field id="playItem" type="assocarray" alwaysNotify="true" />
+        <!-- A cast/crew cell was selected: MainScene pushes PersonScreen. -->
+        <field id="selectedPerson" type="assocarray" alwaysNotify="true" />
         <field id="autoPlay" type="boolean" value="false" />
         <!-- Deep link (cert 5.2) could not be resolved: MainScene pops to home
              and shows an error rather than stranding the user on a blank

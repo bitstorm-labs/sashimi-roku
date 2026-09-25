@@ -1200,6 +1200,10 @@ sub doGetItems(request as object)
     url += "&StartIndex=" + str(startIndex).Trim()
 
     if parentId <> "" then url += "&ParentId=" + parentId
+    ' Filmography: everything this person is credited on (PersonScreen).
+    if request.personIds <> invalid and request.personIds <> ""
+        url += "&PersonIds=" + Http.escape(request.personIds)
+    end if
 
     if request.includeTypes <> invalid and request.includeTypes <> ""
         url += "&IncludeItemTypes=" + request.includeTypes
