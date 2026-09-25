@@ -688,6 +688,12 @@ sub doGetChannelNowPlaying(request as object)
     meta = {}
     result = Http.getJson(Http.apiUrl("/VirtualChannels/" + request.channelId + "/NowPlaying"), meta)
     offAir = (meta.statusCode = 204)
+    ' Between slots (plugin 0.9+): the programme starts at StartUtc, from the
+    ' top. Carried as an epoch so every tune path can hand it to the player.
+    if result <> invalid and type(result) = "roAssociativeArray"
+        result.BreakUntil = 0
+        if result.IsBreak <> invalid and result.IsBreak = true then result.BreakUntil = isoToEpoch(valueOr(result.StartUtc, ""))
+    end if
     m.top.response = {
         success: true,
         action: "getChannelNowPlaying",
@@ -740,6 +746,7 @@ sub doGetChannelCards()
         card = {
             channelId: id,
             channelNumber: valueOrNumber(channel.Number, 0),
+            channelLogo: valueOr(channel.Logo, ""),
             channelName: valueOr(channel.Name, ""),
             channelDescription: valueOr(channel.Description, ""),
             offAir: true,
@@ -874,6 +881,7 @@ sub doGetGuide(request as object)
         out.push({
             id: valueOr(row.Id, ""),
             number: valueOrNumber(row.Number, 0),
+            logo: valueOr(row.Logo, ""),
             name: valueOr(row.Name, ""),
             description: valueOr(row.Description, ""),
             programs: programs
