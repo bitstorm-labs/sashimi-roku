@@ -33,11 +33,17 @@ namespace Http
         return result
     end function
 
-    ' meta (optional): an AA that receives { statusCode } so callers can tell a
-    ' 401 from a timeout from a 5xx. Collapsing everything to invalid is what
-    ' made an expired token indistinguishable from "server down" and left the
-    ' home screen spinning forever.
-    function getJson(url as string, meta = invalid as object) as dynamic
+    ' meta (optional): an AA that receives { statusCode, failureReason } so
+    ' callers can tell a 401 from a timeout from a 5xx. Collapsing everything to
+    ' invalid is what made an expired token indistinguishable from "server down"
+    ' and left the home screen spinning forever. statusCode is 0 when timeoutMs
+    ' ran out, and a negated libcurl code when the transfer itself failed;
+    ' failureReason is roUrlEvent.GetFailureReason(), the only place a refused
+    ' connection can be told from an unroutable one.
+    '
+    ' timeoutMs: 30s suits a fetch behind an already-populated screen. Sign-in
+    ' passes a much shorter budget (SignInError.TIMEOUT_MS).
+    function getJson(url as string, meta = invalid as object, timeoutMs = 30000 as integer) as dynamic
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")
         request.SetMessagePort(port)
@@ -49,10 +55,13 @@ namespace Http
         request.RetainBodyOnError(true)
 
         if request.AsyncGetToString()
-            msg = wait(30000, port)
+            msg = wait(timeoutMs, port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 code = msg.GetResponseCode()
-                if meta <> invalid then meta.statusCode = code
+                if meta <> invalid
+                    meta.statusCode = code
+                    meta.failureReason = msg.GetFailureReason()
+                end if
                 if code = 204
                     ' No content is a legitimate answer, not a failure — the
                     ' Channels plugin uses it for "off air". Parsing the empty
@@ -87,7 +96,7 @@ namespace Http
     ' a valid JSON document under RFC 7159 but not an object or array, and
     ' Roku's parser is not guaranteed to accept a scalar root. Returns invalid
     ' on any non-2xx, with the same { statusCode } meta convention as getJson.
-    function getText(url as string, meta = invalid as object) as dynamic
+    function getText(url as string, meta = invalid as object, timeoutMs = 30000 as integer) as dynamic
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")
         request.SetMessagePort(port)
@@ -99,10 +108,13 @@ namespace Http
         request.RetainBodyOnError(true)
 
         if request.AsyncGetToString()
-            msg = wait(30000, port)
+            msg = wait(timeoutMs, port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 code = msg.GetResponseCode()
-                if meta <> invalid then meta.statusCode = code
+                if meta <> invalid
+                    meta.statusCode = code
+                    meta.failureReason = msg.GetFailureReason()
+                end if
                 if code >= 200 and code < 300 then return msg.GetString()
                 #if DEBUG
                     print "HTTP GET error: " + str(code)
@@ -123,7 +135,7 @@ namespace Http
     ' meta (optional): the same { statusCode } convention as getJson. A POST
     ' that returns invalid can mean rejected credentials, a redirect, a dead
     ' server or a timeout, and the sign-in screen has to say which.
-    function postJson(url as string, body as dynamic, meta = invalid as object) as dynamic
+    function postJson(url as string, body as dynamic, meta = invalid as object, timeoutMs = 30000 as integer) as dynamic
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")
         request.SetMessagePort(port)
@@ -141,10 +153,13 @@ namespace Http
         end if
 
         if request.AsyncPostFromString(bodyStr)
-            msg = wait(30000, port)
+            msg = wait(timeoutMs, port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 code = msg.GetResponseCode()
-                if meta <> invalid then meta.statusCode = code
+                if meta <> invalid
+                    meta.statusCode = code
+                    meta.failureReason = msg.GetFailureReason()
+                end if
                 if code >= 200 and code < 300
                     responseStr = msg.GetString()
                     if responseStr <> "" and responseStr <> invalid
@@ -158,6 +173,9 @@ namespace Http
                     return invalid
                 end if
             else
+                ' Cancel, as getJson does: an abandoned transfer otherwise keeps
+                ' the connection attempt alive on this thread.
+                request.AsyncCancel()
                 if meta <> invalid then meta.statusCode = 0
                 #if DEBUG
                     print "HTTP POST timeout for " + url
@@ -169,7 +187,7 @@ namespace Http
         return invalid
     end function
 
-    function deleteRequest(url as string) as integer
+    function deleteRequest(url as string, timeoutMs = 30000 as integer) as integer
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")
         request.SetMessagePort(port)
@@ -181,7 +199,7 @@ namespace Http
         request.RetainBodyOnError(true)
 
         if request.AsyncGetToString()
-            msg = wait(30000, port)
+            msg = wait(timeoutMs, port)
             if msg <> invalid and type(msg) = "roUrlEvent"
                 return msg.GetResponseCode()
             end if

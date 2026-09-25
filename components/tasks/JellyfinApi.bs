@@ -1,4 +1,5 @@
 import "pkg:/source/utils/Http.bs"
+import "pkg:/source/utils/SignInError.bs"
 
 sub init()
     m.top.functionName = "taskLoop"
@@ -169,7 +170,7 @@ sub doGetPublicInfo(request as object)
             ' A scheme-less address is normalized to http, so an https-only
             ' server would otherwise be permanently unreachable. Skipped after
             ' a timeout (statusCode 0): nothing answered on that port, and a
-            ' second 10s wait is a long time to hold someone on a spinner.
+            ' second 12s wait is a long time to hold someone on a spinner.
             secure = probePublicInfo(secureUrl)
             if secure.ok
                 serverUrl = secureUrl
@@ -228,13 +229,13 @@ function probePublicInfo(serverUrl as string) as object
         return { ok: false, info: invalid, statusCode: -1, error: "Could not reach the server. Check the address and that the server is running." }
     end if
 
-    msg = wait(10000, port)
+    msg = wait(SignInError.TIMEOUT_MS, port)
     if msg = invalid
         transfer.AsyncCancel()
         #if DEBUG
             print "[API] Request timed out"
         #end if
-        return { ok: false, info: invalid, statusCode: 0, error: "Could not reach the server. Check the address and that the server is running." }
+        return { ok: false, info: invalid, statusCode: 0, error: SignInError.transport(0, "") }
     end if
 
     if type(msg) <> "roUrlEvent"
@@ -250,10 +251,13 @@ function probePublicInfo(serverUrl as string) as object
     #end if
 
     if code < 0
+        reason = msg.GetFailureReason()
         #if DEBUG
-            print "[API] Connection error: " + msg.GetFailureReason()
+            print "[API] Connection error: " + str(code).Trim() + " " + reason
         #end if
-        return { ok: false, info: invalid, statusCode: code, error: "Could not reach the server. Check the address and that the server is running." }
+        failure = SignInError.transport(code, reason)
+        if failure = "" then failure = "Could not reach the server. Check the address and that the server is running."
+        return { ok: false, info: invalid, statusCode: code, error: failure }
     end if
 
     if code >= 300 and code < 400
@@ -311,14 +315,16 @@ sub doAuthenticate(request as object)
     url = Http.apiUrl("/Users/AuthenticateByName")
     body = { Username: username, Pw: password }
     meta = {}
-    result = Http.postJson(url, body, meta)
+    result = Http.postJson(url, body, meta, SignInError.TIMEOUT_MS)
 
     failure = "Authentication failed. Check your username and password."
     if result = invalid
+        code = metaCode(meta)
         #if DEBUG
-            print "[API] Auth request failed: " + str(meta.statusCode).Trim()
+            print "[API] Auth request failed: " + str(code).Trim()
         #end if
-        failure = authFailureMessage(meta.statusCode)
+        failure = SignInError.authenticate(code, metaReason(meta))
+        if failure = "" then failure = authFailureMessage(code)
     end if
 
     emitAuthResponse("authenticate", result, serverUrl, failure)
@@ -376,6 +382,18 @@ function authFailureMessage(code as integer) as string
     return "Could not reach the server. Check the address and that the server is running."
 end function
 
+' The { statusCode, failureReason } an Http call left in its meta AA. A request
+' that never started leaves no statusCode at all.
+function metaCode(meta as object) as integer
+    if meta.statusCode = invalid then return -1
+    return meta.statusCode
+end function
+
+function metaReason(meta as object) as string
+    if meta.failureReason = invalid then return ""
+    return meta.failureReason
+end function
+
 ' ---------- Quick Connect ----------
 '
 ' Roku has no keyboard: every character of a password is a D-pad walk across an
@@ -394,7 +412,9 @@ end function
 ' only question the screen is asking.
 sub doQuickConnectEnabled(request as object)
     m.global.serverUrl = request.serverUrl
-    body = Http.getText(Http.apiUrl("/QuickConnect/Enabled"))
+    ' Sign-in budget: this sits in the screen's serialized queue straight after
+    ' the address probe, so a stalled answer would hold up a Connect press.
+    body = Http.getText(Http.apiUrl("/QuickConnect/Enabled"), invalid, SignInError.TIMEOUT_MS)
     enabled = false
     if body <> invalid then enabled = (LCase(body.Trim()) = "true")
     #if DEBUG
@@ -416,13 +436,17 @@ sub doQuickConnectInitiate(request as object)
     m.global.serverUrl = request.serverUrl
     url = Http.apiUrl("/QuickConnect/Initiate")
 
-    result = Http.getJson(url)
+    meta = {}
+    result = Http.getJson(url, meta, SignInError.TIMEOUT_MS)
     ' Jellyfin has moved this route between GET and POST across releases, and
     ' the wrong verb is a 404/405 rather than anything descriptive. Try the
     ' other one before giving up; an unused pending request costs the server
-    ' nothing and expires on its own.
-    if result = invalid or result.Secret = invalid
-        result = Http.postJson(url, invalid)
+    ' nothing and expires on its own. Only when the server actually answered,
+    ' though: after a timeout or a failed connection the POST would fail the
+    ' same way, and double the wait.
+    if (result = invalid or result.Secret = invalid) and metaCode(meta) > 0
+        meta = {}
+        result = Http.postJson(url, invalid, meta, SignInError.TIMEOUT_MS)
     end if
 
     if result <> invalid and result.Secret <> invalid and result.Code <> invalid
@@ -435,10 +459,12 @@ sub doQuickConnectInitiate(request as object)
         return
     end if
 
+    failure = SignInError.transport(metaCode(meta), metaReason(meta))
+    if failure = "" then failure = "Could not start Quick Connect on this server."
     m.top.response = {
         success: false
         action: "quickConnectInitiate"
-        error: "Could not start Quick Connect on this server."
+        error: failure
     }
 end sub
 
@@ -489,19 +515,19 @@ sub doAuthenticateWithQuickConnect(request as object)
     #end if
 
     meta = {}
-    result = Http.postJson(Http.apiUrl("/Users/AuthenticateWithQuickConnect"), { Secret: request.secret }, meta)
+    result = Http.postJson(Http.apiUrl("/Users/AuthenticateWithQuickConnect"), { Secret: request.secret }, meta, SignInError.TIMEOUT_MS)
 
     failure = "Quick Connect sign-in failed. Try again."
     if result = invalid
-        code = 0
-        if meta.statusCode <> invalid then code = meta.statusCode
+        code = metaCode(meta)
         ' The server 404s an unapproved or expired secret; 401/403 means it
         ' will not honour this one either. None of those are a password
         ' problem, so authFailureMessage's wording would only mislead.
         if code = 404 or code = 401 or code = 403
             failure = "That Quick Connect code is no longer valid. Start again to get a new one."
         else
-            failure = authFailureMessage(code)
+            failure = SignInError.transport(code, metaReason(meta))
+            if failure = "" then failure = authFailureMessage(code)
         end if
     end if
 
