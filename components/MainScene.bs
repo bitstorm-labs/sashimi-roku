@@ -498,6 +498,15 @@ end sub
 sub enterMainUI()
     measureConnection()
     switchSelection({ kind: "home" })
+    ' Every way in (session restore, either sign-in path, auth cancel, server
+    ' switch) now has its final credentials in place, so this is the moment the
+    ' rail's libraries and avatar can load. The sidebar used to key that only
+    ' off m.global.serverUrl CHANGING -- which, on a sign-in from an empty
+    ' session, happens when the sign-in screen first probes the address, before
+    ' any token exists. That load got a 401 and no user, and the real sign-in
+    ' rewrote the same url, so nothing reloaded: no Movies/TV/YouTube and a "?"
+    ' avatar until a relaunch (#162).
+    m.sidebar.callFunc("reloadSession")
 
     liftOverlays()
     m.sidebar.visible = true
