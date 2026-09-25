@@ -10,7 +10,8 @@ sub main(args as dynamic)
     end if
 
     screen.show()
-    scene.signalBeacon("AppLaunchComplete")
+    ' AppLaunchComplete is NOT fired here: at this instant Home is still a
+    ' "Loading..." label. MainScene fires it once content lands (cert 3.2).
 
     ' Deep links while the channel is already running arrive as roInput
     ' events (cert 5.2); route them through the same launchArgs path.

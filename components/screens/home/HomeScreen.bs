@@ -248,7 +248,12 @@ sub onLibrariesLoaded(response as object)
         ' observes this and routes to the auth screen.
         code = 0
         if response.statusCode <> invalid then code = response.statusCode
-        if code = 401 or code = 403 then m.global.sessionExpired = true
+        ' A rejected token goes to sign-in, whose dialog precedes the beacon.
+        if code = 401 or code = 403
+            m.global.sessionExpired = true
+        else
+            reportHomeRendered()
+        end if
         return
     end if
 
@@ -1388,6 +1393,12 @@ sub onNewestChannelVideosLoaded(response as object)
     #end if
 end sub
 
+' Launch beacon: the first populated (or failed) render of Home. The global
+' field only notifies on change, so repeats are free.
+sub reportHomeRendered()
+    if m.global.launchMilestone = "" then m.global.launchMilestone = "home"
+end sub
+
 sub onRelayoutFire()
     if m.pendingRowContent = invalid then return
     m.rowList.content = m.pendingRowContent
@@ -1398,6 +1409,7 @@ sub onRelayoutFire()
     m.rowList.rowHeights = m.pendingRowHeights
     m.pendingRowContent = invalid
     m.rowList.visible = true
+    reportHomeRendered()
     ' Take focus only if home already owns it (background refreshes must
     ' never steal the remote). Land on the CW row with the hero VISIBLE
     ' above it; the hero collapses when scrolling into deeper rows.
