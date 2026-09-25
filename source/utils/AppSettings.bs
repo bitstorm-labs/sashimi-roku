@@ -27,6 +27,17 @@ namespace AppSettings
         return read("subtitlesDefaultOn", "false") = "true"
     end function
 
+    ' ISO 639-1 code, or "" = Default (the file's own default track)
+    function preferredAudioLanguage() as string
+        return read("preferredAudioLanguage", "")
+    end function
+
+    ' ISO 639-1 code, or "" = Default. Picks WHICH track once subtitles are on;
+    ' whether they are on is still subtitlesDefaultOn / the Roku caption mode.
+    function preferredSubtitleLanguage() as string
+        return read("preferredSubtitleLanguage", "")
+    end function
+
     function autoPlayNextEpisode() as boolean
         return read("autoPlayNextEpisode", "true") = "true"
     end function
@@ -41,6 +52,17 @@ namespace AppSettings
 
     function resumeThresholdSeconds() as integer
         return Val(read("resumeThresholdSeconds", "30")).ToStr().ToInt()
+    end function
+
+    ' "normal" | "zoom" | "stretch" (ViewMode keys, shared with Apple).
+    function defaultViewMode() as string
+        return read("defaultViewMode", "normal")
+    end function
+
+    ' TV library Shuffle (issue #141): "randomEpisode" (the original, default)
+    ' or "randomShowNextEpisode". A series' own Shuffle is always random.
+    function tvShuffleMode() as string
+        return read("tvShuffleMode", "randomEpisode")
     end function
 
     function use24HourTime() as boolean

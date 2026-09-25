@@ -100,6 +100,9 @@ Movies use the same layout without seasons.*
 - **Seasons and episodes** — season pills plus an episode row for series; an
   episode's own screen shows a "More Episodes" strip with the current episode
   marked. A **Cast** row lists up to 20 actors.
+- **Mark a whole season** — press `*` on a season pill (or in its episode row)
+  for **Mark Season Watched**, or **Mark Season Unwatched** once every episode
+  in it is played. One server call covers the season, Specials included.
 - **Ratings** — the community score with the TMDb mark and, where Jellyfin has
   one, the critic score with a Rotten Tomatoes mark. Both logos are bundled
   images; Sashimi makes no requests to TMDb or Rotten Tomatoes.
@@ -123,6 +126,12 @@ Movies use the same layout without seasons.*
 - **Audio and subtitle track selection.** Subtitles are burned in server-side,
   which makes every format work — SRT, styled ASS, image-based PGS — at the cost
   of a stream restart. See [Known limitations](#subtitle-changes-restart-the-stream).
+- **View modes** — *View Mode* on the overlay (or hold OK on a channel) frames
+  the picture as **Normal** (whole picture, native shape), **Zoom** (fills the
+  screen, crops the edges) or **Stretch** (fills the screen, distorts). The pick
+  lasts for the rest of the session, across episodes, channels and stream
+  restarts, without restarting playback; *Use for All Videos* saves it as the
+  default.
 - **Roku's system caption setting is honoured** — turning captions on or off in
   Roku's own settings selects or clears a subtitle track.
 - **Adaptive fallbacks** — a direct play the hardware rejects retries once over
@@ -205,6 +214,7 @@ press **Connect**.
 | **Auto-Skip Intro** | Off | Requires the Intro Skipper plugin. |
 | **Auto-Skip Credits** | Off | Requires the Intro Skipper plugin. |
 | **Resume Threshold** | 30 seconds | How far in you must be before Sashimi offers to resume rather than start over. |
+| **Default View Mode** | Normal | Normal, Zoom or Stretch. A mode picked in the player overrides it for the rest of that session; changing it here replaces that pick. |
 | **Subtitles On By Default** | Off | Selects the first subtitle track when playback starts. |
 | **24-Hour Time** | Off | Affects the player clock, "Finishes at" and "Ends at". |
 | **Show Quality Badges** | On | 4K / HD / SD badges on artwork. |

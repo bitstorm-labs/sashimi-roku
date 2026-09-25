@@ -65,6 +65,9 @@ sub init()
     m.isDeepLink = false
     m.seasons = []
     m.selectedSeasonIndex = 0
+    m.selectedEpisodes = []     ' episodes of the selected season, as loaded
+    m.seasonAction = invalid    ' { season, index, played } awaiting confirmation
+    m.restoreSeasonFocus = false
     m.playTarget = invalid      ' resolved episode a Series/Season Play button launches
     m.pendingPlay = false       ' Play pressed before the target resolved
     m.zone = "buttons"          ' buttons | rows
@@ -98,7 +101,12 @@ sub onApiResponse()
     m.reqActive = false
 
     action = response.action
-    if action = "getItem"
+    if response.context <> invalid and response.context = "season"
+        ' Season-level watched toggle and its targeted refresh: kept apart from
+        ' the whole-item paths so the screen isn't rebuilt and focus stays on
+        ' the season chip.
+        onSeasonWatchResponse(response)
+    else if action = "getItem"
         if response.context <> invalid and response.context = "seriesMeta"
             onSeriesMetaLoaded(response)
         else
@@ -322,6 +330,7 @@ sub onItemLoaded(response as object)
     m.rowContent = CreateObject("roSGNode", "ContentNode")
     m.rowKinds = []
     m.seasons = []
+    m.selectedEpisodes = []
     m.currentEpIndex = invalid
     m.playTarget = invalid
     m.pendingPlay = false
@@ -1179,6 +1188,7 @@ end sub
 sub onEpisodesLoaded(response as object)
     episodes = []
     if response.success and response.items <> invalid then episodes = response.items
+    m.selectedEpisodes = episodes
 
     ' Rebuild the whole rowContent so the RowList stays a single multi-row list.
     m.rowContent = CreateObject("roSGNode", "ContentNode")
@@ -1352,6 +1362,15 @@ sub commitRows()
             if epRow > 0 then m.rowList.jumpToItem = 0
         end if
     end if
+
+    ' After a season watched toggle the rows are rebuilt; put focus back on
+    ' the season chip the viewer acted on instead of the list's first item.
+    if m.restoreSeasonFocus
+        m.restoreSeasonFocus = false
+        if m.rowKinds.count() > 0 and m.rowKinds[0] = "season"
+            m.rowList.jumpToRowItem = [0, m.selectedSeasonIndex]
+        end if
+    end if
 end sub
 
 sub onRowItemSelected()
@@ -1420,7 +1439,125 @@ function onKeyEvent(key as string, press as boolean) as boolean
             focusZone("buttons")
             return true
         end if
+        if key = "options" then return showSeasonOptions()
         return false
     end if
     return false
 end function
+
+' ---------- Season watched toggle (options menu) ----------
+' Options (*) on a Series' season chip — or anywhere in its episode row, which
+' belongs to the selected season — offers Mark Season Watched / Unwatched.
+' POST/DELETE /Users/{uid}/PlayedItems/{seasonId} marks every episode in one
+' server call. The dialog doubles as the confirmation the batch write needs.
+' A Season-type detail (deep link only) already has this as its Mark Watched
+' button, since the item there IS the season.
+
+function showSeasonOptions() as boolean
+    if m.itemType <> "Series" or m.seasons.count() = 0 then return false
+    focused = m.rowList.rowItemFocused
+    if focused = invalid or focused.count() < 2 then return false
+    rowIndex = focused[0]
+    if rowIndex < 0 or rowIndex >= m.rowKinds.count() then return false
+    kind = m.rowKinds[rowIndex]
+    idx = m.selectedSeasonIndex
+    if kind = "season"
+        idx = focused[1]
+    else if kind <> "episode"
+        return false
+    end if
+    if idx < 0 or idx >= m.seasons.count() then return false
+
+    season = m.seasons[idx]
+    episodes = invalid
+    if idx = m.selectedSeasonIndex then episodes = m.selectedEpisodes
+    played = isSeasonFullyPlayed(season, episodes)
+    m.seasonAction = { season: season, index: idx, played: played }
+
+    name = "this season"
+    if season.Name <> invalid and season.Name <> "" then name = season.Name
+    label = "Mark Season Watched"
+    msg = "Mark every episode in " + name + " as watched?"
+    if played
+        label = "Mark Season Unwatched"
+        msg = "Mark every episode in " + name + " as unwatched?"
+    end if
+
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = name
+    dialog.message = [msg]
+    dialog.buttons = [label, "Cancel"]
+    dialog.observeFieldScoped("buttonSelected", "onSeasonOptionsButton")
+    m.top.getScene().dialog = dialog
+    return true
+end function
+
+' "Every episode already played" decides Unwatched vs Watched. The loaded
+' episode list is authoritative for the selected season; any other season
+' falls back to the season's own UserData (Jellyfin rolls Played up from its
+' episodes). An empty season offers Mark Watched — the write is idempotent.
+function isSeasonFullyPlayed(season as object, episodes as dynamic) as boolean
+    if episodes <> invalid and episodes.count() > 0
+        for each ep in episodes
+            if ep.UserData = invalid or ep.UserData.Played <> true then return false
+        end for
+        return true
+    end if
+    if season = invalid or season.UserData = invalid then return false
+    return (season.UserData.Played = true)
+end function
+
+sub onSeasonOptionsButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    dialog.close = true
+    pending = m.seasonAction
+    m.seasonAction = invalid
+    if idx = 0 and pending <> invalid
+        act = "markPlayed"
+        if pending.played then act = "markUnplayed"
+        ' Show the season acted on, so the refreshed episode badges are the
+        ' visible confirmation.
+        m.selectedSeasonIndex = pending.index
+        enqueue({ action: act, itemId: pending.season.Id, context: "season" })
+    end if
+    focusZone("rows")
+end sub
+
+sub onSeasonWatchResponse(response as object)
+    action = response.action
+    if action = "markPlayed" or action = "markUnplayed"
+        if not response.success
+            m.global.toastMessage = { message: watchStateFailureMessage() }
+            return
+        end if
+        if action = "markPlayed"
+            m.global.toastMessage = { message: "Season marked watched" }
+        else
+            m.global.toastMessage = { message: "Season marked unwatched" }
+        end if
+        ' Home refreshes Continue Watching / Next Up on return.
+        m.global.watchStateDirty = true
+        if m.item = invalid then return
+        ' Series header (its own Watched button), season UserData + episode
+        ' badges, then the Play target — Next Up moves with the season.
+        enqueue({ action: "getItem", itemId: m.item.Id, context: "season" })
+        enqueue({ action: "getSeasons", seriesId: m.item.Id, context: "season" })
+        enqueue({ action: "getNextUp", seriesId: m.item.Id, limit: 1, context: "playTargetNextUp" })
+    else if action = "getItem"
+        if response.success and response.item <> invalid
+            m.item = response.item
+            buildButtons()
+        end if
+    else if action = "getSeasons"
+        if response.success and response.items <> invalid and response.items.count() > 0
+            m.seasons = response.items
+        end if
+        if m.seasons.count() = 0 then return
+        if m.selectedSeasonIndex >= m.seasons.count() then m.selectedSeasonIndex = 0
+        m.restoreSeasonFocus = (m.zone = "rows")
+        ' Unscoped context: the episode reload goes through onEpisodesLoaded.
+        enqueue({ action: "getEpisodes", seriesId: m.item.Id, seasonId: m.seasons[m.selectedSeasonIndex].Id })
+    end if
+end sub

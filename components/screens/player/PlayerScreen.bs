@@ -1,7 +1,9 @@
 import "pkg:/source/utils/AppSettings.bs"
+import "pkg:/source/utils/LanguagePrefs.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/TimeFormat.bs"
+import "pkg:/source/utils/ViewMode.bs"
 
 ' tvOS PlayerViewModel parity on Roku. Design rules learned the hard way:
 '  - The screen NEVER gives remote focus to a child node. Every key lands in
@@ -122,6 +124,7 @@ sub init()
     m.lastPosition = 0
     m.isPaused = false
     m.subtitleBase = ""
+    m.videoAspect = 0.0       ' display aspect of the current stream; 0 = unknown
     m.siblingsRetried = false ' one retry per autoplay handoff (reset in onPlaybackEnded)
 
     ' OSD virtual-highlight state
@@ -208,6 +211,7 @@ sub onItemDataChanged()
     ' would be reported as this one's stop position.
     m.lastPosition = 0
     m.stepDownIdx = -1        ' fresh item starts at full quality
+    m.videoAspect = 0.0       ' the new item's shape arrives with its stream
     m.stepDownBps = 0
     setChapters(data)
     populateInfoBar()
@@ -484,42 +488,40 @@ sub onStreamReady(r as object)
     if r.runTimeTicks <> invalid and r.runTimeTicks > 0 then m.durationSecs = Int(r.runTimeTicks / 10000000&)
     setTrickplay(r.trickplay, r.itemId)
     if r.subtitleTracks <> invalid then m.subTracks = sortSubTracks(r.subtitleTracks)
+    ' Every stream (first play, restart, next episode, channel flip) re-applies
+    ' the view mode, so a rebuilt stream keeps the framing the viewer chose.
+    m.videoAspect = 0.0
+    if r.videoAspect <> invalid then m.videoAspect = r.videoAspect
+    applyViewMode()
     if r.audioTracks <> invalid then m.audTracks = r.audioTracks
 
-    ' Subtitle continuity: tracks are only known after negotiation, so on the
-    ' FIRST response per file (guarded), re-match the session's remembered
-    ' track title — or the Subtitles-On-By-Default setting when nothing was
-    ' chosen this session — and renegotiate once with that stream index.
-    if m.curSubIdx = -1 and not m.subPrefApplied
+    ' Start-of-playback track choice. Tracks are only known after negotiation,
+    ' so on the FIRST response per file (guarded) decide both tracks and
+    ' renegotiate at most once with the chosen indexes. Video has not started
+    ' yet, so the second negotiation costs a request, not a visible restart.
+    if not m.subPrefApplied
         m.subPrefApplied = true
-        want = m.global.sessionSubtitleTitle
-        pick = -1
-
-        ' WHICH track: the one remembered this session, if this file has it.
-        remembered = -1
-        if want <> invalid and want <> "" and want <> "OFF"
-            for each t in m.subTracks
-                if t.title = want and remembered = -1 then remembered = t.index
-            end for
+        renegotiate = false
+        if m.curSubIdx = -1
+            pick = initialSubtitleIndex()
+            if pick >= 0
+                m.curSubIdx = pick
+                renegotiate = true
+            end if
         end if
-
-        ' WHETHER subtitles are on. Precedence, cert 4.8: the Roku global caption
-        ' setting wins at the start of every playback. An in-app "Subtitles Off"
-        ' applies to the playback it was made in — it used to write "OFF" here and
-        ' suppress captions for the whole app session, silently overriding a
-        ' system setting the user had turned on. Below the global: an explicit
-        ' in-session track choice, then Subtitles-On-By-Default.
-        if captionsMode() = "On" and m.subTracks.count() > 0
-            pick = remembered
-            if pick = -1 then pick = m.subTracks[0].index
-        else if remembered >= 0
-            pick = remembered
-        else if (want = invalid or want = "") and m.subTracks.count() > 0 and AppSettings.subtitlesDefaultOn()
-            pick = m.subTracks[0].index
+        ' Preferred audio language (Apple/Android parity). No preference or no
+        ' match leaves the file's default. Only renegotiate when the match is
+        ' not what the server already chose.
+        if m.curAudIdx = -1
+            aPick = LanguagePrefs.preferredAudioIndex(m.audTracks, AppSettings.preferredAudioLanguage())
+            if aPick >= 0
+                m.curAudIdx = aPick
+                defAud = -1
+                if r.defaultAudioIndex <> invalid then defAud = r.defaultAudioIndex
+                if aPick <> defAud then renegotiate = true
+            end if
         end if
-
-        if pick >= 0
-            m.curSubIdx = pick
+        if renegotiate
             requestStream(m.item)
             return
         end if
@@ -585,6 +587,40 @@ sub onStreamReady(r as object)
     end if
 end sub
 
+' Subtitle stream to start with, or -1 for none. WHETHER subtitles are on
+' comes first; the preferred language only picks WHICH track once they are.
+'
+' Precedence, cert 4.8: the Roku global caption setting wins at the start of
+' every playback. An in-app "Subtitles Off" applies to the playback it was made
+' in -- it used to suppress captions for the whole app session, silently
+' overriding a system setting the user had turned on. Below the global: an
+' explicit in-session track choice (m.global.sessionSubtitleTitle, matched by
+' title because indexes are per-file), then Subtitles-On-By-Default. The
+' session choice beats the Settings language, as on Apple.
+function initialSubtitleIndex() as integer
+    want = m.global.sessionSubtitleTitle
+    remembered = -1
+    if want <> invalid and want <> "" and want <> "OFF"
+        for each t in m.subTracks
+            if t.title = want and remembered = -1 then remembered = t.index
+        end for
+    end if
+    if remembered >= 0
+        ' Captions On or not, a track the user picked this session is the one.
+        return remembered
+    end if
+    if m.subTracks.count() = 0 then return -1
+    if captionsMode() = "On" then return preferredSubtitleIndex()
+    if (want = invalid or want = "") and AppSettings.subtitlesDefaultOn() then return preferredSubtitleIndex()
+    return -1
+end function
+
+' Preferred subtitle language, then the file's default-flagged track, then the
+' first full track (see LanguagePrefs.preferredSubtitleIndex).
+function preferredSubtitleIndex() as integer
+    return LanguagePrefs.preferredSubtitleIndex(m.subTracks, AppSettings.preferredSubtitleLanguage())
+end function
+
 ' Menu ordering that avoids the "picked Forced, saw nothing" trap:
 ' full (non-forced) tracks first, forced tracks last.
 function sortSubTracks(tracks as object) as object
@@ -615,6 +651,8 @@ end function
 sub onVideoState()
     state = m.video.state
     if state = "playing"
+        ' Launch beacon for a deep link that went straight into playback.
+        if m.global.launchMilestone <> "playback" then m.global.launchMilestone = "playback"
         m.statusLabel.visible = false
         m.bufferTimer.control = "stop"
         m.isPaused = false
@@ -933,6 +971,7 @@ sub buildButtons()
     if m.audTracks.count() > 1 then defs.push({ kind: "audio", label: "Audio" })
     if m.chapters.count() > 1 then defs.push({ kind: "chapters", label: "Chapters" })
     defs.push({ kind: "quality", label: "Quality" })
+    defs.push({ kind: "viewMode", label: "View Mode" })
 
     x = 0
     for each d in defs
@@ -1023,6 +1062,8 @@ sub activateButton()
         openMenu("chapters")
     else if kind = "quality"
         openMenu("quality")
+    else if kind = "viewMode"
+        openMenu("viewMode")
     end if
     bumpOsd()
 end sub
@@ -1049,12 +1090,21 @@ sub openMenu(kind as string)
         end for
         if m.curAudIdx = -1 then current = 0
     else if kind = "channelOptions"
-        ' A channel's held-OK menu: the two track choices the OSD would offer.
-        m.osdMenuTitle.text = "Subtitles & Audio"
+        ' A channel's held-OK menu: the choices the OSD would offer.
+        m.osdMenuTitle.text = "Options"
         ' Integer values like every other menu (isCurrentValue is typed): 1
-        ' subtitles, 2 audio. A string here crashed the menu on open.
+        ' subtitles, 2 audio, 3 view mode. A string here crashed the menu on open.
         m.menuItems.push({ label: "Subtitles", value: 1 })
         if m.audTracks.count() > 1 then m.menuItems.push({ label: "Audio", value: 2 })
+        m.menuItems.push({ label: "View Mode", value: 3 })
+    else if kind = "viewMode"
+        m.osdMenuTitle.text = "View Mode"
+        active = currentViewMode()
+        for each mode in ViewMode.all()
+            m.menuItems.push({ label: ViewMode.label(mode), value: mode })
+            if mode = active then current = m.menuItems.count() - 1
+        end for
+        m.menuItems.push({ label: "Use for All Videos", value: VIEW_MODE_USE_FOR_ALL })
     else if kind = "chapters"
         m.osdMenuTitle.text = "Chapters"
         for i = 0 to m.chapters.count() - 1
@@ -1145,6 +1195,10 @@ function isCurrentValue(value as integer) as boolean
     if m.menuKind = "subs" then return value = m.curSubIdx
     if m.menuKind = "audio" then return (value = m.curAudIdx) or (m.curAudIdx = -1 and m.menuItems.count() > 0 and m.menuItems[0].value = value)
     if m.menuKind = "quality" then return value = m.qualityBps
+    ' "Use for All Videos" is bulleted once the active mode already is the
+    ' default, so the menu answers "is this saved?" (as on Apple TV).
+    if m.menuKind = "viewMode" and value = VIEW_MODE_USE_FOR_ALL then return currentViewMode() = ViewMode.fromKey(AppSettings.defaultViewMode())
+    if m.menuKind = "viewMode" then return value = currentViewMode()
     ' chapters are positions, not settings — no persistent bullet
     return false
 end function
@@ -1167,8 +1221,16 @@ sub applyMenuSelection()
     value = m.menuItems[m.menuIdx].value
 
     if m.menuKind = "channelOptions"
-        if value = 1 then openMenu("subs") else openMenu("audio")
+        if value = 1
+            openMenu("subs")
+        else if value = 2
+            openMenu("audio")
+        else
+            openMenu("viewMode")
+        end if
         return
+    else if m.menuKind = "viewMode"
+        selectViewMode(value)
     else if m.menuKind = "chapters"
         m.seeking = false
         m.video.seek = value
@@ -1206,6 +1268,38 @@ sub applyMenuSelection()
     bumpOsd()
 end sub
 
+' ---------- View modes (#135, #136) ----------
+
+' Menu value for "Use for All Videos"; clear of the ViewMode ids (0-2).
+const VIEW_MODE_USE_FOR_ALL = 10
+
+' The mode picked this session, else the Default View Mode setting.
+function currentViewMode() as integer
+    return ViewMode.resolve(m.global.sessionViewMode, AppSettings.defaultViewMode())
+end function
+
+' No stream restart: the mode is only the Video node's size and place, so it
+' changes under a playing stream. The overlays are siblings of the node, not
+' children, so none of them move with it.
+sub applyViewMode()
+    g = ViewMode.geometry(currentViewMode(), m.videoAspect, 1920, 1080)
+    m.video.width = g.width
+    m.video.height = g.height
+    m.video.translation = [g.x, g.y]
+end sub
+
+sub selectViewMode(value as integer)
+    if value = VIEW_MODE_USE_FOR_ALL
+        ' Saving the active mode as the default makes the session pick
+        ' redundant; clearing it keeps a later Settings change effective.
+        AppSettings.write("defaultViewMode", ViewMode.key(currentViewMode()))
+        m.global.sessionViewMode = ""
+    else
+        m.global.sessionViewMode = ViewMode.key(value)
+    end if
+    applyViewMode()
+end sub
+
 ' ---------- Global captions (cert 4.8) ----------
 
 function captionsMode() as string
@@ -1234,8 +1328,10 @@ end sub
 sub applyCaptionsMode(mode as string)
     if mode = "On"
         if m.curSubIdx <> -1 or m.subTracks.count() = 0 then return
-        m.curSubIdx = m.subTracks[0].index
-        m.global.sessionSubtitleTitle = m.subTracks[0].title
+        m.curSubIdx = preferredSubtitleIndex()
+        for each t in m.subTracks
+            if t.index = m.curSubIdx then m.global.sessionSubtitleTitle = t.title
+        end for
         restartStream()
     else
         if m.curSubIdx = -1 then return
