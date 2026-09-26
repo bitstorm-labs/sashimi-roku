@@ -8,6 +8,10 @@
         <field id="navChoice" type="assocarray" alwaysNotify="true" />
         <field id="descend" type="boolean" alwaysNotify="true" />
         <field id="switchServer" type="boolean" alwaysNotify="true" />
+        <!-- MainScene -> rail: the id of the root screen actually showing
+             ("home", "fintv", "search", "settings", "lib:<id>"). The rail's
+             highlighted row follows this, never the other way round. -->
+        <field id="selectedId" type="string" value="home" onChange="onSelectedIdChanged" />
         <!-- MainScene, whenever it enters the main UI with a session in place:
              reload the libraries and avatar for it. -->
         <function name="reloadSession" />

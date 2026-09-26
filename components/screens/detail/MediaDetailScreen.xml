@@ -91,7 +91,11 @@
         <!-- Action buttons (focusable component) -->
         <DetailButtons id="detailButtons" translation="[60, 500]" />
 
-        <!-- ===== One multi-row RowList: seasons / episodes / cast ===== -->
+        <!-- ===== One multi-row RowList: seasons / episodes / cast =====
+             floatingFocus: a row only scrolls once focus would leave the
+             visible width. fixedFocus pinned the focused item to the left
+             edge, so picking Season 5 of The 100 pushed Seasons 1-4 off
+             screen even though all seven chips fit. -->
         <RowList
             id="rowList"
             translation="[60, 734]"
@@ -103,7 +107,7 @@
             drawFocusFeedback="false"
             rowLabelColor="#FFFFFF"
             rowLabelOffset="[[0, 8]]"
-            rowFocusAnimationStyle="fixedFocus"
+            rowFocusAnimationStyle="floatingFocus"
             itemComponentName="DetailRowItem"
             visible="false"
         />

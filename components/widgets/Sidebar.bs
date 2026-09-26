@@ -33,6 +33,10 @@ sub init()
     m.items = []           ' [{id,kind,title,iconLocal?,iconUri?,libId?,libName?,collectionType?}]
     m.rows = []            ' [{group,hl,icon,label}]
     m.focusIndex = 0
+    ' Row drawn as the current screen. Derived from m.top.selectedId (see
+    ' syncSelection), not owned here: MainScene switches screens on paths the
+    ' rail never sees -- a server switch, sign-in, Back to Home -- and a rail
+    ' that tracked its own last roam kept highlighting Settings or TV over Home.
     m.selectedIndex = 0
     ' First nav row drawn, when there are more rows than fit. See layout().
     m.firstVisible = 0
@@ -69,6 +73,7 @@ sub init()
     m.top.observeField("focusedChild", "onFocusChanged")
 
     buildItems()
+    syncSelection()
     buildRows()
     layout()
 end sub
@@ -142,8 +147,32 @@ sub onLibraries()
         if ct = "movies" or ct = "tvshows" or ct = "music" or ct = "" then m.libraries.push(lib)
     end for
     buildItems()
+    ' The rows were rebuilt from a new list, so an index into the old one
+    ' can point at a different item now.
+    syncSelection()
     buildRows()
     layout()
+end sub
+
+sub onSelectedIdChanged()
+    syncSelection()
+    ' layout, not just styles: a moved focus row may need the list scrolled.
+    layout()
+end sub
+
+' Resolve m.top.selectedId to a row. An id with no row (a library the list has
+' not loaded yet) highlights nothing rather than a stale neighbour. While the
+' rail is at rest the focus row follows too, so the next Left opens the rail on
+' the screen being shown; while it is being roamed, focus is the user's.
+sub syncSelection()
+    m.selectedIndex = -1
+    for i = 0 to m.items.count() - 1
+        if m.items[i].id = m.top.selectedId
+            m.selectedIndex = i
+            exit for
+        end if
+    end for
+    if not m.top.isInFocusChain() and m.selectedIndex >= 0 then m.focusIndex = m.selectedIndex
 end sub
 
 sub buildItems()
@@ -431,10 +460,9 @@ end sub
 sub onFocusMoved()
     ' Re-run layout first: the focused row may be outside the band.
     layout()
-    if m.focusIndex < m.items.count()
-        m.selectedIndex = m.focusIndex
-        emitChoice(m.items[m.focusIndex])
-    end if
+    ' Roaming switches the content; MainScene answers with selectedId, which is
+    ' what moves the highlight (onSelectedIdChanged).
+    if m.focusIndex < m.items.count() then emitChoice(m.items[m.focusIndex])
     updateStyles()
 end sub
 
