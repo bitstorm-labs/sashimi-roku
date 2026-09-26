@@ -42,11 +42,14 @@
             color="#101420"
         />
 
-        <!-- Form buttons -->
+        <!-- Form buttons. maxWidth pins the list to the card: without it the
+             ButtonGroup grows to its longest label, and a long saved address
+             ("Server: https://…/stable") drew the focus bar past the card. -->
         <ButtonGroup
             id="formButtons"
             translation="[600, 330]"
             minWidth="720"
+            maxWidth="720"
             buttonHeight="64"
             itemSpacings="[14]"
             textFont="font:MediumSystemFont"
