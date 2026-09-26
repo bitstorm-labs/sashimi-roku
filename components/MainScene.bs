@@ -610,8 +610,13 @@ function getOrCreateRootScreen(choice as object) as object
     return screen
 end function
 
+' The one place the shown root screen changes, so the one place the rail is
+' told. Every way back to Home -- sign-in, restore, auth cancel, server switch,
+' Back from a root screen -- comes through here; the rail used to keep its own
+' last roamed row and went on highlighting Settings or TV over Home.
 sub switchSelection(choice as object)
     m.activeSelection = choiceId(choice)
+    m.sidebar.selectedId = m.activeSelection
     for each key in m.rootScreens
         m.rootScreens[key].visible = false
     end for

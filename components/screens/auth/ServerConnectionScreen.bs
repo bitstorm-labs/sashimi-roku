@@ -264,7 +264,7 @@ sub setServerUrl(url as string)
     updateFormButtons()
 
     if url.Trim() = "" then return
-    showStatus("Checking server...")
+    showStatus("Checking server...", false)
     enqueue({
         action: "getPublicInfo"
         serverUrl: Http.normalizeServerUrl(url)
@@ -314,7 +314,7 @@ sub onConnectPressed()
 end sub
 
 sub onDiscoverPressed()
-    showStatus("Searching for servers...")
+    showStatus("Searching for servers...", false)
     m.discoveryTask.control = "stop"
     m.discoveryTask.functionName = "discover"
     m.discoveryTask.control = "RUN"
@@ -459,7 +459,7 @@ sub onQuickConnectPolled(response as object)
     armQuickConnectPoll()
 end sub
 
-sub endQuickConnect(message as string)
+sub endQuickConnect(message as string, isError = true as boolean)
     ' Covers a poll or sign-in still in flight: without it, cancelling and
     ' starting again could let the old attempt's answer land on the new one.
     abandonPending()
@@ -470,7 +470,7 @@ sub endQuickConnect(message as string)
     m.formBg.visible = true
     m.formButtons.visible = not m.isLoading
     m.formButtons.setFocus(true)
-    showStatus(message)
+    showStatus(message, isError)
 end sub
 
 ' "197268" -> "1 9 7 2 6 8". The code is read off a TV from across a room and
@@ -555,7 +555,7 @@ sub onPublicInfo(response as object)
     m.resolvedServerUrl = response.serverUrl
 
     if context = "probe"
-        showStatus(m.reauthNotice)
+        showStatus(m.reauthNotice, false)
         ' Show the address the server actually answered on — it is what the app
         ' will talk to and what gets persisted, so it should not be a surprise.
         m.serverUrl = response.serverUrl
@@ -623,7 +623,15 @@ sub abandonSignIn()
     m.formButtons.setFocus(true)
 end sub
 
-sub showStatus(message as string)
+' One line serves both problems and progress. isError = false is for what
+' is not a failure (a check in progress, the re-auth notice): red there read
+' as something having gone wrong before the user had done anything.
+sub showStatus(message as string, isError = true as boolean)
+    if isError
+        m.statusLabel.color = "#FF6666FF"
+    else
+        m.statusLabel.color = "#888888FF"
+    end if
     m.statusLabel.text = message
 end sub
 
@@ -635,7 +643,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
                 return true
             end if
             if m.qcActive
-                endQuickConnect("Quick Connect cancelled.")
+                endQuickConnect("Quick Connect cancelled.", false)
                 return true
             end if
             if m.serverList.visible
