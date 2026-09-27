@@ -1832,23 +1832,73 @@ function resolveServerPath(path as string) as string
     return base + path
 end function
 
-' Roku DeviceProfile: direct-play mp4/mov (h264/hevc, aac/ac3/eac3/mp3),
-' everything else transcodes to HLS(ts,h264,aac/ac3). mkv direct-play deferred.
-function rokuDeviceProfile(streamingBitrate as integer) as object
+' What this Roku can actually play, asked of the device rather than assumed.
+' The profile used to hard-code AC3/E-AC3, 6 channels and HEVC because the dev
+' device is a Dolby soundbar. A stick on a TV that can't take Dolby Digital
+' over HDMI was then handed AC3 it could neither decode nor pass through, and
+' every attempt failed (Bewitched: 1080p H.264 + AC3 5.1, remux and 720p
+' re-encode alike, since the audio was copied each time).
+function rokuCapabilities() as object
+    di = CreateObject("roDeviceInfo")
+    caps = { ac3: false, eac3: false, hevc: false, surround: false, uhd: false }
+    if di = invalid then return caps
+    caps.ac3 = canDecode(di.CanDecodeAudio({ Codec: "ac3" }))
+    caps.eac3 = canDecode(di.CanDecodeAudio({ Codec: "eac3" }))
+    caps.hevc = canDecode(di.CanDecodeVideo({ Codec: "hevc" }))
+    channels = LCase(di.GetAudioOutputChannel())
+    caps.surround = Instr(1, channels, "5.1") > 0 or Instr(1, channels, "7.1") > 0
+    caps.uhd = Instr(1, di.GetVideoMode(), "2160") > 0
+    return caps
+end function
+
+function canDecode(answer as dynamic) as boolean
+    return answer <> invalid and answer.result = true
+end function
+
+' Roku DeviceProfile built from the capabilities above: direct-play mp4/mov/mkv
+' (h264, hevc when decodable), everything else transcodes to HLS ts/h264.
+' Dolby codecs are offered only when the device says it can play them, so the
+' server converts them to AAC otherwise.
+function rokuDeviceProfile(streamingBitrate as integer, caps = invalid as object) as object
+    if caps = invalid then caps = rokuCapabilities()
+    audio = "aac,mp3"
+    streamAudio = "aac"
+    if caps.ac3
+        audio += ",ac3"
+        streamAudio += ",ac3"
+    end if
+    if caps.eac3
+        audio += ",eac3"
+        streamAudio += ",eac3"
+    end if
+    video = "h264"
+    if caps.hevc then video += ",hevc"
+    channels = "2"
+    if caps.surround then channels = "6"
+
+    codecProfiles = []
+    if not caps.uhd
+        ' An HD-only device can't direct-play 4K; ask the server to scale it.
+        for each codec in ["h264", "hevc"]
+            codecProfiles.push({ Type: "Video", Codec: codec, Conditions: [
+                { Condition: "LessThanEqual", Property: "Width", Value: "1920", IsRequired: true },
+                { Condition: "LessThanEqual", Property: "Height", Value: "1080", IsRequired: true }
+            ] })
+        end for
+    end if
+
     return {
         MaxStreamingBitrate: streamingBitrate
         MaxStaticBitrate: 100000000
         MusicStreamingTranscodingBitrate: 384000
         DirectPlayProfiles: [
-            { Container: "mp4,m4v,mov,mkv", Type: "Video", VideoCodec: "h264,hevc", AudioCodec: "aac,ac3,eac3,mp3" }
+            { Container: "mp4,m4v,mov,mkv", Type: "Video", VideoCodec: video, AudioCodec: audio }
         ]
         TranscodingProfiles: [
-            ' eac3 declared so mkv remuxes pass DD+ 5.1 through untouched
-            ' instead of downconverting to AAC (device is a Dolby soundbar).
-            { Container: "ts", Type: "Video", VideoCodec: "h264", AudioCodec: "aac,ac3,eac3", Protocol: "hls", Context: "Streaming", MaxAudioChannels: "6", MinSegments: "2", BreakOnNonKeyFrames: true }
+            { Container: "ts", Type: "Video", VideoCodec: "h264", AudioCodec: streamAudio, Protocol: "hls", Context: "Streaming", MaxAudioChannels: channels, MinSegments: "2", BreakOnNonKeyFrames: true }
         ]
         ContainerProfiles: []
-        CodecProfiles: []
+        CodecProfiles: codecProfiles
         SubtitleProfiles: [
             ' Encode-only: the server burns the selected track into the video.
             ' Roku's native HLS-VTT rendering silently fails, so burn-in is the
