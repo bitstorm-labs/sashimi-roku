@@ -2,6 +2,7 @@ import "pkg:/source/utils/Http.bs"
 import "pkg:/source/utils/ViewMode.bs"
 import "pkg:/source/utils/SignInError.bs"
 import "pkg:/source/utils/Filmography.bs"
+import "pkg:/source/utils/ChannelManagement.bs"
 
 sub init()
     m.top.functionName = "taskLoop"
@@ -95,6 +96,12 @@ sub processRequest()
         doGetChannelGuide(request)
     else if action = "getChannelCards"
         doGetChannelCards()
+    else if action = "getCurrentUser"
+        doGetCurrentUser(request)
+    else if action = "channelsLoad"
+        doChannelsLoad(request)
+    else if action = "channelsMutate"
+        doChannelsMutate(request)
 
     else if action = "getGuide"
         doGetGuide(request)
@@ -2103,3 +2110,115 @@ function seriesNextEpisode(seriesId as string) as dynamic
     if fallback = invalid or fallback.Items = invalid or fallback.Items.count() = 0 then return invalid
     return fallback.Items[0]
 end function
+
+' ---------- SashimiTV channel management (admins) ----------
+
+' Whether the signed-in user administers this server, which is what gates
+' every channel-management entry point. serverId is echoed so MainScene can
+' drop a late answer about a server it has already switched away from.
+sub doGetCurrentUser(request as object)
+    result = Http.getJson(Http.apiUrl("/Users/" + requestUserId()))
+    ok = (result <> invalid and type(result) = "roAssociativeArray")
+    isAdmin = false
+    if ok and result.Policy <> invalid and result.Policy.IsAdministrator <> invalid then isAdmin = (result.Policy.IsAdministrator = true)
+    m.top.response = { success: ok, action: "getCurrentUser", isAdministrator: isAdmin, serverId: request.serverId }
+end sub
+
+' The channel list, plus (itemId) the item's membership of every channel and
+' daypart, plus (withLogos) the logo keys. Channels and membership come
+' together or not at all: a list drawn before its membership arrives reads as
+' "on no channel", and toggling from that acts on a wrong picture. The logo
+' list only costs the picker if it fails.
+sub doChannelsLoad(request as object)
+    itemId = ""
+    if request.itemId <> invalid then itemId = request.itemId
+    response = { success: false, action: "channelsLoad", context: request.context, itemId: itemId, channels: [], memberships: [], logoKeys: [] }
+
+    list = ChannelManagement.call("GET", "/VirtualChannels/Manage")
+    if not list.ok or type(list.data) <> "roArray"
+        response.error = ChannelManagement.errorMessage(list, true)
+        m.top.response = response
+        return
+    end if
+    response.channels = list.data
+
+    if itemId <> ""
+        membership = ChannelManagement.call("GET", "/VirtualChannels/Manage/Membership?itemId=" + itemId)
+        if not membership.ok or type(membership.data) <> "roArray"
+            response.error = ChannelManagement.errorMessage(membership, true)
+            response.channels = []
+            m.top.response = response
+            return
+        end if
+        response.memberships = membership.data
+    end if
+
+    if request.withLogos <> invalid and request.withLogos = true
+        logos = ChannelManagement.call("GET", "/VirtualChannels/Logos")
+        if logos.ok and type(logos.data) = "roArray" then response.logoKeys = logos.data
+    end if
+
+    response.success = true
+    m.top.response = response
+end sub
+
+' One change, then a fresh read of what it changed: the server resolves an
+' episode to its series and a film into the channel's own collection, so its
+' answer is the truth, not what the screen asked for. refreshItemId re-reads
+' that item's membership for the Add to Channel checkmarks.
+sub doChannelsMutate(request as object)
+    op = request.op
+    channelId = ""
+    if request.channelId <> invalid then channelId = request.channelId
+    daypartIndex = -1
+    if request.daypartIndex <> invalid then daypartIndex = request.daypartIndex
+
+    result = invalid
+    if op = "create"
+        body = { Name: request.name }
+        if request.logo <> invalid and request.logo <> "" then body.Logo = request.logo
+        if request.seedItemId <> invalid and request.seedItemId <> "" then body.SeedItemId = request.seedItemId
+        result = ChannelManagement.call("POST", "/VirtualChannels/Manage", body)
+    else if op = "update"
+        ' A PATCH: only what is set is sent. Logo "" takes the logo away;
+        ' leaving Logo out keeps it.
+        body = {}
+        if request.name <> invalid then body.Name = request.name
+        if request.logo <> invalid then body.Logo = request.logo
+        result = ChannelManagement.call("PATCH", "/VirtualChannels/Manage/" + channelId, body)
+    else if op = "delete"
+        result = ChannelManagement.call("DELETE", "/VirtualChannels/Manage/" + channelId)
+    else if op = "add"
+        body = { ItemId: request.itemId }
+        ' Omitted rather than null: the server picks the channel's default.
+        if daypartIndex >= 0 then body.DaypartIndex = daypartIndex
+        result = ChannelManagement.call("POST", "/VirtualChannels/Manage/" + channelId + "/Items", body)
+    else if op = "remove"
+        path = "/VirtualChannels/Manage/" + channelId + "/Items/" + request.itemId
+        if daypartIndex >= 0 then path += "?daypartIndex=" + daypartIndex.toStr()
+        result = ChannelManagement.call("DELETE", path)
+    end if
+
+    response = { success: false, action: "channelsMutate", op: op, context: request.context, channelId: channelId }
+    if result = invalid or not result.ok
+        response.error = genericFailureMessage()
+        if result <> invalid then response.error = ChannelManagement.errorMessage(result, false)
+        m.top.response = response
+        return
+    end if
+
+    response.success = true
+    if result.data <> invalid and type(result.data) = "roAssociativeArray" then response.channel = result.data
+
+    ' The change landed; a failed re-read only means the screen folds in the
+    ' one channel it got back instead of the whole fresh list.
+    list = ChannelManagement.call("GET", "/VirtualChannels/Manage")
+    if list.ok and type(list.data) = "roArray" then response.channels = list.data
+    refreshItemId = ""
+    if request.refreshItemId <> invalid then refreshItemId = request.refreshItemId
+    if refreshItemId <> ""
+        membership = ChannelManagement.call("GET", "/VirtualChannels/Manage/Membership?itemId=" + refreshItemId)
+        if membership.ok and type(membership.data) = "roArray" then response.memberships = membership.data
+    end if
+    m.top.response = response
+end sub

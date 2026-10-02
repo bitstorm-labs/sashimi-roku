@@ -66,6 +66,11 @@ sub init()
     ' (tab bar "descend" focuses the screen node, not its children)
     m.top.observeField("focusedChild", "onFocusDelegate")
     m.lastLoadTime = 0
+    ' A channel changed from Manage Channels / Add to Channel: the Stations row
+    ' is stale. Reloaded on the way back to Home (or by the visible-only
+    ' 30 s auto-refresh), the same way a watched-state change is.
+    m.channelsDirty = false
+    m.global.observeFieldScoped("channelsRefresh", "onChannelsRefresh")
 
     ' tvOS: home auto-refreshes every 30s so watch-state from other devices
     ' shows up. Refresh only when it will not disrupt browsing.
@@ -164,6 +169,10 @@ sub onFocusDelegate()
         now = CreateObject("roDateTime").AsSeconds()
         dirty = (m.global.watchStateDirty = true)
         if dirty then m.global.watchStateDirty = false
+        if m.channelsDirty
+            dirty = true
+            m.channelsDirty = false
+        end if
         if dirty or (m.lastLoadTime <> invalid and (now - m.lastLoadTime) > 20)
             if m.chainBusy
                 m.reloadPending = true
@@ -178,6 +187,10 @@ sub onFocusDelegate()
             m.rowList.setFocus(true)
         end if
     end if
+end sub
+
+sub onChannelsRefresh()
+    m.channelsDirty = true
 end sub
 
 sub loadHomeData()

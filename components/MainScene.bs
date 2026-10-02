@@ -109,6 +109,21 @@ sub init()
     ' Set by any screen that gets a 401/403 back: the stored token is no longer
     ' valid, so the only correct move is to sign out and re-authenticate.
     m.global.addFields({ sessionExpired: false })
+    ' The active server's Policy.IsAdministrator. Gates every SashimiTV
+    ' channel-management entry point (Add to Channel, Manage Channels).
+    m.global.addFields({ isAdministrator: false })
+    ' Channel management: a screen that changed a channel bumps
+    ' channelsChanged; MainScene answers with channelsRefresh now and again
+    ' once the plugin has rebuilt the schedule (~30 s), and the guide and the
+    ' Stations row reload on channelsRefresh. Counters, because addFields
+    ' cannot declare alwaysNotify and a repeated value would not notify.
+    m.global.addFields({ channelsChanged: 0, channelsRefresh: 0 })
+    m.global.observeFieldScoped("channelsChanged", "onChannelsChanged")
+    m.channelsLateTimer = CreateObject("roSGNode", "Timer")
+    m.channelsLateTimer.repeat = false
+    m.channelsLateTimer.duration = 35
+    m.channelsLateTimer.observeFieldScoped("fire", "onChannelsLateRefresh")
+    m.top.appendChild(m.channelsLateTimer)
     ' Cert 3.2: AppLaunchComplete marks a fully rendered first screen. Screens
     ' report "home" (rows or the can't-reach-server message are up) and
     ' "playback" (video is playing); onLaunchMilestone fires the beacon once.
@@ -222,6 +237,7 @@ sub processDeepLink()
     screen.observeFieldScoped("playItem", "onPlayItem")
     screen.observeFieldScoped("selectedPerson", "onPersonSelected")
     screen.observeFieldScoped("deepLinkFailed", "onDeepLinkFailed")
+    screen.observeFieldScoped("manageChannels", "onManageChannels")
     if isDirectPlayType(dl.mediaType)
         screen.autoPlay = true
         if not m.launchBeaconSent then m.awaitingLaunchPlayback = true
@@ -543,8 +559,71 @@ sub onBandwidthMeasured()
     stopBandwidthProbe()
 end sub
 
+' ---------- Administrator flag ----------
+' Every way in (restore, sign-in, auth cancel, server switch) passes through
+' enterMainUI with the final credentials in place. The cached value shows the
+' right controls at once; the server's answer replaces it, unless the viewer
+' has switched servers again by the time it lands.
+sub refreshAdministrator()
+    activeId = Servers.getActiveId()
+    m.global.isAdministrator = Servers.isAdministrator(activeId)
+    if m.adminTask <> invalid then m.adminTask.control = "stop"
+    task = createObject("roSGNode", "JellyfinApi")
+    task.observeFieldScoped("response", "onAdministratorLoaded")
+    m.adminTask = task
+    task.control = "RUN"
+    task.request = { action: "getCurrentUser", serverId: activeId }
+end sub
+
+sub onAdministratorLoaded()
+    if m.adminTask = invalid then return
+    r = m.adminTask.response
+    ' One-shot, like the bandwidth probe.
+    m.adminTask.control = "stop"
+    m.adminTask = invalid
+    ' A failed read keeps what was cached: it says nothing about the policy.
+    if r = invalid or r.success <> true or r.serverId = invalid then return
+    Servers.setAdministrator(r.serverId, r.isAdministrator = true)
+    if r.serverId = Servers.getActiveId() then m.global.isAdministrator = (r.isAdministrator = true)
+end sub
+
+' ---------- Channel management ----------
+
+sub onChannelsChanged()
+    m.global.channelsRefresh = m.global.channelsRefresh + 1
+    ' Restarted on every change, so a run of edits gets one late refresh
+    ' after the last of them.
+    m.channelsLateTimer.control = "stop"
+    m.channelsLateTimer.control = "start"
+end sub
+
+sub onChannelsLateRefresh()
+    m.global.channelsRefresh = m.global.channelsRefresh + 1
+end sub
+
+' Add to Channel (a detail screen, { mode: "add", target }) or Manage Channels
+' (the guide, { mode: "manage" }). One screen serves both; Back from its top
+' level pops it like any other pushed screen.
+sub onManageChannels(event as object)
+    config = event.getData()
+    if config = invalid or config.mode = invalid then return
+    if not m.global.isAdministrator then return
+    screen = createObject("roSGNode", "ChannelManagerScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("done", "onChannelManagerDone")
+    pushScreen(screen)
+    screen.config = config
+end sub
+
+sub onChannelManagerDone()
+    top = invalid
+    if m.navStack.count() > 0 then top = m.navStack.peek()
+    if top <> invalid and top.subtype() = "ChannelManagerScreen" then popScreen()
+end sub
+
 sub enterMainUI()
     measureConnection()
+    refreshAdministrator()
     switchSelection({ kind: "home" })
     ' Every way in (session restore, either sign-in path, auth cancel, server
     ' switch) now has its final credentials in place, so this is the moment the
@@ -586,6 +665,7 @@ function getOrCreateRootScreen(choice as object) as object
     else if kind = "fintv"
         screen = createObject("roSGNode", "GuideScreen")
         screen.observeFieldScoped("playItem", "onPlayItem")
+        screen.observeFieldScoped("manageChannels", "onManageChannels")
     else if kind = "search"
         screen = createObject("roSGNode", "SearchScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
@@ -725,6 +805,7 @@ sub showDetailScreen(itemData as object)
     screen.observeFieldScoped("playItem", "onPlayItem")
     screen.observeFieldScoped("selectedPerson", "onPersonSelected")
     screen.observeFieldScoped("switchServer", "onDetailSwitchServer")
+    screen.observeFieldScoped("manageChannels", "onManageChannels")
 
     ' Remember which show this screen counts towards, so popScreen can close the
     ' visit without re-deriving it from an item the screen may have replaced by

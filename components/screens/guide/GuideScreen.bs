@@ -84,8 +84,24 @@ sub init()
     m.apiTask.control = "RUN"
     m.tickTimer.observeFieldScoped("fire", "onTick")
     m.top.observeFieldScoped("focusedChild", "onFocusGained")
+    ' A channel created, renamed, re-stocked or deleted on this device: redraw
+    ' now, and again once the plugin has rebuilt it (MainScene times that).
+    m.global.observeFieldScoped("channelsRefresh", "onChannelsRefresh")
+    ' The Manage Channels chip appears once the administrator flag arrives.
+    m.global.observeFieldScoped("isAdministrator", "onAdministratorChanged")
 
     load()
+end sub
+
+sub onChannelsRefresh()
+    ' A programme's detail open over the grid is left alone; the next refresh
+    ' (or the next visit) catches up.
+    if m.detailUp then return
+    load()
+end sub
+
+sub onAdministratorChanged()
+    if m.rows.count() > 0 then buildChips()
 end sub
 
 sub load()
@@ -110,13 +126,25 @@ end sub
 sub onGuideLoaded(r as object)
     if not r.success or r.rows = invalid or r.rows.count() = 0
         m.statusLabel.text = "No channels yet. Channels are created in Jellyfin under Dashboard -> Plugins -> Channels."
+        ' An administrator can make one from here instead.
+        if isAdministrator() and not m.top.overlay
+            m.statusLabel.text = "No channels yet. Press OK to open Manage Channels and create one."
+        end if
+        m.rows = []
+        m.cells = []
+        m.grid.visible = false
         return
     end if
     m.rows = r.rows
     m.windowStart = nowEpoch()
     m.jumpIndex = 0
+    ' A reload (a channel deleted from Manage Channels) can leave focus on a
+    ' row that no longer exists.
+    if m.rowIndex > m.rows.count() - 1 then m.rowIndex = m.rows.count() - 1
+    if m.rowIndex < 0 then m.rowIndex = 0
     buildChips()
     buildGrid()
+    clampColumn()
     m.statusLabel.visible = false
     m.grid.visible = true
     m.tickTimer.control = "start"
@@ -410,7 +438,14 @@ function onKeyEvent(key as string, press as boolean) as boolean
         return true
     end if
 
-    if m.cells.count() = 0 then return false
+    if m.cells.count() = 0
+        ' No channels at all: OK is the way into Manage Channels to make one.
+        if key = "OK" and isAdministrator() and not m.top.overlay
+            m.top.manageChannels = { mode: "manage" }
+            return true
+        end if
+        return false
+    end if
 
     if m.chipsFocused then return onChipKey(key)
 
@@ -521,6 +556,11 @@ sub buildChips()
     if reminderCount > 0
         m.chips.push({ label: "Clear reminders (" + reminderCount.toStr() + ")", clearReminders: true })
     end if
+    ' Administrators manage SashimiTV channels from here (not from the guide
+    ' laid over a playing channel, which is for changing channel).
+    if isAdministrator() and not m.top.overlay
+        m.chips.push({ label: "Manage Channels", manageChannels: true })
+    end if
     if m.chipIndex > m.chips.count() - 1 then m.chipIndex = m.chips.count() - 1
 
     x = 0
@@ -574,6 +614,9 @@ function onChipKey(key as string) as boolean
         if m.chipIndex > 0 then m.chipIndex = m.chipIndex - 1
     else if key = "down"
         m.chipsFocused = false
+    else if key = "OK" and m.chips[m.chipIndex].doesExist("manageChannels")
+        m.chipsFocused = false
+        m.top.manageChannels = { mode: "manage" }
     else if key = "OK" and m.chips[m.chipIndex].doesExist("clearReminders")
         Reminders.clearAll()
         refreshReminderMarks()
@@ -795,6 +838,10 @@ end function
 function railColour(index as integer) as string
     palette = ["#4CC7CC", "#F2A640", "#ED5C7A", "#66CC80", "#5CADE6", "#E0C759"]
     return palette[index MOD palette.count()]
+end function
+
+function isAdministrator() as boolean
+    return m.global.isAdministrator = true
 end function
 
 sub onOverlayChanged()
