@@ -13,6 +13,9 @@
         <!-- "Switch to <server>" confirmed: { serverId, item }. MainScene makes
              that server active and reopens the item there. -->
         <field id="switchServer" type="assocarray" alwaysNotify="true" />
+        <!-- Add to Channel (administrators): { mode: "add", target }. MainScene
+             pushes ChannelManagerScreen. -->
+        <field id="manageChannels" type="assocarray" alwaysNotify="true" />
         <field id="autoPlay" type="boolean" value="false" />
         <!-- Deep link (cert 5.2) could not be resolved: MainScene pops to home
              and shows an error rather than stranding the user on a blank

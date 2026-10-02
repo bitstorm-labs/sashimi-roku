@@ -2,6 +2,7 @@ import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/TimeFormat.bs"
 import "pkg:/source/utils/Filmography.bs"
+import "pkg:/source/utils/ChannelManagement.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -78,7 +79,22 @@ sub init()
     m.pinned = invalid          ' { id, name, url, token, userId }: see pinServer
 
     m.top.observeField("focusedChild", "onFocusDelegate")
+    ' The administrator flag arrives after launch (MainScene asks the server
+    ' on every activation), so a detail already on screen picks it up late.
+    m.global.observeFieldScoped("isAdministrator", "onAdministratorChanged")
 end sub
+
+sub onAdministratorChanged()
+    if m.item <> invalid then buildButtons()
+end sub
+
+' Add to Channel: SashimiTV channel management for the active server's
+' administrators. A title pinned to another saved server is left out -- the
+' management calls go to the active server, where its id means nothing.
+function channelTarget() as dynamic
+    if m.global.isAdministrator <> true or m.pinned <> invalid then return invalid
+    return ChannelManagement.target(m.item)
+end function
 
 ' ---------- Serialized request queue ----------
 ' apiTask reads only the LATEST request per tick; setting two in one tick drops
@@ -1166,6 +1182,9 @@ sub buildButtons()
     if item.LocalTrailerCount <> invalid and item.LocalTrailerCount > 0 and m.pinned = invalid
         defs.push({ kind: "trailer", label: "Trailer", primary: false })
     end if
+    if channelTarget() <> invalid
+        defs.push({ kind: "addToChannel", label: "Add to Channel", primary: false })
+    end if
     defs.push({ kind: "more", label: "More", primary: false })
     m.detailButtons.buttonDefs = defs
 end sub
@@ -1201,6 +1220,9 @@ sub onButtonActivated(event as object)
     else if kind = "trailer"
         ' Fetch + play the local trailer
         enqueue({ action: "getLocalTrailers", itemId: item.Id })
+    else if kind = "addToChannel"
+        target = channelTarget()
+        if target <> invalid then m.top.manageChannels = { mode: "add", target: target }
     else if kind = "more"
         showMoreDialog()
     end if

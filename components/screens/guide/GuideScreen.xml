@@ -5,6 +5,9 @@
         <field id="playItem" type="assocarray" alwaysNotify="true" />
         <!-- Laid over a playing channel: the picture shows through. -->
         <field id="overlay" type="boolean" onChange="onOverlayChanged" />
+        <!-- The Manage Channels chip (administrators): { mode: "manage" }.
+             MainScene pushes ChannelManagerScreen. -->
+        <field id="manageChannels" type="assocarray" alwaysNotify="true" />
     </interface>
     <children>
         <Poster id="background" uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />

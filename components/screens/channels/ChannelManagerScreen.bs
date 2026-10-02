@@ -1,0 +1,1086 @@
+import "pkg:/source/utils/ChannelManagement.bs"
+
+' Add to Channel / New Channel / Manage Channels (sashimi-apple #565 parity).
+'
+' Levels, by m.view:
+'   channels  Add to Channel: every channel, ✓ where the title airs
+'   dayparts  a scheduled channel's dayparts, for the same toggle
+'   list      Manage Channels: every channel
+'   detail    one channel: name, logo, titles added by hand, Delete
+'   new       New Channel: name, logo, (from a detail page) the seed title
+'
+' Focus is virtual, the way the player and Settings do it: the screen keeps
+' m.focus (an entry) and m.col (a tile or button within it) and repaints. Real
+' SceneGraph focus on lists of hand-built rows is what produced the invisible
+' focus traps elsewhere in this app, and a MarkupGrid wraps vertical keys at
+' its edges unless told otherwise -- here every boundary key simply stops.
+
+const LEFT = 360
+const ROW_W = 1200
+const CONTENT_TOP = 250
+const VIEW_H = 800
+const ROW_GAP = 14
+const TILE_SIZE = 150
+const TILE_GAP = 24
+const TILES_PER_LINE = 6
+
+sub init()
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.subtitleLabel = m.top.findNode("subtitleLabel")
+    m.workingLabel = m.top.findNode("workingLabel")
+    m.content = m.top.findNode("content")
+    m.top.findNode("viewport").clippingRect = [LEFT - 60, CONTENT_TOP - 20, ROW_W + 120, VIEW_H + 20]
+    m.apiTask = m.top.findNode("apiTask")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.lateTimer = m.top.findNode("lateTimer")
+    m.lateTimer.observeFieldScoped("fire", "onLateRefresh")
+    m.top.observeField("focusedChild", "onFocusChanged")
+
+    m.mode = "manage"
+    m.target = invalid
+    m.view = "list"
+    m.viewChannelId = ""
+    m.newReturn = "list"
+
+    m.channels = []
+    m.memberships = []
+    m.logoKeys = []
+    m.loading = true
+    m.loadError = ""
+    m.working = false
+
+    m.newName = ""
+    m.newLogo = ""
+    m.pending = invalid       ' the change a confirmation dialog is asking about
+    m.keyboardFor = ""
+
+    m.entries = []
+    m.focus = -1
+    m.col = 0
+    m.scroll = 0
+    m.fonts = {}
+    m.monograms = {}
+
+    m.reqQueue = []
+    m.reqActive = false
+end sub
+
+sub onConfig()
+    config = m.top.config
+    if config = invalid then return
+    if config.mode = "add" and config.target <> invalid
+        m.mode = "add"
+        m.target = config.target
+        m.view = "channels"
+    else
+        m.mode = "manage"
+        m.view = "list"
+    end if
+    load(false)
+end sub
+
+' ---------- Requests ----------
+' Same serialized queue as MediaDetailScreen: a Task drops all but the last of
+' several requests written in one tick, and a late membership refresh can meet
+' a mutation.
+
+sub enqueue(req as object)
+    m.reqQueue.push(req)
+    pumpQueue()
+end sub
+
+sub pumpQueue()
+    if m.reqActive or m.reqQueue.count() = 0 then return
+    m.reqActive = true
+    m.apiTask.request = m.reqQueue.shift()
+end sub
+
+function targetItemId() as string
+    if m.target = invalid or m.target.itemId = invalid then return ""
+    return m.target.itemId
+end function
+
+function targetTitle() as string
+    if m.target = invalid or m.target.title = invalid then return ""
+    return m.target.title
+end function
+
+' silent: re-read behind what is already on screen (the late refresh), never
+' replacing it with a spinner or an error.
+sub load(silent as boolean)
+    if not silent
+        m.loading = true
+        m.loadError = ""
+        render("")
+    end if
+    context = "load"
+    if silent then context = "silent"
+    enqueue({ action: "channelsLoad", itemId: targetItemId(), withLogos: (m.logoKeys.count() = 0), context: context })
+end sub
+
+sub mutate(req as object)
+    if m.working then return
+    m.working = true
+    m.workingLabel.visible = true
+    req.action = "channelsMutate"
+    req.refreshItemId = targetItemId()
+    enqueue(req)
+end sub
+
+sub onApiResponse()
+    r = m.apiTask.response
+    if r = invalid then return
+    m.reqActive = false
+    if r.action = "channelsLoad"
+        onLoaded(r)
+    else if r.action = "channelsMutate"
+        onMutated(r)
+    end if
+    pumpQueue()
+end sub
+
+sub onLoaded(r as object)
+    if r.context = "silent"
+        if r.success
+            m.channels = r.channels
+            if targetItemId() <> "" then m.memberships = r.memberships
+            render(currentKey())
+        end if
+        return
+    end if
+    m.loading = false
+    if r.success
+        m.channels = r.channels
+        m.memberships = r.memberships
+        if r.logoKeys <> invalid and r.logoKeys.count() > 0 then m.logoKeys = r.logoKeys
+        m.loadError = ""
+    else
+        m.loadError = r.error
+    end if
+    render("")
+end sub
+
+sub onMutated(r as object)
+    m.working = false
+    m.workingLabel.visible = false
+    if not r.success
+        showError(r.error)
+        render(currentKey())
+        return
+    end if
+
+    if r.channels <> invalid
+        m.channels = r.channels
+    else if r.channel <> invalid
+        foldChannel(r.channel)
+    end if
+    if r.op = "delete" then removeChannel(r.channelId)
+    if r.memberships <> invalid then m.memberships = r.memberships
+    ' The guide and the Stations row reload, now and after the rebuild.
+    m.global.channelsChanged = m.global.channelsChanged + 1
+    if targetItemId() <> "" then m.lateTimer.control = "start"
+
+    if r.op = "create"
+        name = ""
+        if r.channel <> invalid and r.channel.Name <> invalid then name = r.channel.Name
+        m.global.toastMessage = { message: "Created " + name }
+        m.newName = ""
+        m.newLogo = ""
+        if m.mode = "add"
+            ' Created with the title already on it: nothing left to do here.
+            m.top.done = true
+        else if r.channel <> invalid and r.channel.Id <> invalid
+            openDetail(r.channel.Id)
+        else
+            show("list", "new")
+        end if
+    else if r.op = "delete"
+        first = "new"
+        if m.channels.count() > 0 then first = "ch:" + m.channels[0].Id
+        show("list", first)
+    else
+        render(currentKey())
+    end if
+end sub
+
+sub onLateRefresh()
+    load(true)
+end sub
+
+sub foldChannel(channel as object)
+    for i = 0 to m.channels.count() - 1
+        if m.channels[i].Id = channel.Id
+            m.channels[i] = channel
+            return
+        end if
+    end for
+    m.channels.push(channel)
+end sub
+
+sub removeChannel(channelId as string)
+    kept = []
+    for each channel in m.channels
+        if channel.Id <> channelId then kept.push(channel)
+    end for
+    m.channels = kept
+end sub
+
+function channelById(channelId as string) as dynamic
+    for each channel in m.channels
+        if channel.Id = channelId then return channel
+    end for
+    return invalid
+end function
+
+' ---------- Levels ----------
+
+sub show(view as string, focusKey as string)
+    m.view = view
+    m.scroll = 0
+    render(focusKey)
+end sub
+
+sub openDetail(channelId as string)
+    m.viewChannelId = channelId
+    show("detail", "name")
+end sub
+
+sub openNew()
+    m.newReturn = m.view
+    m.newName = ""
+    m.newLogo = ""
+    show("new", "name")
+    ' The name is the one thing a channel cannot be made without, so the
+    ' keyboard comes straight up; Cancel there leaves the form to fill.
+    showKeyboard("new", "")
+end sub
+
+sub goBack()
+    if m.view = "dayparts"
+        show("channels", "ch:" + m.viewChannelId)
+    else if m.view = "new"
+        show(m.newReturn, "new")
+    else if m.view = "detail"
+        show("list", "ch:" + m.viewChannelId)
+    else
+        m.top.done = true
+    end if
+end sub
+
+' ---------- Rendering ----------
+
+' Rebuilds the level from the data and puts focus on the entry with focusKey
+' (or, failing that, the same position, or the first thing focusable).
+sub render(focusKey as string)
+    oldFocus = m.focus
+    m.content.removeChildrenIndex(m.content.getChildCount(), 0)
+    m.entries = []
+    m.monograms = {}
+    m.y = 0
+
+    ' A level about a channel that has just gone (deleted here or elsewhere)
+    ' falls back to the list it came from.
+    if (m.view = "dayparts" or m.view = "detail") and channelById(m.viewChannelId) = invalid and not m.loading
+        if m.view = "dayparts" then m.view = "channels" else m.view = "list"
+        focusKey = ""
+    end if
+
+    if m.view = "channels"
+        renderChannels()
+    else if m.view = "dayparts"
+        renderDayparts()
+    else if m.view = "new"
+        renderNew()
+    else if m.view = "detail"
+        renderDetail()
+    else
+        renderList()
+    end if
+
+    m.focus = -1
+    if focusKey <> ""
+        for i = 0 to m.entries.count() - 1
+            if m.entries[i].key = focusKey then m.focus = i
+        end for
+    end if
+    if m.focus < 0 and oldFocus >= 0 and focusKey <> "" then m.focus = nearestFocusable(oldFocus)
+    if m.focus < 0 then m.focus = nearestFocusable(0)
+    clampCol()
+    restyle()
+end sub
+
+function currentKey() as string
+    if m.focus < 0 or m.focus >= m.entries.count() then return ""
+    return m.entries[m.focus].key
+end function
+
+' Loading and failure states for any level that needs the channel list. A
+' failure keeps Try Again focusable so the screen never goes dead.
+function renderLoadState() as boolean
+    if m.loading
+        addNote("Loading channels...", "#8C8C8C")
+        return true
+    end if
+    if m.loadError <> ""
+        addNote(m.loadError, "#BFBFBF")
+        addButtons("retry", [{ label: "Try Again", primary: true, action: { type: "retry" } }])
+        return true
+    end if
+    return false
+end function
+
+sub renderChannels()
+    setHeader("Add to Channel", targetTitle())
+    if renderLoadState() then return
+    for each entry in ChannelManagement.buildMenu(m.channels, m.memberships)
+        channel = entry.channel
+        if entry.single <> invalid
+            opt = entry.single
+            addRow("ch:" + channel.Id, {
+                title: channel.Name, logoKey: logoKeyOf(channel), showLogo: true,
+                trailing: trailingFor(opt), via: ChannelManagement.viaLabel(opt),
+                dimmed: (opt.state = "ViaRule"), action: { type: "toggle", option: opt }
+            })
+        else
+            addRow("ch:" + channel.Id, {
+                title: channel.Name, logoKey: logoKeyOf(channel), showLogo: true,
+                detail: ChannelManagement.scheduledSummary(entry), trailing: "chevron",
+                action: { type: "dayparts", channelId: channel.Id }
+            })
+        end if
+    end for
+    m.y += 10
+    addRow("new", { title: "New Channel" + Chr(8230), detail: "Starts with " + targetTitle(), icon: "+", action: { type: "new" } })
+end sub
+
+sub renderDayparts()
+    channel = channelById(m.viewChannelId)
+    if channel = invalid then return
+    setHeader(channel.Name, "Which part of the day should " + targetTitle() + " air in?")
+    entry = invalid
+    for each candidate in ChannelManagement.buildMenu([channel], m.memberships)
+        entry = candidate
+    end for
+    if entry = invalid then return
+    for each opt in entry.dayparts
+        daypart = daypartOf(channel, opt.daypartIndex)
+        detail = ""
+        if daypart <> invalid then detail = ChannelManagement.scheduleLine(daypart)
+        addRow("dp:" + opt.daypartIndex.toStr(), {
+            title: opt.title, detail: detail, trailing: trailingFor(opt),
+            via: ChannelManagement.viaLabel(opt), dimmed: (opt.state = "ViaRule"),
+            action: { type: "toggle", option: opt }
+        })
+    end for
+end sub
+
+sub renderNew()
+    setHeader("New Channel", "Dayparts, seasons and genre rules can be added later in the Jellyfin dashboard.")
+    addSection("Name")
+    if m.newName = ""
+        addRow("name", { title: "Channel name", titleColor: "#8C8C8C", detail: "Press OK to type a name", action: { type: "editName" } })
+    else
+        addRow("name", { title: m.newName, detail: "Press OK to change", action: { type: "editName" } })
+    end if
+    addSection("Logo")
+    if m.logoKeys.count() = 0 then addNote("No logos available from the server.", "#8C8C8C")
+    addLogoTiles(m.newLogo, "pickNewLogo")
+    if targetItemId() <> ""
+        m.y += 10
+        addNote("Starts with:  " + targetTitle(), "#FFFFFF")
+    end if
+    m.y += 16
+    createLabel = "Create"
+    if m.working then createLabel = "Creating" + Chr(8230)
+    addButtons("buttons", [
+        { label: "Cancel", primary: false, action: { type: "cancelNew" } },
+        { label: createLabel, primary: true, disabled: (m.newName = ""), action: { type: "create" } }
+    ])
+end sub
+
+sub renderList()
+    setHeader("Manage Channels", "Name, logo and the titles you added. Dayparts, seasons and rules live in the Jellyfin dashboard.")
+    if renderLoadState() then return
+    for each channel in m.channels
+        addRow("ch:" + channel.Id, {
+            title: channel.Name, logoKey: logoKeyOf(channel), showLogo: true,
+            detail: ChannelManagement.managementSummary(channel), trailing: "chevron",
+            action: { type: "detail", channelId: channel.Id }
+        })
+    end for
+    m.y += 10
+    addRow("new", { title: "New Channel", icon: "+", action: { type: "new" } })
+end sub
+
+sub renderDetail()
+    channel = channelById(m.viewChannelId)
+    if channel = invalid then return
+    subtitle = ""
+    if channel.Number <> invalid then subtitle = "Channel " + channel.Number.toStr()
+    setHeader(channel.Name, subtitle)
+
+    addSection("Name")
+    addRow("name", { title: channel.Name, detail: "Press OK to rename", action: { type: "rename" } })
+
+    addSection("Logo")
+    addLogoTiles(logoKeyOf(channel), "setLogo")
+
+    addSection("Shows added here")
+    scheduled = ChannelManagement.isTrue(channel.IsScheduled)
+    for each daypart in ChannelManagement.dayparts(channel)
+        if scheduled then addDaypartHeading(daypart)
+        items = ChannelManagement.addedItems(daypart)
+        if items.count() = 0 then addNote("Nothing added here yet.", "#8C8C8C")
+        for each item in items
+            addRow("item:" + daypart.Index.toStr() + ":" + item.Id, {
+                title: item.Name, detail: ChannelManagement.itemDetailLine(item), trailing: "remove",
+                action: { type: "removeItem", channelId: channel.Id, itemId: item.Id, itemName: item.Name, daypartIndex: daypart.Index }
+            })
+        end for
+        rule = ChannelManagement.ruleSentence(daypart)
+        if rule <> "" then addNote(rule, "#BFBFBF")
+        m.y += 10
+    end for
+
+    m.y += 16
+    addButtons("delete", [{ label: "Delete Channel", primary: false, danger: true, action: { type: "confirmDelete", channelId: channel.Id } }])
+end sub
+
+sub setHeader(title as dynamic, subtitle as dynamic)
+    m.titleLabel.text = ChannelManagement.valueOr(title, "")
+    m.subtitleLabel.text = ChannelManagement.valueOr(subtitle, "")
+end sub
+
+function logoKeyOf(channel as object) as string
+    return ChannelManagement.valueOr(channel.Logo, "")
+end function
+
+function daypartOf(channel as object, index as integer) as dynamic
+    for each daypart in ChannelManagement.dayparts(channel)
+        if daypart.Index = index then return daypart
+    end for
+    return invalid
+end function
+
+function trailingFor(opt as object) as string
+    if opt.state = "Added" then return "check"
+    if opt.state = "ViaRule" then return "via"
+    return ""
+end function
+
+' ---------- Building blocks ----------
+
+' A full-width choosable row: logo (or "+"), title, detail line, trailing mark.
+sub addRow(key as string, o as object)
+    hasDetail = (o.detail <> invalid and o.detail <> "")
+    h = 80
+    if hasDetail then h = 100
+    group = m.content.createChild("Group")
+    group.translation = [0, m.y]
+
+    bg = group.createChild("Poster")
+    bg.uri = "pkg:/images/card_r16.9.png"
+    bg.width = ROW_W
+    bg.height = h
+
+    textX = 28
+    if o.icon <> invalid
+        icon = group.createChild("Label")
+        icon.text = o.icon
+        icon.color = "#FFFFFF"
+        icon.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 40)
+        icon.width = 56
+        icon.height = h
+        icon.horizAlign = "center"
+        icon.vertAlign = "center"
+        icon.translation = [24, 0]
+        textX = 104
+    else if o.showLogo = true
+        addLogo(group, ChannelManagement.valueOr(o.logoKey, ""), ChannelManagement.valueOr(o.title, ""), 56, [24, Int((h - 56) / 2)])
+        textX = 104
+    end if
+
+    trailing = ChannelManagement.valueOr(o.trailing, "")
+    trailW = 0
+    if trailing = "via"
+        trailW = 470
+    else if trailing <> ""
+        trailW = 60
+    end if
+
+    titleColor = "#FFFFFF"
+    if o.titleColor <> invalid then titleColor = o.titleColor
+    title = group.createChild("Label")
+    title.text = ChannelManagement.valueOr(o.title, "")
+    title.color = titleColor
+    title.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 28)
+    title.width = ROW_W - textX - trailW - 40
+    title.maxLines = 1
+    title.ellipsizeOnBoundary = true
+    if hasDetail
+        title.translation = [textX, 16]
+        detail = group.createChild("Label")
+        detail.text = o.detail
+        detail.color = "#BFBFBF"
+        detail.font = fontOf("pkg:/fonts/Inter-Regular.ttf", 20)
+        detail.width = ROW_W - textX - trailW - 40
+        detail.maxLines = 1
+        detail.ellipsizeOnBoundary = true
+        detail.translation = [textX, 58]
+    else
+        title.height = h
+        title.vertAlign = "center"
+        title.translation = [textX, 0]
+    end if
+
+    mark = invalid
+    if trailing <> ""
+        mark = group.createChild("Label")
+        mark.height = h
+        mark.vertAlign = "center"
+        mark.horizAlign = "right"
+        mark.width = trailW
+        mark.translation = [ROW_W - trailW - 28, 0]
+        if trailing = "check"
+            mark.text = Chr(10003)
+            mark.color = "#8C5CC7"
+            mark.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 34)
+        else if trailing = "via"
+            ' Checked through a rule: shown, dimmed, with its reason -- and
+            ' not toggled from here (rules live in the dashboard).
+            mark.text = ChannelManagement.valueOr(o.via, "") + "  " + Chr(10003)
+            mark.color = "#8C8C8C"
+            mark.font = fontOf("pkg:/fonts/Inter-Regular.ttf", 22)
+            mark.maxLines = 1
+            mark.ellipsizeOnBoundary = true
+        else if trailing = "chevron"
+            mark.text = Chr(8250)
+            mark.color = "#BFBFBF"
+            mark.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 40)
+        else if trailing = "remove"
+            mark.text = Chr(215)
+            mark.color = "#BFBFBF"
+            mark.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 36)
+        end if
+    end if
+
+    if o.dimmed = true then group.opacity = 0.55
+    m.entries.push({ key: key, kind: "row", y: m.y, h: h, group: group, bg: bg, mark: mark, trailing: trailing, action: o.action })
+    m.y += h + ROW_GAP
+end sub
+
+' A channel logo by key, white, over a monogram that shows when there is no
+' key or the image will not load -- a list never carries an empty square.
+sub addLogo(parent as object, key as string, name as string, size as integer, at as object)
+    holder = parent.createChild("Group")
+    holder.translation = at
+    disc = holder.createChild("Poster")
+    disc.uri = "pkg:/images/circle_mask.png"
+    disc.width = size
+    disc.height = size
+    disc.blendColor = "#3A3A46"
+    letters = holder.createChild("Label")
+    letters.text = ChannelManagement.initials(name)
+    letters.color = "#FFFFFF"
+    letters.font = fontOf("pkg:/fonts/Inter-Bold.ttf", Int(size * 0.34))
+    letters.width = size
+    letters.height = size
+    letters.horizAlign = "center"
+    letters.vertAlign = "center"
+    url = ChannelManagement.logoUrl(key)
+    if url = ""
+        return
+    end if
+    disc.visible = false
+    letters.visible = false
+    logo = holder.createChild("Poster")
+    logo.width = size
+    logo.height = size
+    logo.loadWidth = size * 2
+    logo.loadHeight = size * 2
+    logo.loadDisplayMode = "scaleToFit"
+    logo.id = "logo" + m.monograms.count().toStr()
+    m.monograms[logo.id] = [disc, letters]
+    logo.observeFieldScoped("loadStatus", "onLogoStatus")
+    logo.uri = url
+end sub
+
+sub onLogoStatus(event as object)
+    logo = event.getRoSGNode()
+    if logo = invalid or event.getData() <> "failed" then return
+    pair = m.monograms[logo.id]
+    if pair = invalid then return
+    pair[0].visible = true
+    pair[1].visible = true
+end sub
+
+' "No logo" then every key the plugin ships, six to a line. Each line is one
+' entry; Left/Right move along it, Up/Down keep the column.
+sub addLogoTiles(selected as string, actionType as string)
+    tiles = [{ key: "", label: "No logo" }]
+    for each key in m.logoKeys
+        tiles.push({ key: key, label: ChannelManagement.displayName(key) })
+    end for
+    line = 0
+    i = 0
+    while i < tiles.count()
+        group = m.content.createChild("Group")
+        group.translation = [0, m.y]
+        items = []
+        for c = 0 to TILES_PER_LINE - 1
+            if i >= tiles.count() then exit for
+            tile = tiles[i]
+            cell = group.createChild("Group")
+            cell.translation = [c * (TILE_SIZE + TILE_GAP), 0]
+            bg = cell.createChild("Poster")
+            bg.uri = "pkg:/images/card_r16.9.png"
+            bg.width = TILE_SIZE
+            bg.height = TILE_SIZE
+            isSelected = (tile.key = selected)
+            if tile.key = ""
+                none = cell.createChild("Label")
+                none.text = Chr(8856)
+                none.color = "#BFBFBF"
+                none.font = fontOf("pkg:/fonts/Inter-Regular.ttf", 56)
+                none.width = TILE_SIZE
+                none.height = 104
+                none.horizAlign = "center"
+                none.vertAlign = "center"
+            else
+                addLogo(cell, tile.key, tile.label, 80, [Int((TILE_SIZE - 80) / 2), 16])
+            end if
+            label = cell.createChild("Label")
+            label.text = tile.label
+            label.font = fontOf("pkg:/fonts/Inter-Medium.ttf", 18)
+            label.width = TILE_SIZE - 12
+            label.maxLines = 1
+            label.ellipsizeOnBoundary = true
+            label.horizAlign = "center"
+            label.translation = [6, 110]
+            if isSelected then label.color = "#FFFFFF" else label.color = "#8C8C8C"
+            ' The chosen one carries a checkmark and an accent ring, so it
+            ' reads as chosen whether or not focus is on it.
+            ring = cell.createChild("Poster")
+            ring.uri = "pkg:/images/focus_ring_r16.9.png"
+            ring.width = TILE_SIZE
+            ring.height = TILE_SIZE
+            ring.blendColor = "#8C5CC7"
+            ring.visible = isSelected
+            check = cell.createChild("Label")
+            check.text = Chr(10003)
+            check.color = "#8C5CC7"
+            check.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 28)
+            check.width = 36
+            check.horizAlign = "center"
+            check.translation = [TILE_SIZE - 40, 6]
+            check.visible = isSelected
+            items.push({ bg: bg, cell: cell, action: { type: actionType, key: tile.key } })
+            i++
+        end for
+        m.entries.push({ key: "logos:" + line.toStr(), kind: "tiles", y: m.y, h: TILE_SIZE, group: group, items: items })
+        m.y += TILE_SIZE + TILE_GAP
+        line++
+    end while
+end sub
+
+sub addButtons(key as string, buttons as object)
+    group = m.content.createChild("Group")
+    group.translation = [0, m.y]
+    items = []
+    x = 0
+    for each b in buttons
+        w = 60 + Len(b.label) * 14
+        cell = group.createChild("Group")
+        cell.translation = [x, 0]
+        bg = cell.createChild("Poster")
+        bg.width = w
+        bg.height = 60
+        label = cell.createChild("Label")
+        label.text = b.label
+        label.width = w
+        label.height = 60
+        label.horizAlign = "center"
+        label.vertAlign = "center"
+        label.font = fontOf("pkg:/fonts/Inter-Medium.ttf", 26)
+        disabled = (b.disabled = true)
+        if disabled then cell.opacity = 0.45
+        items.push({ bg: bg, label: label, cell: cell, primary: (b.primary = true), danger: (b.danger = true), disabled: disabled, action: b.action })
+        x += w + 24
+    end for
+    m.entries.push({ key: key, kind: "buttons", y: m.y, h: 60, group: group, items: items })
+    m.y += 60 + ROW_GAP
+end sub
+
+sub addSection(text as string)
+    m.y += 12
+    label = m.content.createChild("Label")
+    label.text = UCase(text)
+    label.color = "#8C8C8C"
+    label.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 20)
+    label.translation = [4, m.y]
+    m.y += 40
+end sub
+
+' A scheduled channel's daypart over its titles: the name, then when it airs.
+sub addDaypartHeading(daypart as object)
+    name = m.content.createChild("Label")
+    name.text = ChannelManagement.valueOr(daypart.Name, "")
+    name.color = "#FFFFFF"
+    name.font = fontOf("pkg:/fonts/Inter-Bold.ttf", 26)
+    name.translation = [4, m.y]
+    rect = name.boundingRect()
+    when = m.content.createChild("Label")
+    when.text = ChannelManagement.scheduleLine(daypart)
+    when.color = "#8C8C8C"
+    when.font = fontOf("pkg:/fonts/Inter-Regular.ttf", 20)
+    whenX = 4 + 16
+    if rect <> invalid then whenX += rect.width
+    when.translation = [whenX, m.y + 5]
+    m.y += 44
+end sub
+
+sub addNote(text as string, color as string)
+    label = m.content.createChild("Label")
+    label.text = text
+    label.color = color
+    label.font = fontOf("pkg:/fonts/Inter-Medium.ttf", 22)
+    label.width = ROW_W
+    label.wrap = true
+    label.maxLines = 3
+    label.translation = [4, m.y]
+    rect = label.boundingRect()
+    h = 32
+    if rect <> invalid and rect.height > h then h = rect.height
+    m.y += h + 10
+end sub
+
+function fontOf(uri as string, size as integer) as object
+    cacheKey = uri + "#" + size.toStr()
+    if m.fonts.DoesExist(cacheKey) then return m.fonts[cacheKey]
+    f = CreateObject("roSGNode", "Font")
+    f.uri = uri
+    f.size = size
+    m.fonts[cacheKey] = f
+    return f
+end function
+
+' ---------- Focus ----------
+
+sub onFocusChanged()
+    restyle()
+end sub
+
+' Every entry is focusable -- headings and notes are drawn but never entries --
+' so the nearest one is just the index clamped to the list.
+function nearestFocusable(index as integer) as integer
+    if m.entries.count() = 0 then return -1
+    if index >= m.entries.count() then index = m.entries.count() - 1
+    if index < 0 then index = 0
+    return index
+end function
+
+sub clampCol()
+    if m.focus < 0
+        m.col = 0
+        return
+    end if
+    entry = m.entries[m.focus]
+    if entry.kind = "row"
+        m.col = 0
+    else if m.col > entry.items.count() - 1
+        m.col = entry.items.count() - 1
+    end if
+    if m.col < 0 then m.col = 0
+end sub
+
+sub restyle()
+    hasFocus = m.top.isInFocusChain()
+    for i = 0 to m.entries.count() - 1
+        entry = m.entries[i]
+        focused = (hasFocus and i = m.focus)
+        if entry.kind = "row"
+            if focused
+                entry.bg.uri = "pkg:/images/card_r16_focus.9.png"
+                entry.group.scale = [1.02, 1.02]
+                entry.group.scaleRotateCenter = [ROW_W / 2, entry.h / 2]
+            else
+                entry.bg.uri = "pkg:/images/card_r16.9.png"
+                entry.group.scale = [1.0, 1.0]
+            end if
+            if entry.trailing = "remove" and entry.mark <> invalid
+                if focused then entry.mark.color = "#FF5555" else entry.mark.color = "#BFBFBF"
+            end if
+        else if entry.kind = "tiles"
+            for c = 0 to entry.items.count() - 1
+                tile = entry.items[c]
+                if focused and c = m.col
+                    tile.bg.uri = "pkg:/images/card_r16_focus.9.png"
+                    tile.cell.scale = [1.06, 1.06]
+                    tile.cell.scaleRotateCenter = [TILE_SIZE / 2, TILE_SIZE / 2]
+                else
+                    tile.bg.uri = "pkg:/images/card_r16.9.png"
+                    tile.cell.scale = [1.0, 1.0]
+                end if
+            end for
+        else if entry.kind = "buttons"
+            for c = 0 to entry.items.count() - 1
+                b = entry.items[c]
+                isFocus = (focused and c = m.col)
+                if b.primary
+                    if isFocus then b.bg.uri = "pkg:/images/btn_white_focus.9.png" else b.bg.uri = "pkg:/images/btn_white.9.png"
+                    b.label.color = "#000000"
+                else
+                    if isFocus then b.bg.uri = "pkg:/images/btn_dark_focus.9.png" else b.bg.uri = "pkg:/images/btn_dark.9.png"
+                    if b.danger then b.label.color = "#FF5555" else b.label.color = "#FFFFFF"
+                end if
+            end for
+        end if
+    end for
+    ensureVisible()
+end sub
+
+' Keep the focused entry inside the window, with a margin so the next one is
+' visibly there to move to. The first entry scrolls fully home so a section
+' label above it is not left cut off.
+sub ensureVisible()
+    if m.focus < 0
+        m.scroll = 0
+    else
+        entry = m.entries[m.focus]
+        if m.focus = 0
+            m.scroll = 0
+        else if entry.y - 60 < m.scroll
+            m.scroll = entry.y - 60
+        else if entry.y + entry.h + 60 > m.scroll + VIEW_H
+            m.scroll = entry.y + entry.h + 60 - VIEW_H
+        end if
+        if m.scroll < 0 then m.scroll = 0
+    end if
+    m.content.translation = [LEFT, CONTENT_TOP - m.scroll]
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+
+    if key = "back"
+        ' Leaving mid-change is fine -- the change still lands, and the guide
+        ' still refreshes -- but this screen must not be left half-drawn.
+        goBack()
+        return true
+    end if
+    ' Loading: nothing to move between, but the keys are still this screen's.
+    if m.focus < 0 then return true
+
+    entry = m.entries[m.focus]
+    if key = "up"
+        if m.focus > 0
+            m.focus--
+            clampCol()
+            restyle()
+        end if
+        return true
+    else if key = "down"
+        if m.focus < m.entries.count() - 1
+            m.focus++
+            clampCol()
+            restyle()
+        end if
+        return true
+    else if key = "left"
+        if entry.kind <> "row" and m.col > 0
+            m.col--
+            restyle()
+        end if
+        return true
+    else if key = "right"
+        if entry.kind <> "row" and m.col < entry.items.count() - 1
+            m.col++
+            restyle()
+        end if
+        return true
+    else if key = "OK"
+        if m.working then return true
+        if entry.kind = "row"
+            perform(entry.action)
+        else
+            item = entry.items[m.col]
+            if item.disabled = true then return true
+            perform(item.action)
+        end if
+        return true
+    end if
+    return false
+end function
+
+' ---------- Actions ----------
+
+sub perform(action as dynamic)
+    if action = invalid then return
+    kind = action.type
+    if kind = "retry"
+        load(false)
+    else if kind = "toggle"
+        toggle(action.option, false)
+    else if kind = "dayparts"
+        m.viewChannelId = action.channelId
+        show("dayparts", "")
+    else if kind = "new"
+        openNew()
+    else if kind = "editName"
+        showKeyboard("new", m.newName)
+    else if kind = "pickNewLogo"
+        m.newLogo = action.key
+        render(currentKey())
+    else if kind = "cancelNew"
+        show(m.newReturn, "new")
+    else if kind = "create"
+        name = m.newName.Trim()
+        if name = ""
+            showError("Give the channel a name.")
+            return
+        end if
+        mutate({ op: "create", name: name, logo: m.newLogo, seedItemId: targetItemId() })
+        render(currentKey())
+    else if kind = "detail"
+        openDetail(action.channelId)
+    else if kind = "rename"
+        channel = channelById(m.viewChannelId)
+        if channel <> invalid then showKeyboard("rename", channel.Name)
+    else if kind = "setLogo"
+        channel = channelById(m.viewChannelId)
+        if channel = invalid then return
+        if logoKeyOf(channel) = action.key then return
+        ' "" takes the logo away; the server leaves it alone when Logo is absent.
+        mutate({ op: "update", channelId: channel.Id, logo: action.key })
+    else if kind = "removeItem"
+        requestRemoval(action)
+    else if kind = "confirmDelete"
+        confirmDelete(action.channelId)
+    end if
+end sub
+
+' Added -> remove, None -> add; a rule's checkmark does nothing here.
+sub toggle(opt as object, confirmed as boolean)
+    if opt.state = "ViaRule" then return
+    if opt.state = "Added"
+        channel = channelById(opt.channelId)
+        if not confirmed and channel <> invalid and ChannelManagement.removingTakesOffAir(channel, targetItemId(), opt.daypartIndex)
+            m.pending = { kind: "toggle", option: opt }
+            confirmOffAir(channel.Name, targetTitle())
+            return
+        end if
+        mutate({ op: "remove", channelId: opt.channelId, itemId: targetItemId(), daypartIndex: opt.daypartIndex })
+    else
+        mutate({ op: "add", channelId: opt.channelId, itemId: targetItemId(), daypartIndex: opt.daypartIndex })
+    end if
+end sub
+
+sub requestRemoval(action as object)
+    channel = channelById(action.channelId)
+    if channel = invalid then return
+    if ChannelManagement.removingTakesOffAir(channel, action.itemId, action.daypartIndex)
+        m.pending = { kind: "remove", action: action }
+        confirmOffAir(channel.Name, action.itemName)
+        return
+    end if
+    removeItem(action)
+end sub
+
+sub removeItem(action as object)
+    mutate({ op: "remove", channelId: action.channelId, itemId: action.itemId, daypartIndex: action.daypartIndex })
+end sub
+
+' ---------- Dialogs ----------
+
+sub confirmOffAir(channelName as string, title as string)
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Take " + channelName + " off air?"
+    dialog.message = [title + " is the last title on " + channelName + " and nothing else feeds it, so the channel will go off air."]
+    dialog.buttons = ["Remove", "Cancel"]
+    dialog.observeFieldScoped("buttonSelected", "onConfirmButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub confirmDelete(channelId as string)
+    channel = channelById(channelId)
+    if channel = invalid then return
+    m.pending = { kind: "delete", channelId: channelId }
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Delete " + channel.Name + "?"
+    dialog.message = ["The channel and its guide are removed from every device. The titles stay in your library."]
+    dialog.buttons = ["Delete Channel", "Cancel"]
+    dialog.observeFieldScoped("buttonSelected", "onConfirmButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onConfirmButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    confirmed = (dialog.buttonSelected = 0)
+    dialog.close = true
+    pending = m.pending
+    m.pending = invalid
+    m.top.setFocus(true)
+    if not confirmed or pending = invalid then return
+    if pending.kind = "toggle"
+        toggle(pending.option, true)
+    else if pending.kind = "remove"
+        removeItem(pending.action)
+    else if pending.kind = "delete"
+        mutate({ op: "delete", channelId: pending.channelId })
+    end if
+end sub
+
+sub showError(message as dynamic)
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Couldn't update the channel"
+    dialog.message = [ChannelManagement.valueOr(message, "Something went wrong. Try again.")]
+    dialog.buttons = ["OK"]
+    dialog.observeFieldScoped("buttonSelected", "onErrorButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onErrorButton()
+    dialog = m.top.getScene().dialog
+    if dialog <> invalid then dialog.close = true
+    m.top.setFocus(true)
+end sub
+
+' forWhat: "new" (the New Channel name) or "rename" (the open channel).
+sub showKeyboard(forWhat as string, current as string)
+    m.keyboardFor = forWhat
+    dialog = createObject("roSGNode", "StandardKeyboardDialog")
+    dialog.title = "Channel name"
+    dialog.buttons = ["OK", "Cancel"]
+    dialog.textEditBox.hintText = "Channel name"
+    if current <> "" then dialog.text = current
+    dialog.observeFieldScoped("buttonSelected", "onKeyboardButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onKeyboardButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    accepted = (dialog.buttonSelected = 0)
+    text = dialog.text
+    dialog.close = true
+    m.top.setFocus(true)
+    if not accepted then return
+    name = text.Trim()
+    if m.keyboardFor = "new"
+        m.newName = name
+        ' Named: the logo is the next thing to choose.
+        focusKey = "name"
+        if name <> "" then focusKey = "logos:0"
+        render(focusKey)
+    else if m.keyboardFor = "rename"
+        channel = channelById(m.viewChannelId)
+        if channel = invalid then return
+        if name = ""
+            showError("A channel needs a name.")
+        else if name <> channel.Name
+            mutate({ op: "update", channelId: channel.Id, name: name })
+        end if
+    end if
+end sub

@@ -85,6 +85,34 @@ namespace Servers
         return invalid
     end function
 
+    ' Whether the saved login administers its server (channel management is
+    ' admin-only). Cached on the entry so a restore or switch shows the right
+    ' controls straight away; MainScene re-asks the server on every activation.
+    sub setAdministrator(id as string, isAdmin as boolean)
+        list = getAll()
+        changed = false
+        for each s in list
+            if s.id = id and flag(s.isAdministrator) <> isAdmin
+                s.isAdministrator = isAdmin
+                changed = true
+            end if
+        end for
+        if changed then saveAll(list)
+    end sub
+
+    function isAdministrator(id as string) as boolean
+        entry = get(id)
+        if entry = invalid then return false
+        return flag(entry.isAdministrator)
+    end function
+
+    ' Entries saved before the flag existed have none: not an administrator
+    ' until the server says so.
+    function flag(value as dynamic) as boolean
+        if value = invalid then return false
+        return value = true
+    end function
+
     ' A saved login the server has rejected (401/403). The entry stays -- its
     ' url and user name prefill the re-auth form, as on Apple -- but its token
     ' is dropped, so neither a relaunch nor a later switch can restore it into

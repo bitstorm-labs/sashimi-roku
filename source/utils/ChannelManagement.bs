@@ -1,0 +1,346 @@
+import "pkg:/source/utils/Http.bs"
+
+' SashimiTV channel management (Channels plugin 0.11+, `/VirtualChannels/Manage`),
+' the Roku side of what sashimi-apple shipped in #565. Admin-only on the server;
+' the app hides every entry point for anyone else (m.global.isAdministrator).
+'
+' Two halves: `call` and `errorMessage` run on the JellyfinApi task thread; the
+' rest is pure data shaping for ChannelManagerScreen. A daypart index of -1
+' means "none given" throughout -- an invalid inside an AA does not survive a
+' Task field, so it cannot stand for "let the server choose".
+namespace ChannelManagement
+
+    ' ---------- HTTP (task thread) ----------
+
+    ' One management request. The management routes answer JSON with a UTF-8
+    ' BOM and refuse with ProblemDetails, so neither getJson (no body on error,
+    ' no BOM handling) nor deleteRequest (no body at all) fits. Returns
+    ' { ok, code, data, detail }: data is the parsed body (invalid for 204),
+    ' detail the server's own explanation of a refusal ("" when it gave none).
+    function call(method as string, path as string, body = invalid as dynamic) as object
+        result = { ok: false, code: -1, data: invalid, detail: "" }
+        request = CreateObject("roUrlTransfer")
+        port = CreateObject("roMessagePort")
+        request.SetMessagePort(port)
+        request.SetCertificatesFile("common:/certs/ca-bundle.crt")
+        request.InitClientCertificates()
+        request.SetUrl(Http.apiUrl(path))
+        request.AddHeader("Authorization", Http.authHeader())
+        request.AddHeader("Accept", "application/json")
+        request.RetainBodyOnError(true)
+
+        started = false
+        if method = "GET"
+            started = request.AsyncGetToString()
+        else if method = "DELETE"
+            request.SetRequest("DELETE")
+            started = request.AsyncGetToString()
+        else
+            ' POST, and PATCH riding the POST path with the verb swapped:
+            ' roUrlTransfer has no PATCH of its own.
+            if method <> "POST" then request.SetRequest(method)
+            request.AddHeader("Content-Type", "application/json")
+            bodyStr = "{}"
+            if body <> invalid then bodyStr = FormatJSON(body)
+            started = request.AsyncPostFromString(bodyStr)
+        end if
+        if not started then return result
+
+        msg = wait(Http.waitMs(0), port)
+        if msg = invalid or type(msg) <> "roUrlEvent"
+            request.AsyncCancel()
+            result.code = 0
+            return result
+        end if
+
+        result.code = msg.GetResponseCode()
+        text = stripBom(msg.GetString())
+        parsed = invalid
+        if text <> "" then parsed = ParseJSON(text)
+        if result.code >= 200 and result.code < 300
+            result.ok = true
+            result.data = parsed
+        else if parsed <> invalid and type(parsed) = "roAssociativeArray" and parsed.detail <> invalid
+            ' ASP.NET's ProblemDetails: the plugin puts the reason in `detail`.
+            result.detail = parsed.detail.Trim()
+        end if
+        #if DEBUG
+            print "[ChMgmt] " + method + " " + path + " -> " + result.code.toStr()
+        #end if
+        return result
+    end function
+
+    ' ParseJSON gives up on a body that opens with a byte-order mark, and the
+    ' plugin's management responses do. Depending on how the bytes were
+    ' decoded the mark is one character (U+FEFF) or its three UTF-8 bytes.
+    function stripBom(text as dynamic) as string
+        if text = invalid then return ""
+        if Len(text) > 0 and Asc(text) = 65279 then return Mid(text, 2)
+        if Left(text, 3) = Chr(239) + Chr(187) + Chr(191) then return Mid(text, 4)
+        return text
+    end function
+
+    ' What to tell the viewer about a failed call. The server's own words win;
+    ' otherwise the status code picks a sentence (same table as Apple's
+    ' ChannelManagementViewModel.message). `loading` separates "this server
+    ' cannot manage channels" (a 404 on the list) from "that thing is gone".
+    function errorMessage(result as object, loading as boolean) as string
+        if result.detail <> invalid and result.detail <> "" then return result.detail
+        code = result.code
+        if code = 400 then return "The server didn't accept that change."
+        if code = 401 or code = 403 then return "Only server administrators can manage channels."
+        if code = 404 and loading then return "This server's Channels plugin can't manage channels yet. Update the plugin and try again."
+        if code = 404 then return "That channel or title no longer exists, or it comes from a rule set in the dashboard."
+        if code = 503 then return "The Channels plugin isn't running on the server."
+        if code = 0 then return "The server didn't answer in time. Try again."
+        return "Couldn't reach the server. Try again."
+    end function
+
+    ' ---------- Model (render thread) ----------
+
+    ' What Add to Channel acts on for a detail page's item: the series for an
+    ' episode or season, otherwise the item itself. invalid for anything a
+    ' channel cannot air (people, folders, collections...).
+    function target(item as dynamic) as dynamic
+        if item = invalid or item.Type = invalid then return invalid
+        kind = item.Type
+        if kind = "Series" and item.Id <> invalid
+            return { itemId: item.Id, title: valueOr(item.Name, "") }
+        else if kind = "Episode" or kind = "Season"
+            if item.SeriesId = invalid or item.SeriesId = "" then return invalid
+            title = valueOr(item.SeriesName, "")
+            if title = "" then title = valueOr(item.Name, "")
+            return { itemId: item.SeriesId, title: title }
+        else if (kind = "Movie" or kind = "Video") and item.Id <> invalid
+            return { itemId: item.Id, title: valueOr(item.Name, "") }
+        end if
+        return invalid
+    end function
+
+    ' The Add to Channel menu: one entry per channel. An unscheduled channel is
+    ' a single toggle; a scheduled one (several dayparts, or a seasonal one) is
+    ' one toggle per daypart, picked from a sub-list.
+    '
+    ' An unscheduled channel's state is folded across whatever memberships came
+    ' back -- Added beats ViaRule beats None -- so a title added in any daypart
+    ' reads as Added, and removing it names that daypart.
+    function buildMenu(channels as object, memberships as object) as object
+        byChannel = {}
+        for each mem in memberships
+            id = valueOr(mem.ChannelId, "")
+            if not byChannel.DoesExist(id) then byChannel[id] = []
+            byChannel[id].push(mem)
+        end for
+
+        entries = []
+        for each channel in channels
+            rows = []
+            if byChannel.DoesExist(channel.Id) then rows = byChannel[channel.Id]
+            if isTrue(channel.IsScheduled)
+                options = []
+                for each daypart in dayparts(channel)
+                    state = "None"
+                    rule = valueOr(daypart.RuleSummary, "")
+                    for each mem in rows
+                        if mem.DaypartIndex = daypart.Index
+                            state = stateOf(mem)
+                            if mem.RuleSummary <> invalid and mem.RuleSummary <> "" then rule = mem.RuleSummary
+                        end if
+                    end for
+                    options.push(option(channel.Id, daypart.Index, valueOr(daypart.Name, ""), state, rule))
+                end for
+                entries.push({ channel: channel, single: invalid, dayparts: options })
+            else
+                added = invalid
+                viaRule = invalid
+                for each mem in rows
+                    state = stateOf(mem)
+                    if state = "Added" and added = invalid then added = mem
+                    if state = "ViaRule" and viaRule = invalid then viaRule = mem
+                end for
+                state = "None"
+                daypartIndex = -1
+                rule = ""
+                if added <> invalid
+                    state = "Added"
+                    ' Removal names the daypart it was added to; adding leaves
+                    ' the choice to the server's default.
+                    daypartIndex = added.DaypartIndex
+                else if viaRule <> invalid
+                    state = "ViaRule"
+                    rule = valueOr(viaRule.RuleSummary, "")
+                end if
+                entries.push({ channel: channel, single: option(channel.Id, daypartIndex, valueOr(channel.Name, ""), state, rule), dayparts: [] })
+            end if
+        end for
+        return entries
+    end function
+
+    function option(channelId as string, daypartIndex as integer, title as string, state as string, rule as string) as object
+        return { channelId: channelId, daypartIndex: daypartIndex, title: title, state: state, ruleSummary: rule }
+    end function
+
+    ' An unknown state from a newer plugin reads as "not on the channel"
+    ' rather than failing the whole menu.
+    function stateOf(membership as object) as string
+        state = valueOr(membership.State, "None")
+        if state = "Added" or state = "ViaRule" then return state
+        return "None"
+    end function
+
+    ' "(via Science Fiction)" beside a rule-sourced checkmark.
+    function viaLabel(opt as object) as string
+        if opt.ruleSummary = invalid or opt.ruleSummary = "" then return "(via a rule)"
+        return "(via " + opt.ruleSummary + ")"
+    end function
+
+    ' Under a scheduled channel's name: which dayparts already carry the title.
+    function scheduledSummary(entry as object) as string
+        added = []
+        anyRule = false
+        for each opt in entry.dayparts
+            if opt.state = "Added" then added.push(opt.title)
+            if opt.state = "ViaRule" then anyRule = true
+        end for
+        if added.count() > 0 then return Chr(10003) + " " + added.join(", ")
+        if anyRule then return "Airs through a rule"
+        return "Scheduled " + Chr(183) + " pick a daypart"
+    end function
+
+    function dayparts(channel as object) as object
+        if channel.Dayparts = invalid or type(channel.Dayparts) <> "roArray" then return []
+        return channel.Dayparts
+    end function
+
+    function addedItems(daypart as object) as object
+        if daypart.AddedItems = invalid or type(daypart.AddedItems) <> "roArray" then return []
+        return daypart.AddedItems
+    end function
+
+    function addedCount(channel as object) as integer
+        total = 0
+        for each daypart in dayparts(channel)
+            total += addedItems(daypart).count()
+        end for
+        return total
+    end function
+
+    ' Something other than hand-added titles feeds the channel (a genre, a
+    ' library, another collection), so emptying the added list keeps it on air.
+    function hasRule(channel as object) as boolean
+        for each daypart in dayparts(channel)
+            if daypart.RuleSummary <> invalid and daypart.RuleSummary <> "" then return true
+        end for
+        return false
+    end function
+
+    ' Removing this title would leave the channel nothing to air: nothing else
+    ' was added and no rule feeds it. Mirrors what the server removes -- a
+    ' series from the one daypart named (every daypart when none is), a film
+    ' from the whole channel, since the managed collection belongs to the
+    ' channel rather than to a daypart.
+    function removingTakesOffAir(channel as object, itemId as string, daypartIndex as integer) as boolean
+        if hasRule(channel) then return false
+        remaining = 0
+        for each daypart in dayparts(channel)
+            for each added in addedItems(daypart)
+                if added.Id <> itemId
+                    remaining++
+                else if valueOr(added.Type, "") = "Series" and daypartIndex >= 0 and daypart.Index <> daypartIndex
+                    remaining++
+                end if
+            end for
+        end for
+        return remaining = 0
+    end function
+
+    ' "12 titles added", or what makes a scheduled channel different.
+    function managementSummary(channel as object) as string
+        count = addedCount(channel)
+        added = count.toStr() + " titles added"
+        if count = 1 then added = "1 title added"
+        if not isTrue(channel.IsScheduled) then return added
+        parts = dayparts(channel).count()
+        partsText = parts.toStr() + " dayparts"
+        if parts = 1 then partsText = "1 daypart"
+        return "Scheduled " + Chr(183) + " " + partsText + " " + Chr(183) + " " + added
+    end function
+
+    ' "Series · 2018".
+    function itemDetailLine(item as object) as string
+        parts = []
+        if item.Type <> invalid and item.Type <> "" then parts.push(item.Type)
+        if item.ProductionYear <> invalid then parts.push(item.ProductionYear.toStr())
+        return parts.join(" " + Chr(183) + " ")
+    end function
+
+    ' "18:00–24:00 · Seasonal", or "All day".
+    function scheduleLine(daypart as object) as string
+        startMin = 0
+        endMin = 1440
+        if daypart.StartMinutes <> invalid then startMin = daypart.StartMinutes
+        if daypart.EndMinutes <> invalid then endMin = daypart.EndMinutes
+        text = "All day"
+        if not (startMin = 0 and (endMin = 1440 or endMin = 0))
+            text = clock(startMin) + Chr(8211) + clock(endMin)
+        end if
+        if isTrue(daypart.IsSeasonal) then text += " " + Chr(183) + " Seasonal"
+        return text
+    end function
+
+    function clock(minutes as integer) as string
+        wrapped = ((minutes MOD 1440) + 1440) MOD 1440
+        h = Int(wrapped / 60)
+        mm = wrapped MOD 60
+        return Right("0" + h.toStr(), 2) + ":" + Right("0" + mm.toStr(), 2)
+    end function
+
+    ' The rule summary as the read-only line on a channel. Rules stay in the
+    ' dashboard in v1.
+    function ruleSentence(daypart as object) as string
+        if daypart.RuleSummary = invalid or daypart.RuleSummary = "" then return ""
+        return "Also airs: " + daypart.RuleSummary + " " + Chr(8212) + " edit rules in the Jellyfin dashboard."
+    end function
+
+    ' A logo by key, not by channel: the picker shows keys no channel wears
+    ' yet, and the management screens show the configured key rather than
+    ' today's seasonal one. Anonymous on the server because a Poster cannot
+    ' send an Authorization header. Mono = the white one, which reads on the
+    ' dark rows.
+    function logoUrl(key as dynamic) as string
+        if key = invalid or key = "" then return ""
+        ' Keys are the plugin's own slugs ("golden-hour"), safe in a path as
+        ' they are; Http.escape needs roUrlTransfer, which this thread lacks.
+        return m.global.serverUrl + "/VirtualChannels/Logos/" + key + "?style=mono"
+    end function
+
+    ' "cozy-autumn" -> "Cozy Autumn", for the label under a picker tile.
+    function displayName(key as string) as string
+        words = []
+        for each word in key.Tokenize("-_")
+            words.push(UCase(Left(word, 1)) + Mid(word, 2))
+        end for
+        return words.join(" ")
+    end function
+
+    ' "Cozy Autumn" or "cozy-autumn" -> "CA", for a channel with no logo.
+    function initials(name as string) as string
+        letters = ""
+        for each word in name.Tokenize(" -_")
+            if Len(letters) < 2 then letters += UCase(Left(word, 1))
+        end for
+        if letters = "" then return "?"
+        return letters
+    end function
+
+    function isTrue(value as dynamic) as boolean
+        if value = invalid then return false
+        return value = true
+    end function
+
+    function valueOr(value as dynamic, fallback as string) as string
+        if value = invalid then return fallback
+        return value
+    end function
+
+end namespace

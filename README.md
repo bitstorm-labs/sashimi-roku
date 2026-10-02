@@ -97,6 +97,14 @@ Movies use the same layout without seasons.*
   (`LocalTrailerCount > 0`, e.g. one downloaded by
   [Trailarr](https://github.com/nandyalu/trailarr)). It opens the trailer in the
   normal player. Remote and YouTube-hosted trailers are not supported.
+- **Add to Channel** (server administrators only) — puts a movie or series (an
+  episode or season adds its series) on a SashimiTV channel, or takes it off.
+  ✓ marks the channels it was added to; a dimmed ✓ "(via …)" marks one it airs
+  on through a dashboard rule. Scheduled channels ask which daypart, and
+  **New Channel…** creates a channel that starts with the title. **Manage
+  Channels**, the last chip on the Guide, renames channels, changes or removes
+  their logo, removes added titles and deletes channels. Dayparts, seasons and
+  rules stay in the Jellyfin dashboard. Needs the Channels plugin 0.11+.
 - **Seasons and episodes** — season pills plus an episode row for series; an
   episode's own screen shows a "More Episodes" strip with the current episode
   marked. A **Cast** row lists up to 20 actors.

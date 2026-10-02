@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- SashimiTV channel management, for server administrators: Add to Channel
+     (from a detail screen) and Manage Channels (from the guide). One screen
+     whose content changes level by level, so Back always steps up one level
+     and focus always has a row to land on. -->
+<component name="ChannelManagerScreen" extends="Group">
+    <interface>
+        <!-- { mode: "add", target: { itemId, title } } or { mode: "manage" } -->
+        <field id="config" type="assocarray" onChange="onConfig" />
+        <!-- Back from the top level: MainScene pops the screen. -->
+        <field id="done" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+
+        <Label id="titleLabel" text="" color="#FFFFFF" width="1200" maxLines="1"
+               ellipsizeOnBoundary="true" translation="[360, 72]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="48" />
+        </Label>
+        <Label id="subtitleLabel" text="" color="#BFBFBF" width="1200" maxLines="2" wrap="true"
+               translation="[360, 140]">
+            <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="24" />
+        </Label>
+        <!-- A change is on its way to the server; presses are ignored meanwhile
+             so a double press cannot send the same change twice. -->
+        <Label id="workingLabel" text="Saving..." color="#8C5CC7" width="300" horizAlign="right"
+               translation="[1260, 86]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
+        </Label>
+
+        <!-- Rows are built in code and scroll inside this window; the header
+             above stays put. -->
+        <Group id="viewport">
+            <Group id="content" translation="[360, 250]" />
+        </Group>
+
+        <JellyfinApi id="apiTask" />
+        <!-- "Added" is immediate, but "ViaRule" comes from the channel's cached
+             running order and lags a change by the seconds a rebuild takes. -->
+        <Timer id="lateTimer" duration="5" repeat="false" />
+    </children>
+</component>
