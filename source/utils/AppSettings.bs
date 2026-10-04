@@ -1,4 +1,5 @@
 import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/StreamQuality.bs"
 
 ' Persisted app settings (Registry section "settings") with tvOS defaults.
 ' Playback (Pass 4) reads these; SettingsScreen writes them.
@@ -14,9 +15,10 @@ namespace AppSettings
         Registry.write("settings", key, value)
     end sub
 
-    ' 0 = Auto; otherwise max bitrate in Mbps
-    function maxBitrateMbps() as integer
-        return Val(read("maxBitrateMbps", "0")).ToStr().ToInt()
+    ' 0 = Auto; otherwise the Maximum Bitrate cap in bits/sec. The registry
+    ' key keeps its Mbps name and unit for installs that already wrote it.
+    function maxBitrateBps() as integer
+        return StreamQuality.settingsCapBps(read("maxBitrateMbps", "0"))
     end function
 
     function forceDirectPlay() as boolean
