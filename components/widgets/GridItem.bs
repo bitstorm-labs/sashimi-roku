@@ -20,6 +20,9 @@ sub init()
     m.pillFont.uri = "pkg:/fonts/Inter-Bold.ttf"
     m.pillFont.size = 16
     m.isCircular = false
+    ' Set last; every observer returns early without it (see HomeItem: an
+    ' observer can run on an item whose scope is not, or no longer, set up).
+    m.initialized = true
 end sub
 
 ' Resolution chip (top-left). 4K glows Jellyfin purple; HD/SD sit on dark
@@ -112,6 +115,7 @@ function formatRating(r as float) as string
 end function
 
 sub onItemContentChanged()
+    if m.initialized = invalid then return
     content = m.top.itemContent
     if content = invalid then return
 
@@ -187,6 +191,7 @@ sub onItemContentChanged()
 end sub
 
 sub onFocusChanged()
+    if m.initialized = invalid then return
     fp = m.top.focusPercent
     ' Marquee only while highlighted (tvOS behavior)
     if fp > 0.5

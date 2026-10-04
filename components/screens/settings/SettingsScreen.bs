@@ -3,6 +3,8 @@ import "pkg:/source/utils/AppSettings.bs"
 import "pkg:/source/utils/LanguagePrefs.bs"
 import "pkg:/source/utils/Servers.bs"
 import "pkg:/source/utils/ViewMode.bs"
+import "pkg:/source/utils/Confirm.bs"
+import "pkg:/source/utils/Filmography.bs"
 
 ' tvOS Settings parity: card rows (maxWidth 800), focus = accent fill + scale.
 ' Pickers cycle values on OK (TV-simple equivalent of tvOS picker subscreens).
@@ -30,6 +32,7 @@ sub init()
     m.hrIndex = 0
     m.svOpen = false
     m.svIndex = 0
+    m.svPendingRemoveId = invalid
 
     ' Option sets (label/value pairs; value stored as string)
     ' Values are Mbps (the stored unit); below 4K they are the player's
@@ -278,7 +281,7 @@ sub showSignOutDialog()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Sign Out"
     dialog.message = ["Are you sure you want to sign out?"]
-    dialog.buttons = ["Sign Out", "Cancel"]
+    dialog.buttons = Confirm.buttons("Sign Out")
     dialog.observeFieldScoped("buttonSelected", "onSignOutButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -286,10 +289,10 @@ end sub
 sub onSignOutButton()
     dialog = m.top.getScene().dialog
     if dialog = invalid then return
-    index = dialog.buttonSelected
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
     dialog.close = true
 
-    if index = 0
+    if confirmed
         ' Revoke server-side FIRST (creds travel in the payload, so clearing
         ' local state below cannot race it), then clear BOTH registry sections
         ' -- "auth" alone left a token per entry in "servers" that
@@ -475,7 +478,7 @@ end function
 
 ' ---------- Servers manager (multi-server switcher) ----------
 ' Same overlay pattern as the Home Rows editor. OK = switch (or Add),
-' * (options) = remove selected, Back = close.
+' * (options) = remove selected (after a confirmation), Back = close.
 
 sub openServersManager()
     m.svList = Servers.getAll()
@@ -588,32 +591,56 @@ function handleServersKey(key as string) as boolean
         end if
         return true
     else if key = "options"
-        if m.svIndex < m.svList.count()
-            removedId = m.svList[m.svIndex].id
-            wasActive = (removedId = Servers.getActiveId())
-            Servers.remove(removedId)
-            m.svList = Servers.getAll()
-            if not Registry.hasAuth()
-                m.svOpen = false
-                if m.svPanel <> invalid then m.svPanel.visible = false
-                m.top.signOut = true
-                return true
-            end if
-            if wasActive
-                ' Servers.remove() promotes the replacement in the registry
-                ' only; m.global still holds the deleted server's url/token and
-                ' that is what Http reads, so every later request went to the
-                ' server the user just removed. switchServerId is the one path
-                ' that reloads m.global and rebuilds the UI.
-                m.svOpen = false
-                if m.svPanel <> invalid then m.svPanel.visible = false
-                m.global.switchServerId = Servers.getActiveId()
-                return true
-            end if
-            if m.svIndex > m.svList.count() then m.svIndex = m.svList.count()
-            renderServers()
-        end if
+        if m.svIndex < m.svList.count() then confirmRemoveServer(m.svList[m.svIndex])
         return true
     end if
     return true
 end function
+
+' Removing a server throws away its saved sign-in, so * asks first. The
+' dialog takes focus from the panel; the panel stays open behind it.
+sub confirmRemoveServer(srv as object)
+    activeId = Servers.getActiveId()
+    m.svPendingRemoveId = srv.id
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = Confirm.removeServerTitle(Filmography.serverLabel(srv))
+    dialog.message = [Confirm.removeServerMessage(m.svList.count() = 1, srv.id = activeId)]
+    dialog.buttons = Confirm.buttons("Remove")
+    dialog.observeFieldScoped("buttonSelected", "onRemoveServerButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onRemoveServerButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
+    dialog.close = true
+    removedId = m.svPendingRemoveId
+    m.svPendingRemoveId = invalid
+    if confirmed and removedId <> invalid then removeServer(removedId)
+end sub
+
+sub removeServer(removedId as string)
+    wasActive = (removedId = Servers.getActiveId())
+    Servers.remove(removedId)
+    m.svList = Servers.getAll()
+    if not Registry.hasAuth()
+        m.svOpen = false
+        if m.svPanel <> invalid then m.svPanel.visible = false
+        m.top.signOut = true
+        return
+    end if
+    if wasActive
+        ' Servers.remove() promotes the replacement in the registry
+        ' only; m.global still holds the deleted server's url/token and
+        ' that is what Http reads, so every later request went to the
+        ' server the user just removed. switchServerId is the one path
+        ' that reloads m.global and rebuilds the UI.
+        m.svOpen = false
+        if m.svPanel <> invalid then m.svPanel.visible = false
+        m.global.switchServerId = Servers.getActiveId()
+        return
+    end if
+    if m.svIndex > m.svList.count() then m.svIndex = m.svList.count()
+    renderServers()
+end sub

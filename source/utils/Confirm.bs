@@ -1,0 +1,38 @@
+' Destructive confirmations (sign out, remove server, mark a season, delete a
+' channel). StandardMessageDialog always focuses its FIRST button and has no
+' field to move that default, so Cancel has to come first or a reflexive OK on
+' the dialog performs the action. Every confirm dialog builds its buttons and
+' reads its answer through here so the order and the index cannot drift apart.
+' Pure functions only, so tests/ConfirmTests.brs can run them off-device.
+namespace Confirm
+
+    const CANCEL_INDEX = 0
+    const CONFIRM_INDEX = 1
+
+    function buttons(actionLabel as string) as object
+        return ["Cancel", actionLabel]
+    end function
+
+    ' buttonSelected is an integer on device, but a dialog torn down early can
+    ' hand back invalid; anything but the action's index means "don't".
+    function isConfirmed(buttonSelected as dynamic) as boolean
+        if buttonSelected = invalid then return false
+        t = type(buttonSelected)
+        if t <> "Integer" and t <> "roInt" and t <> "roInteger" then return false
+        return buttonSelected = CONFIRM_INDEX
+    end function
+
+    function removeServerTitle(serverLabel as string) as string
+        if serverLabel = "" then serverLabel = "this server"
+        return "Remove " + serverLabel + "?"
+    end function
+
+    ' Says what happens next, because it differs: removing the only server
+    ' signs out, removing the active one reloads on another.
+    function removeServerMessage(isOnly as boolean, isActive as boolean) as string
+        if isOnly then return "It's your only server, so you'll be signed out."
+        if isActive then return "Sashimi will switch to another saved server. You can add this one back by signing in again."
+        return "You can add it back by signing in again."
+    end function
+
+end namespace

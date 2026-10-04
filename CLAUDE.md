@@ -16,7 +16,10 @@ npm run dev       # package + sideload (needs ROKU_DEV_TARGET / ROKU_DEV_PASSWOR
 `npm test` transpiles and then runs `tests/*Tests.brs` off-device with the
 `@rokucommunity/brs` interpreter (`tests/run.js`). It covers **pure logic only**
 — today `source/utils/StreamQuality.bs` (quality tiers, step-down ladder, probe
-arithmetic). Nothing that touches a SceneGraph node, the registry or the network
+arithmetic) and `source/utils/Confirm.bs` (destructive-confirmation button
+order: `StandardMessageDialog` focuses its first button, so Cancel goes first).
+`SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
+mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that
 only pretends to exercise those. Two interpreter traps: it exits 0 on a script
 error (the runner requires an explicit `ALL PASSED`), and a 10-digit integer

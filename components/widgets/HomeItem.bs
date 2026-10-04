@@ -39,9 +39,18 @@ sub init()
     m.posterHeight = 330
     m.isCircular = false
     m.isLandscape = false
+    ' A size RowList set before this ran would otherwise be lost (the handler
+    ' below ignores calls until init has finished).
+    if m.top.width > 0 and m.top.height > 0 then m.itemWidth = m.top.width
+    ' Set last; every observer returns early without it. An observer can run
+    ' on an item whose script scope is not (or no longer) set up: the device
+    ' logged applyLayout reading m.isCircular as invalid while the channel was
+    ' exiting, and `if invalid then` is a runtime error, not a false.
+    m.initialized = true
 end sub
 
 sub onSizeChanged()
+    if m.initialized = invalid then return
     w = m.top.width
     h = m.top.height
     if w = 0 or h = 0 then return
@@ -223,6 +232,7 @@ function formatRating(r as float) as string
 end function
 
 sub onItemContentChanged()
+    if m.initialized = invalid then return
     content = m.top.itemContent
     if content = invalid then return
 
@@ -485,6 +495,7 @@ sub applyFocusVisuals(fp as float)
 end sub
 
 sub onFocusChanged()
+    if m.initialized = invalid then return
     ' focusPercent FREEZES at its last value when the RowList itself loses
     ' focus (item 0 boots at 1.0) — itemHasFocus is the truthful gate, so a
     ' ring never shows while the hero or another node owns focus.
@@ -496,6 +507,7 @@ sub onFocusChanged()
 end sub
 
 sub onItemHasFocus()
+    if m.initialized = invalid then return
     if m.top.itemHasFocus
         applyFocusVisuals(m.top.focusPercent)
     else
@@ -504,6 +516,7 @@ sub onItemHasFocus()
 end sub
 
 sub onRowFocusChanged()
+    if m.initialized = invalid then return
     ' Row lost focus: clear. Row (re)gained focus: re-apply from focusPercent —
     ' RowList doesn't always re-fire focusPercent when the row regains focus,
     ' which left the focused card with no visible highlight.
