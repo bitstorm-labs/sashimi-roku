@@ -3,6 +3,7 @@ import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/TimeFormat.bs"
 import "pkg:/source/utils/Filmography.bs"
 import "pkg:/source/utils/ChannelManagement.bs"
+import "pkg:/source/utils/Confirm.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -1606,7 +1607,7 @@ function showSeasonOptions() as boolean
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = name
     dialog.message = [msg]
-    dialog.buttons = [label, "Cancel"]
+    dialog.buttons = Confirm.buttons(label)
     dialog.observeFieldScoped("buttonSelected", "onSeasonOptionsButton")
     m.top.getScene().dialog = dialog
     return true
@@ -1630,11 +1631,11 @@ end function
 sub onSeasonOptionsButton()
     dialog = m.top.getScene().dialog
     if dialog = invalid then return
-    idx = dialog.buttonSelected
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
     dialog.close = true
     pending = m.seasonAction
     m.seasonAction = invalid
-    if idx = 0 and pending <> invalid
+    if confirmed and pending <> invalid
         act = "markPlayed"
         if pending.played then act = "markUnplayed"
         ' Show the season acted on, so the refreshed episode badges are the

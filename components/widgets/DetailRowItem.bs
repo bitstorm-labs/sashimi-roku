@@ -27,9 +27,13 @@ sub init()
     m.kind = ""
     m.isCurrent = false
     m.isSelected = false
+    ' Set last; every observer returns early without it (see HomeItem: an
+    ' observer can run on an item whose scope is not, or no longer, set up).
+    m.initialized = true
 end sub
 
 sub onContentChanged()
+    if m.initialized = invalid then return
     c = m.top.itemContent
     if c = invalid then return
 
@@ -110,6 +114,7 @@ sub applyPillState(fp as float)
 end sub
 
 sub onFocusChanged()
+    if m.initialized = invalid then return
     fp = m.top.focusPercent
     ' focusPercent freezes when the RowList loses focus (item 0 boots at 1.0)
     if not m.top.itemHasFocus then fp = 0.0
@@ -127,6 +132,7 @@ sub onFocusChanged()
 end sub
 
 sub onRowFocusChanged()
+    if m.initialized = invalid then return
     if m.top.rowFocusPercent < 0.5
         if m.kind = "episode"
             m.epFocus.opacity = 0.0
