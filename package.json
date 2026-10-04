@@ -7,9 +7,11 @@
     "package": "bsc && cp out/sashimi-roku.zip sashimi.zip",
     "deploy": "roku-deploy --host $ROKU_DEV_TARGET --password $ROKU_DEV_PASSWORD",
     "dev": "npm run package && npm run deploy",
-    "lint": "bsc --create-package=false"
+    "lint": "bsc --create-package=false",
+    "test": "bsc --create-package=false && node tests/run.js"
   },
   "devDependencies": {
+    "@rokucommunity/brs": "^0.47.6",
     "brighterscript": "^0.73.0",
     "roku-deploy": "^3.12.0"
   }

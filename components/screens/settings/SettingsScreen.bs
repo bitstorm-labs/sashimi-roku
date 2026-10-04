@@ -32,13 +32,21 @@ sub init()
     m.svIndex = 0
 
     ' Option sets (label/value pairs; value stored as string)
+    ' Values are Mbps (the stored unit); below 4K they are the player's
+    ' quality tiers, so each also caps the picture width (StreamQuality).
     m.bitrateOptions = [
         { label: "Auto", value: "0" },
         { label: "4K (80 Mbps)", value: "80" },
         { label: "1080p (20 Mbps)", value: "20" },
         { label: "720p (8 Mbps)", value: "8" },
-        { label: "480p (3 Mbps)", value: "3" }
+        { label: "480p (4 Mbps)", value: "4" },
+        { label: "720p (2 Mbps)", value: "2" },
+        { label: "480p (1 Mbps)", value: "1" },
+        { label: "360p (720 kbps)", value: "0.72" }
     ]
+    ' The old lowest option was "480p (3 Mbps)". Playback already reads it as
+    ' the 4 Mbps tier; rewrite it so this picker shows that instead of "Auto".
+    if AppSettings.read("maxBitrateMbps", "0") = "3" then AppSettings.write("maxBitrateMbps", "4")
     m.resumeOptions = [
         { label: "Always resume", value: "0" },
         { label: "30 seconds", value: "30" },

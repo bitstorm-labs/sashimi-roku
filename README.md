@@ -143,12 +143,18 @@ Movies use the same layout without seasons.*
 - **Roku's system caption setting is honoured** — turning captions on or off in
   Roku's own settings selects or clears a subtitle track.
 - **Adaptive fallbacks** — a direct play the hardware rejects retries once over
-  HLS, and a stall or a transcode that never starts steps the bitrate down
-  through 12 / 8 / 5 / 3 Mbps before surfacing an error. *Always Play Original*
-  opts out of both.
+  HLS. A stream that stalls, keeps rebuffering, or never starts steps down
+  from the same position, roughly halving each time (20 → 8 → 4 → 2 → 1 Mbps →
+  720 kbps) with the picture width to match, and says so on screen. Only when
+  the ladder runs out does it surface an error. *Always Play Original* opts
+  out of both.
+- **Quality menu** — Auto, 1080p · 20 Mbps, 720p · 8 Mbps, 480p · 4 Mbps, and
+  three low-bandwidth tiers: 720p · 2 Mbps, 480p · 1 Mbps, 360p · 720 kbps.
+  Each tier caps resolution as well as bitrate. The menu marks the quality in
+  force, including one reached by an automatic step-down.
 - **Stream info on the overlay** — resolution, video codec, whether the stream is
-  **Original** or **Converted**, the delivered bitrate, a clock, and a
-  "Finishes at" estimate.
+  **Original** or **Converted**, the delivered bitrate, the quality in force, a
+  clock, and a "Finishes at" estimate.
 - **Accelerating seek** — repeated presses in the same direction step 10s → 20s →
   40s → 60s, with the scrub bar and thumbnail previewing before the seek commits.
 - **Progress reporting** — position is reported to Jellyfin on start, every five
@@ -216,7 +222,7 @@ press **Connect**.
 |---|---|---|
 | **Servers** | — | Add, switch between, or remove servers. `*` removes the highlighted one. |
 | **Home Screen Rows** | — | LEFT/RIGHT reorder, OK shows/hides, Back saves. Visit Home once first so your libraries are known. |
-| **Maximum Bitrate** | Auto | Auto, or cap at 80 / 20 / 8 / 3 Mbps. Auto measures your downstream bandwidth and uses 85% of it. |
+| **Maximum Bitrate** | Auto | Auto, or cap at 80 / 20 / 8 / 4 / 2 / 1 Mbps or 720 kbps (from 20 Mbps down each also caps resolution). Auto measures your downstream bandwidth and uses 85% of it, down to 720 kbps; until a measurement lands it assumes 4 Mbps for a server reached over the internet and 20 Mbps on the local network. |
 | **Always Play Original** | Off | Requests direct play and disables the adaptive HLS and bitrate-step-down fallbacks. |
 | **Auto-Play Next Episode** | On | |
 | **Auto-Skip Intro** | Off | Requires the Intro Skipper plugin. |
@@ -256,8 +262,9 @@ a typical home upstream.
 
 - Lower **Settings → Maximum Bitrate** to something the link can sustain.
 - Leave **Always Play Original** off. It disables the automatic fallbacks that
-  would otherwise retry over HLS and step down through 12 / 8 / 5 / 3 Mbps.
-- A status of *Adjusting quality…* means Sashimi is already stepping down.
+  would otherwise retry over HLS and step down as far as 360p · 720 kbps.
+- *Lowering quality for your connection…* means Sashimi is already stepping
+  down; the Quality menu shows where it landed and lets you pick another tier.
 - Server-side hardware transcoding (QSV, NVENC, VAAPI) makes a large difference,
   especially with burned-in subtitles.
 
@@ -327,7 +334,9 @@ costs:
 - **Library grids list movies and series**, not individual episodes; reach
   episodes through a series' detail screen.
 - **English only.** Every string is hardcoded; there is no translation layer yet.
-- **No test suite.** Changes are verified by sideloading onto a real device.
+- **Tests cover pure logic only** (`npm test`: quality tiers, the step-down
+  ladder, the bandwidth-probe arithmetic). Everything that touches the screen,
+  the player or the network is verified by sideloading onto a real device.
 - Sashimi is **not yet in the Roku Channel Store**, so sideloading is the only
   install path today.
 
@@ -415,9 +424,10 @@ full guide; in short:
 1. Create a feature branch: `git checkout -b feat/my-feature`
 2. Commit using [Conventional Commits](https://www.conventionalcommits.org/):
    `git commit -m "feat: add new feature"`
-3. Run `npm run lint` until it is clean, then sideload and test on a real
-   device — there is no test suite, so manual verification is the only safety
-   net. Say in the PR what you exercised and on what hardware.
+3. Run `npm run lint` and `npm test` until both are clean, then sideload and
+   test on a real device — the tests only reach pure logic, so manual
+   verification is the safety net for everything else. Say in the PR what you
+   exercised and on what hardware.
 4. Check that `manifest` still has `bs_const=DEBUG=false`.
 5. Open a Pull Request. CI runs BrighterScript static analysis.
 

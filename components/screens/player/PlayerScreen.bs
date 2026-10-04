@@ -4,6 +4,7 @@ import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/TimeFormat.bs"
 import "pkg:/source/utils/ViewMode.bs"
+import "pkg:/source/utils/StreamQuality.bs"
 
 ' tvOS PlayerViewModel parity on Roku. Design rules learned the hard way:
 '  - The screen NEVER gives remote focus to a child node. Every key lands in
@@ -146,12 +147,18 @@ sub init()
     m.subPrefApplied = false  ' once-per-file guard for subtitle re-match
     m.curAudIdx = -1          ' -1 = server default
     m.qualityBps = 0          ' 0 = auto (settings)
-    ' Adaptive step-down: when a stream stalls/errors mid-playback (weak remote
-    ' downstream), retry from the same spot at a lower bitrate cap before giving
-    ' up. Roku hard-errors on underruns where AVPlayer would just rebuffer.
-    m.stepDownTiers = [12000000, 8000000, 5000000, 3000000]
-    m.stepDownIdx = -1
+    ' Adaptive step-down: when a stream stalls or errors (weak remote
+    ' downstream), retry from the same spot at a lower cap before giving up.
+    ' The ladder is StreamQuality.nextStepDownBps, down to 720 kbps.
     m.stepDownBps = 0         ' active step-down cap (0 = none)
+    m.activeCapBps = 0        ' cap the current stream was negotiated under
+    m.deliveredBps = 0        ' what the current stream actually carries
+    m.pendingNotice = ""      ' toast owed once the stepped-down stream plays
+    m.encodeLive = false      ' the Video node was handed a server transcode
+    ' Rebuffers that were not the viewer's doing (see noteRebuffer)
+    m.clock = CreateObject("roTimespan")
+    m.rebufferTimes = []
+    m.lastJumpAt = 0
     m.pendingStartSecs = -1
 
     m.chapters = []           ' [{name, startSec}] from item Chapters
@@ -210,9 +217,10 @@ sub onItemDataChanged()
     ' Per-item, like the flags above: a stale lastPosition from the previous item
     ' would be reported as this one's stop position.
     m.lastPosition = 0
-    m.stepDownIdx = -1        ' fresh item starts at full quality
     m.videoAspect = 0.0       ' the new item's shape arrives with its stream
-    m.stepDownBps = 0
+    m.stepDownBps = 0         ' fresh item starts at full quality
+    m.pendingNotice = ""
+    m.rebufferTimes = []
     setChapters(data)
     populateInfoBar()
     ' The Video node's own loading UI draws the title and a clock across the
@@ -269,16 +277,109 @@ sub requestStream(item as object)
     if m.qualityBps > 0
         cap = m.qualityBps
     else
-        mb = AppSettings.maxBitrateMbps()
-        if mb > 0 then cap = mb * 1000000
+        cap = AppSettings.maxBitrateBps()
     end if
     ' A pending step-down caps below the user/settings choice
     if m.stepDownBps > 0 and (cap = 0 or m.stepDownBps < cap) then cap = m.stepDownBps
-    if cap > 0 then req.maxBitrate = cap
+    if cap > 0
+        req.maxBitrate = cap
+        ' The tier's width goes with it, or the server keeps the source
+        ' resolution and only starves it of bits.
+        req.maxWidth = StreamQuality.widthForCap(cap)
+    end if
     ' Step-down needs a real transcode to actually lower the delivered bitrate
     if m.stepDownBps > 0 then req.forceTranscode = true
+    ' Whatever this replaces is finished with: stop its encode first (the
+    ' queue is serialized) so the server is not running two.
+    stopLiveEncode()
+    m.lastJumpAt = m.clock.TotalSeconds()
     enqueue(req)
     armStallWatchdog()
+end sub
+
+' A transcode the Video node was playing outlives the node's "stop": the server
+' only notices at its idle timer, 60 s later for HLS. Every restart (subtitle,
+' audio, quality, step-down, channel flip) used to leave one behind.
+sub stopLiveEncode()
+    if not m.encodeLive then return
+    m.encodeLive = false
+    if m.playSessionId <> "" then enqueue({ action: "stopEncoding", playSessionId: m.playSessionId })
+end sub
+
+' Where a retry should start: the furthest point reached, else the original
+' intent. lastPosition is only meaningful once playback actually began -- on
+' an instant reject it is still 0, and retrying from 0 restarts a resumed
+' episode and then reports position 0 over the saved spot.
+function retryStartSecs() as integer
+    if m.startedReported then return Int(m.lastPosition)
+    ' Join where the channel already is, not where this viewer last left
+    ' this episode -- the two are unrelated.
+    if isChannelMode() then return channelStartSeconds()
+    if m.top.playAction <> "play" then return resumeSeconds()
+    return 0
+end function
+
+' ---------- Step-down ----------
+
+' The rate to step down from: the cap in force, or what the stream actually
+' carries when that is lower (a 5 Mbps file under a 20 Mbps cap).
+function currentRateBps() as integer
+    rate = m.activeCapBps
+    if m.deliveredBps > 0 and (rate = 0 or m.deliveredBps < rate) then rate = m.deliveredBps
+    return rate
+end function
+
+' Restart from the same spot one rung down the ladder. False when there is no
+' lower rung or the viewer has opted out; the caller then surfaces the error.
+' linkIsSlow: the trigger was the connection (a stall), not the device.
+function stepDown(linkIsSlow as boolean) as boolean
+    ' Always Play Original opts out of every transcode fallback -- unless the
+    ' stream is ALREADY transcoding (burn-in subtitles override the setting),
+    ' where there is no direct-play purity left to protect.
+    if AppSettings.forceDirectPlay() and m.playMethod <> "Transcode" then return false
+    if m.item = invalid then return false
+    nextBps = StreamQuality.nextStepDownBps(currentRateBps())
+    if nextBps = 0 then return false
+    m.stepDownBps = nextBps
+    if linkIsSlow
+        ' The link just proved it cannot carry more, so Auto should not hand
+        ' the next item the rate that stalled this one. A fresh probe (next
+        ' launch, sign-in or server switch) replaces this.
+        ceiling = Int(nextBps / 0.85) + 1
+        if m.global.measuredBitrate <= 0 or m.global.measuredBitrate > ceiling then m.global.measuredBitrate = ceiling
+    end if
+    m.pendingStartSecs = retryStartSecs()
+    m.pendingNotice = "Quality lowered for your connection " + Chr(183) + " " + StreamQuality.label(nextBps)
+    m.rebufferTimes = []
+    m.statusLabel.visible = true
+    m.statusLabel.text = "Lowering quality for your connection..."
+    #if DEBUG
+        print "[Player] step down -> "; nextBps; " from "; currentRateBps(); " at "; m.pendingStartSecs; "s linkIsSlow="; linkIsSlow
+    #end if
+    m.video.control = "stop"
+    requestStream(m.item)
+    return true
+end function
+
+' A stream that keeps stopping to refill is too big for the link even when no
+' single stall lasts long enough for the watchdog. True on the third rebuffer
+' inside two minutes. Buffering the viewer caused (a seek, a restart, coming
+' back from pause) says nothing about the link and is not counted.
+function noteRebuffer() as boolean
+    now = m.clock.TotalSeconds()
+    if now - m.lastJumpAt < 15 then return false
+    recent = []
+    for each t in m.rebufferTimes
+        if now - t <= 120 then recent.push(t)
+    end for
+    recent.push(now)
+    m.rebufferTimes = recent
+    return recent.count() >= 3
+end function
+
+sub seekTo(positionSecs as dynamic)
+    m.lastJumpAt = m.clock.TotalSeconds()
+    m.video.seek = positionSecs
 end sub
 
 ' Cert 3.4: every path that parks the viewer on a status label — negotiating a
@@ -296,6 +397,12 @@ sub onBufferTimer()
     ' where the node can sit in "buffering" by the viewer's own choice.
     state = m.video.state
     if state = "playing" or state = "paused" or m.isPaused then return
+    ' A stream that is loading but not arriving is asking for more than the
+    ' link carries: ask for less, from the same spot, before giving up. This
+    ' used to go straight to "Try Again", which re-requested the same bitrate.
+    ' Any other state here is a request still in flight, which a lower
+    ' bitrate cannot help.
+    if state = "buffering" and stepDown(true) then return
     showPlaybackError("Playback stalled", "The video stopped loading. This is usually a slow or interrupted connection to the server.")
 end sub
 
@@ -340,17 +447,7 @@ sub retryPlayback()
         return
     end if
     m.video.control = "stop"
-    if m.startedReported
-        m.pendingStartSecs = Int(m.lastPosition)
-    else if isChannelMode()
-        ' Join where the channel already is, not where this viewer last left
-        ' this episode — the two are unrelated.
-        m.pendingStartSecs = channelStartSeconds()
-    else if m.top.playAction <> "play"
-        m.pendingStartSecs = resumeSeconds()
-    else
-        m.pendingStartSecs = 0
-    end if
+    m.pendingStartSecs = retryStartSecs()
     m.statusLabel.visible = true
     m.statusLabel.text = "Loading..."
     requestStream(m.item)
@@ -372,16 +469,21 @@ sub exitPlayer()
     ' Position comes from m.lastPosition, not m.video.position: the Video node
     ' has already been stopped by the line above, and this path is also reached
     ' from the playback-error dialog where the node has errored out.
-    if m.startedReported then reportStopped(Int(m.lastPosition) * 10000000&)
+    if m.startedReported
+        reportStopped(Int(m.lastPosition) * 10000000&)
+    else
+        ' No session to close, but a transcode may already be running for it.
+        stopLiveEncode()
+    end if
     m.top.done = true
 end sub
 
 ' Stop and re-negotiate (track/quality change), resuming at current position.
-sub restartStream()
+sub restartStream(status = "Loading..." as string)
     m.pendingStartSecs = Int(m.video.position)
     m.video.control = "stop"
     m.statusLabel.visible = true
-    m.statusLabel.text = "Loading..."
+    m.statusLabel.text = status
     requestStream(m.item)
 end sub
 
@@ -542,12 +644,16 @@ sub onStreamReady(r as object)
     else
         chips.push("Original")
     end if
-    ' Bitrate chip (e.g. "4 Mbps") from the source media bitrate
+    ' Bitrate chip (e.g. "4 Mbps", "720 kbps"): what is actually delivered
+    m.deliveredBps = 0
     if r.bitrate <> invalid and r.bitrate > 0
-        mbps = Int((r.bitrate / 1000000.0) + 0.5)
-        if mbps < 1 then mbps = 1
-        chips.push(str(mbps).Trim() + " Mbps")
+        m.deliveredBps = r.bitrate
+        chips.push(StreamQuality.bitrateLabel(r.bitrate))
     end if
+    m.activeCapBps = 0
+    if r.capBps <> invalid then m.activeCapBps = r.capBps
+    ' The quality in force, so a step-down or a pick is visible, not inferred.
+    chips.push(qualityInForceLabel())
     buildChips(chips)
 
     content = CreateObject("roSGNode", "ContentNode")
@@ -573,6 +679,8 @@ sub onStreamReady(r as object)
 
     m.video.content = content
     m.video.control = "play"
+    m.encodeLive = (m.playMethod = "Transcode")
+    m.lastJumpAt = m.clock.TotalSeconds()
     ' Focus stays on the screen — children never take it.
     m.top.setFocus(true)
     m.clockTimer.control = "start"
@@ -661,6 +769,14 @@ sub onVideoState()
         ' OSD is up — covers unpausing and slow reloads (subtitle burn-in) that
         ' outlast the initial one-shot timer.
         if m.osdVisible and m.zone <> "menu" then bumpOsd()
+        ' The picture just got softer on its own; say why, once it is back.
+        if m.pendingNotice <> ""
+            m.global.toastMessage = { message: m.pendingNotice, duration: 5 }
+            m.pendingNotice = ""
+        end if
+        #if DEBUG
+            print "[Player] playing method="; m.playMethod; " cap="; m.activeCapBps; " delivered="; m.deliveredBps; " stepDown="; m.stepDownBps
+        #end if
         if not m.startedReported
             m.startedReported = true
             report("reportStart", currentTicks(), false)
@@ -706,7 +822,7 @@ sub onVideoState()
         ' step-down below).
         nearEnd = (m.durationSecs > 0 and m.video.position >= m.durationSecs - 30)
         #if DEBUG
-            print "[Player] VIDEO ERROR code="; m.video.errorCode; " method="; m.playMethod; " started="; m.startedReported; " nearEnd="; nearEnd; " stepDownIdx="; m.stepDownIdx
+            print "[Player] VIDEO ERROR code="; m.video.errorCode; " method="; m.playMethod; " started="; m.startedReported; " nearEnd="; nearEnd; " stepDownBps="; m.stepDownBps
         #end if
         ' errorMsg/errorInfo can embed the stream URL, which carries
         ' api_key=<token> — DEBUG builds only
@@ -728,17 +844,7 @@ sub onVideoState()
             m.forceTranscode = true
             m.statusLabel.visible = true
             m.statusLabel.text = "Loading..."
-            ' lastPosition is only meaningful once playback actually began.
-            ' On an instant reject (mkv at t=0) it is still 0 — retrying
-            ' with 0 restarts a resumed episode from the beginning and
-            ' then reports position 0, clobbering the saved spot.
-            if m.startedReported
-                m.pendingStartSecs = Int(m.lastPosition)
-            else if m.top.playAction <> "play"
-                m.pendingStartSecs = resumeSeconds()
-            else
-                m.pendingStartSecs = 0
-            end if
+            m.pendingStartSecs = retryStartSecs()
             requestStream(m.item)
             return
         end if
@@ -757,24 +863,10 @@ sub onVideoState()
         onTranscode = (m.playMethod = "Transcode" or m.forceTranscode)
         stallAfterStart = (m.startedReported and not nearEnd)
         coldTranscodeFail = (not m.startedReported and onTranscode)
-        if not directPlayOnly and (stallAfterStart or coldTranscodeFail) and m.stepDownIdx < (m.stepDownTiers.count() - 1)
-            m.stepDownIdx = m.stepDownIdx + 1
-            m.stepDownBps = m.stepDownTiers[m.stepDownIdx]
-            ' Resume where we were on a mid-stream stall; on a cold t=0 fail
-            ' honor the original play/resume intent (lastPosition is still 0).
-            if m.startedReported
-                m.pendingStartSecs = Int(m.lastPosition)
-            else if m.top.playAction <> "play"
-                m.pendingStartSecs = resumeSeconds()
-            else
-                m.pendingStartSecs = 0
-            end if
-            m.statusLabel.visible = true
-            m.statusLabel.text = "Adjusting quality..."
-            m.video.control = "stop"
-            requestStream(m.item)
-            return
-        end if
+        ' Resumes where it was on a mid-stream stall; a cold t=0 fail honours
+        ' the original play/resume intent (see retryStartSecs). Only (a) says
+        ' anything about the link.
+        if not directPlayOnly and (stallAfterStart or coldTranscodeFail) and stepDown(stallAfterStart) then return
 
         #if DEBUG
             if directPlayOnly then print "[Player] Force Direct Play on - skipping HLS/step-down fallback; surfacing playback error"
@@ -793,6 +885,7 @@ sub onVideoState()
         m.statusLabel.visible = true
         m.statusLabel.text = "Buffering..."
         armStallWatchdog()
+        if m.startedReported and not m.isPaused and noteRebuffer() then stepDown(true)
     end if
 end sub
 
@@ -845,7 +938,7 @@ sub checkSegment(posSecs as dynamic)
             #if DEBUG
                 print "[Player] skip seek -> "; Int(active.endSec); " dur="; m.durationSecs
             #end if
-            m.video.seek = active.endSec
+            seekTo(active.endSec)
             m.curSegment = invalid
             hideSkipPill()
             return
@@ -875,7 +968,7 @@ sub skipCurrentSegment()
     #if DEBUG
         print "[Player] skip seek -> "; Int(m.curSegment.endSec); " dur="; m.durationSecs
     #end if
-    m.video.seek = m.curSegment.endSec
+    seekTo(m.curSegment.endSec)
     m.curSegment = invalid
     hideSkipPill()
 end sub
@@ -1052,7 +1145,7 @@ sub activateButton()
         togglePlayPause()
     else if kind = "restart"
         m.seeking = false
-        m.video.seek = 0
+        seekTo(0)
         updateScrubber()
     else if kind = "subs"
         openMenu("subs")
@@ -1114,12 +1207,15 @@ sub openMenu(kind as string)
         end for
     else if kind = "quality"
         m.osdMenuTitle.text = "Quality"
-        m.menuItems.push({ label: "Auto", value: 0 })
-        m.menuItems.push({ label: "High - 20 Mbps", value: 20000000 })
-        m.menuItems.push({ label: "Medium - 10 Mbps", value: 10000000 })
-        m.menuItems.push({ label: "Low - 4 Mbps", value: 4000000 })
+        ' Auto names the cap it resolved to while it is the one in force.
+        autoLabel = "Auto"
+        if qualityInForceBps() = 0 and m.activeCapBps > 0 then autoLabel = qualityInForceLabel()
+        m.menuItems.push({ label: autoLabel, value: 0 })
+        for each t in StreamQuality.tiers()
+            m.menuItems.push({ label: StreamQuality.label(t.bps), value: t.bps })
+        end for
         for i = 0 to m.menuItems.count() - 1
-            if m.menuItems[i].value = m.qualityBps then current = i
+            if m.menuItems[i].value = qualityInForceBps() then current = i
         end for
     end if
 
@@ -1194,7 +1290,7 @@ end function
 function isCurrentValue(value as integer) as boolean
     if m.menuKind = "subs" then return value = m.curSubIdx
     if m.menuKind = "audio" then return (value = m.curAudIdx) or (m.curAudIdx = -1 and m.menuItems.count() > 0 and m.menuItems[0].value = value)
-    if m.menuKind = "quality" then return value = m.qualityBps
+    if m.menuKind = "quality" then return value = qualityInForceBps()
     ' "Use for All Videos" is bulleted once the active mode already is the
     ' default, so the menu answers "is this saved?" (as on Apple TV).
     if m.menuKind = "viewMode" and value = VIEW_MODE_USE_FOR_ALL then return currentViewMode() = ViewMode.fromKey(AppSettings.defaultViewMode())
@@ -1233,7 +1329,7 @@ sub applyMenuSelection()
         selectViewMode(value)
     else if m.menuKind = "chapters"
         m.seeking = false
-        m.video.seek = value
+        seekTo(value)
         updateScrubber()
     else if m.menuKind = "subs"
         if value <> m.curSubIdx
@@ -1256,9 +1352,18 @@ sub applyMenuSelection()
             restartStream()
         end if
     else if m.menuKind = "quality"
-        if value <> m.qualityBps
+        if value <> qualityInForceBps()
             m.qualityBps = value
-            restartStream()
+            ' An explicit pick replaces an automatic step-down, in either
+            ' direction; a stall at the new rate steps down again.
+            m.stepDownBps = 0
+            m.pendingNotice = ""
+            m.rebufferTimes = []
+            if value = 0
+                restartStream("Switching to Auto...")
+            else
+                restartStream("Switching to " + StreamQuality.label(value) + "...")
+            end if
         end if
     end if
     closeMenu()
@@ -1267,6 +1372,25 @@ sub applyMenuSelection()
     restyleButtons()
     bumpOsd()
 end sub
+
+' ---------- Quality in force ----------
+
+' The Quality-menu value that describes the current stream: the step-down
+' rung when one is active (rungs are tiers, so the menu can mark it), else the
+' viewer's pick, else 0 for Auto.
+function qualityInForceBps() as integer
+    if m.stepDownBps > 0 then return m.stepDownBps
+    return m.qualityBps
+end function
+
+' "720p · 2 Mbps" for a pick or a step-down; "Auto · 4 Mbps" for Auto once a
+' stream has said what Auto came to (the measured cap, or the Settings one).
+function qualityInForceLabel() as string
+    bps = qualityInForceBps()
+    if bps > 0 then return StreamQuality.label(bps)
+    if m.activeCapBps > 0 then return "Auto " + Chr(183) + " " + StreamQuality.bitrateLabel(m.activeCapBps)
+    return "Auto"
+end function
 
 ' ---------- View modes (#135, #136) ----------
 
@@ -1556,6 +1680,7 @@ end sub
 
 sub togglePlayPause()
     if m.isPaused
+        m.lastJumpAt = m.clock.TotalSeconds()
         m.video.control = "resume"
     else
         m.video.control = "pause"
@@ -1589,7 +1714,7 @@ end sub
 
 sub onSeekTimer()
     if m.seeking
-        m.video.seek = m.seekTarget
+        seekTo(m.seekTarget)
         m.seeking = false
     end if
 end sub
@@ -1772,10 +1897,15 @@ sub reportStopped(positionTicks as longinteger)
     if isChannelMode()
         m.stoppedReported = true
         m.progressTimer.control = "stop"
+        ' No stop report on a channel, and the report is what ends the
+        ' server's transcode everywhere else.
+        stopLiveEncode()
         return
     end if
     m.stoppedReported = true
     m.progressTimer.control = "stop"
+    ' The stop report below carries the PlaySessionId, which ends the encode.
+    m.encodeLive = false
     if m.item <> invalid
         enqueue({
             action: "reportStopped"
@@ -1888,8 +2018,9 @@ sub onSiblingsLoaded(r as object)
         ' to a re-encoded, bitrate-capped stream; leaving the chapters set makes
         ' the Chapters menu seek to the previous episode's timestamps.
         m.forceTranscode = false
-        m.stepDownIdx = -1
         m.stepDownBps = 0
+        m.pendingNotice = ""
+        m.rebufferTimes = []
         m.pendingStartSecs = -1
         ' Runtime comes from the next episode's own PlaybackInfo; a stale value
         ' would place the chapter ticks and scrubber against the wrong length.
@@ -2243,6 +2374,7 @@ sub toggleStationPause()
     if m.stationPausedAt >= 0
         m.behindLiveSecs = m.behindLiveSecs + (nowSecs - m.stationPausedAt)
         m.stationPausedAt = -1
+        m.lastJumpAt = m.clock.TotalSeconds()
         m.video.control = "resume"
     else
         m.stationPausedAt = nowSecs
@@ -2327,7 +2459,11 @@ sub stopForHandoff()
     m.progressTimer.control = "stop"
     hideStationBanner()
     m.video.control = "stop"
-    if m.startedReported then reportStopped(Int(m.lastPosition) * 10000000&)
+    if m.startedReported
+        reportStopped(Int(m.lastPosition) * 10000000&)
+    else
+        stopLiveEncode()
+    end if
 end sub
 
 ' A menu opened from a channel (held OK) closes back to the picture, not to

@@ -3,6 +3,7 @@ import "pkg:/source/utils/ViewMode.bs"
 import "pkg:/source/utils/SignInError.bs"
 import "pkg:/source/utils/Filmography.bs"
 import "pkg:/source/utils/ChannelManagement.bs"
+import "pkg:/source/utils/StreamQuality.bs"
 
 sub init()
     m.top.functionName = "taskLoop"
@@ -129,6 +130,8 @@ sub processRequest()
         doGetPlaybackStream(request)
     else if action = "measureBandwidth"
         doMeasureBandwidth()
+    else if action = "stopEncoding"
+        doStopEncoding(request)
     else if action = "reportStart"
         doReportPlayback(request, "/Sessions/Playing")
     else if action = "reportProgress"
@@ -1577,41 +1580,101 @@ sub doSearch(request as object)
 end sub
 
 ' The Auto streaming-bitrate cap: measured downstream (m.global.measuredBitrate)
-' with headroom, clamped to a sane range. Conservative default until measured.
+' with headroom, or a default keyed on where the server is until measured.
 function autoBitrateCapBps() as integer
     measured = 0
     if m.global.measuredBitrate <> invalid then measured = m.global.measuredBitrate
-    if measured <= 0 then return 20000000
-    cap = Int(measured * 0.85)
-    if cap < 3000000 then cap = 3000000
-    if cap > 100000000 then cap = 100000000
-    return cap
+    return StreamQuality.autoCapBps(measured, StreamQuality.isLocalServer(Http.baseUrl()))
 end function
 
-' Time a fixed-size download from Playback/BitrateTest to estimate downstream
-' bandwidth (bits/sec). Runs on the Task thread, so blocking I/O is fine.
+' Estimate downstream bandwidth (bits/sec) from Playback/BitrateTest. Runs on
+' the Task thread, so blocking I/O is fine.
+'
+' This used to be one 8 MB download with a 20 s wait, which any link under
+' ~3.2 Mbps could not finish: the links that most needed a number got none and
+' Auto fell back to its 20 Mbps default. Now:
+'   1. a 1-byte request warms the connection up and is thrown away. The first
+'      request to a server costs about a second on the dev Roku (DNS, TLS)
+'      that later ones do not, which would make a small download look slow;
+'   2. a 250 KB pilot sizes the real sample to the link, so a fast link still
+'      gets the full 8 MB and a slow one is never asked for more than about six
+'      seconds' worth;
+'   3. a download that runs out of time still yields a number: the link is no
+'      faster than what would have finished it, nor than the pilot said.
+'      (Bytes received so far cannot be read: roUrlTransfer reports nothing
+'      until it completes, and a file target stats as 0 mid-transfer.)
+' bitrate 0 means the server gave no usable answer at all.
 sub doMeasureBandwidth()
-    sizeBytes = 8000000
-    url = Http.apiUrl("/Playback/BitrateTest?Size=" + str(sizeBytes).Trim())
+    bps = 0
+    warmUp = probeDownload(1, 8000)
+    if warmUp.completed
+        pilotBytes = StreamQuality.PROBE_PILOT_BYTES
+        pilot = probeDownload(pilotBytes, 8000)
+        if pilot.completed
+            bps = StreamQuality.probeRateBps(pilotBytes, pilot.ms)
+            followUp = StreamQuality.probeFollowUpBytes(bps, pilot.ms)
+            if followUp > 0
+                sample = probeDownload(followUp, 12000)
+                if sample.completed
+                    bps = StreamQuality.probeRateBps(followUp, sample.ms)
+                else if sample.timedOut
+                    bps = StreamQuality.probeTimeoutEstimateBps(followUp, sample.ms, bps)
+                end if
+                #if DEBUG
+                    print "[BW] sample bytes="; followUp; " ms="; sample.ms; " completed="; sample.completed
+                #end if
+            end if
+        else if pilot.timedOut
+            bps = StreamQuality.probeTimeoutEstimateBps(pilotBytes, pilot.ms, 0)
+        end if
+        #if DEBUG
+            print "[BW] warm-up ms="; warmUp.ms; " pilot ms="; pilot.ms; " completed="; pilot.completed; " -> bps="; bps
+        #end if
+    end if
+    m.top.response = { success: true, action: "measureBandwidth", bitrate: bps }
+end sub
+
+' One timed BitrateTest download: { completed, timedOut, ms }. Neither flag set
+' means the request failed outright (refused, non-200).
+function probeDownload(sizeBytes as integer, timeoutMs as integer) as object
+    result = { completed: false, timedOut: false, ms: 0 }
     xfer = CreateObject("roUrlTransfer")
     port = CreateObject("roMessagePort")
     xfer.SetMessagePort(port)
-    xfer.SetUrl(url)
+    xfer.SetUrl(Http.apiUrl("/Playback/BitrateTest?Size=" + sizeBytes.ToStr()))
     xfer.SetCertificatesFile("common:/certs/ca-bundle.crt")
     xfer.InitClientCertificates()
     xfer.AddHeader("Authorization", Http.authHeader())
     ts = CreateObject("roTimespan")
     ts.Mark()
-    bps = 0
     ' In-memory transfer so we time the NETWORK, not the flash write.
     if xfer.AsyncGetToString()
-        ev = wait(20000, port)
-        elapsedMs = ts.TotalMilliseconds()
-        if type(ev) = "roUrlEvent" and ev.GetResponseCode() = 200 and elapsedMs > 10
-            bps = Int((sizeBytes * 8.0) / (elapsedMs / 1000.0))
+        ev = wait(timeoutMs, port)
+        result.ms = ts.TotalMilliseconds()
+        if type(ev) = "roUrlEvent"
+            result.completed = (ev.GetResponseCode() = 200)
+        else
+            ' Cancel so the transfer does not linger on the thread.
+            xfer.AsyncCancel()
+            result.timedOut = true
         end if
     end if
-    m.top.response = { success: true, action: "measureBandwidth", bitrate: bps }
+    return result
+end function
+
+' Stop a transcode this device started (R4). A restart for a new subtitle,
+' audio track or quality opens a new PlaySessionId; without this the old
+' ffmpeg keeps encoding beside the new one until the server's idle timer
+' (60 s for HLS) notices nobody is asking for its segments.
+sub doStopEncoding(request as object)
+    if request.playSessionId <> invalid and request.playSessionId <> ""
+        url = Http.apiUrl("/Videos/ActiveEncodings") + "?deviceId=" + Http.escape(m.global.deviceId) + "&playSessionId=" + Http.escape(request.playSessionId)
+        code = Http.deleteRequest(url, 8000)
+        #if DEBUG
+            print "[Player] stopEncoding "; Left(request.playSessionId, 8); " -> HTTP "; code
+        #end if
+    end if
+    m.top.response = { success: true, action: "stopEncoding" }
 end sub
 
 ' Negotiate a playable stream (PlaybackInfo) and resolve the final URL +
@@ -1624,7 +1687,12 @@ sub doGetPlaybackStream(request as object)
     ' Auto uses the measured connection bandwidth (see measureBandwidth) so we
     ' don't request more than the link can carry; explicit picks win.
     streamingBitrate = autoBitrateCapBps()
-    if maxBitrate > 0 then streamingBitrate = maxBitrate
+    maxWidth = StreamQuality.autoMaxWidth(streamingBitrate)
+    if maxBitrate > 0
+        streamingBitrate = maxBitrate
+        maxWidth = 0
+        if request.maxWidth <> invalid then maxWidth = request.maxWidth
+    end if
 
     url = Http.apiUrl("/Items/" + itemId + "/PlaybackInfo?UserId=" + requestUserId())
     ' Jellyfin IGNORES SubtitleStreamIndex/AudioStreamIndex in the POST body
@@ -1637,7 +1705,7 @@ sub doGetPlaybackStream(request as object)
     body = {
         UserId: requestUserId()
         MaxStreamingBitrate: streamingBitrate
-        DeviceProfile: rokuDeviceProfile(streamingBitrate)
+        DeviceProfile: rokuDeviceProfile(streamingBitrate, invalid, maxWidth)
         EnableDirectPlay: true
         EnableDirectStream: true
         EnableTranscoding: true
@@ -1814,6 +1882,9 @@ sub doGetPlaybackStream(request as object)
         videoCodec: videoCodec
         videoAspect: videoAspect
         bitrate: msBitrate
+        ' The cap this stream was negotiated under (Auto resolved to a
+        ' number), so the player can label it and step down from it.
+        capBps: streamingBitrate
     }
 end sub
 
@@ -1866,7 +1937,7 @@ end function
 ' (h264, hevc when decodable), everything else transcodes to HLS ts/h264.
 ' Dolby codecs are offered only when the device says it can play them, so the
 ' server converts them to AAC otherwise.
-function rokuDeviceProfile(streamingBitrate as integer, caps = invalid as object) as object
+function rokuDeviceProfile(streamingBitrate as integer, caps = invalid as object, maxWidth = 0 as integer) as object
     if caps = invalid then caps = rokuCapabilities()
     audio = "aac,mp3"
     streamAudio = "aac"
@@ -1883,14 +1954,13 @@ function rokuDeviceProfile(streamingBitrate as integer, caps = invalid as object
     channels = "2"
     if caps.surround then channels = "6"
 
+    ' Width/height limits: the HD-output cap, and a quality tier's width (a
+    ' bitrate cap alone leaves the server encoding at the source resolution).
     codecProfiles = []
-    if not caps.uhd
-        ' An HD-only device can't direct-play 4K; ask the server to scale it.
+    conditions = StreamQuality.videoConditions(caps.uhd, maxWidth)
+    if conditions.count() > 0
         for each codec in ["h264", "hevc"]
-            codecProfiles.push({ Type: "Video", Codec: codec, Conditions: [
-                { Condition: "LessThanEqual", Property: "Width", Value: "1920", IsRequired: true },
-                { Condition: "LessThanEqual", Property: "Height", Value: "1080", IsRequired: true }
-            ] })
+            codecProfiles.push({ Type: "Video", Codec: codec, Conditions: conditions })
         end for
     end if
 

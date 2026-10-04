@@ -24,10 +24,11 @@ replacing the channel drops the connection.
 
 ## Before you open a PR
 
-- `npm run lint` is clean.
-- You sideloaded it and the screen you touched still works. There is no test
-  suite, so manual verification is the only safety net — please say in the PR
-  what you actually exercised, and on what device.
+- `npm run lint` and `npm test` are clean.
+- You sideloaded it and the screen you touched still works. `npm test` only
+  covers pure logic (`tests/`), so manual verification is the safety net for
+  everything else — please say in the PR what you actually exercised, and on
+  what device.
 - `manifest` still has `bs_const=DEBUG=false`. It's easy to leave this flipped.
 - No `print` of item titles, tokens, or server URLs outside a `#if DEBUG` guard.
   The library is someone's personal media.
