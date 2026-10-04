@@ -997,7 +997,7 @@ sub confirmOffAir(channelName as string, title as string)
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Take " + channelName + " off air?"
     dialog.message = [title + " is the last title on " + channelName + " and nothing else feeds it, so the channel will go off air."]
-    dialog.buttons = ["Remove", "Cancel"]
+    dialog.buttons = ["Cancel", "Remove"]
     dialog.observeFieldScoped("buttonSelected", "onConfirmButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -1009,7 +1009,7 @@ sub confirmDelete(channelId as string)
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Delete " + channel.Name + "?"
     dialog.message = ["The channel and its guide are removed from every device. The titles stay in your library."]
-    dialog.buttons = ["Delete Channel", "Cancel"]
+    dialog.buttons = ["Cancel", "Delete Channel"]
     dialog.observeFieldScoped("buttonSelected", "onConfirmButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -1017,7 +1017,7 @@ end sub
 sub onConfirmButton()
     dialog = m.top.getScene().dialog
     if dialog = invalid then return
-    confirmed = (dialog.buttonSelected = 0)
+    confirmed = (dialog.buttonSelected = 1)
     dialog.close = true
     pending = m.pending
     m.pending = invalid
