@@ -12,15 +12,23 @@ const brs = path.join(root, 'node_modules', '.bin', 'brs');
 
 // test file -> the transpiled module(s) it needs
 const suites = {
-    'StreamQualityTests.brs': ['out/source/utils/StreamQuality.brs']
+    'StreamQualityTests.brs': ['out/source/utils/StreamQuality.brs'],
+    'ConfirmTests.brs': ['out/source/utils/Confirm.brs']
 };
 
 // SASHIMI_TEST_MODULE swaps in another build of the module under test, to
-// check that the tests fail against code they are meant to catch.
+// check that the tests fail against code they are meant to catch. With more
+// than one suite, SASHIMI_TEST_SUITE (a test file name) picks which one runs.
 const override = process.env.SASHIMI_TEST_MODULE;
+const only = process.env.SASHIMI_TEST_SUITE;
+if (only && !suites[only]) {
+    console.error(`unknown suite ${only}`);
+    process.exit(1);
+}
 
 let failed = false;
 for (const [test, modules] of Object.entries(suites)) {
+    if (only && test !== only) continue;
     const files = (override ? [override] : modules.map((m) => path.join(root, m)));
     for (const f of files) {
         if (!fs.existsSync(f)) {
