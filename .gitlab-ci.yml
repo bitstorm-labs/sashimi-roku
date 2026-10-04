@@ -1,7 +1,7 @@
 # Sashimi Roku CI
 #
 # Stages:
-#   test  — brighterscript lint
+#   test  — brighterscript lint + off-device unit tests
 #   build — bsc build + zip; publishes the packaged channel as an artifact
 #
 # No deploy stage: Roku channels are sideloaded for development with
@@ -39,6 +39,7 @@ lint:
   stage: test
   script:
     - npm run lint
+    - npm test
 
 build:
   extends: .node

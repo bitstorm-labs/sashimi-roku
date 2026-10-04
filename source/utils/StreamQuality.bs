@@ -1,0 +1,200 @@
+' Streaming quality rules: the tier table, the Auto cap, the stall step-down
+' ladder and the bandwidth-probe arithmetic. Pure functions only (no nodes, no
+' registry, no network) so tests/StreamQualityTests.brs can run them off-device.
+' Tier values match the Apple client's QualityOption.
+namespace StreamQuality
+
+    const FLOOR_BPS = 720000
+    const AUTO_CEILING_BPS = 100000000
+    ' Auto with nothing measured. A LAN server is fast until proven otherwise;
+    ' over the internet a high guess is what stalls, and the old 20 Mbps default
+    ' landed on exactly the links too slow to finish the probe.
+    const UNMEASURED_LOCAL_BPS = 20000000
+    const UNMEASURED_REMOTE_BPS = 4000000
+    const PROBE_PILOT_BYTES = 250000
+    const PROBE_MAX_BYTES = 8000000
+
+    ' Highest first. width is the tier's pixel-width cap: a bitrate cap alone
+    ' leaves the server encoding at the source resolution, so "720p" on a
+    ' 1080p file used to be 1080p at a lower bitrate.
+    function tiers() as object
+        return [
+            { bps: 20000000, width: 1920, name: "1080p" },
+            { bps: 8000000, width: 1280, name: "720p" },
+            { bps: 4000000, width: 854, name: "480p" },
+            { bps: 2000000, width: 1280, name: "720p" },
+            { bps: 1000000, width: 854, name: "480p" },
+            { bps: 720000, width: 640, name: "360p" }
+        ]
+    end function
+
+    ' "20 Mbps", "2.5 Mbps", "720 kbps".
+    function bitrateLabel(bps as integer) as string
+        if bps < 1000000 then return Int(bps / 1000 + 0.5).ToStr() + " kbps"
+        tenths = Int(bps / 100000 + 0.5)
+        whole = tenths \ 10
+        frac = tenths mod 10
+        if frac = 0 or whole >= 10 then return Int(bps / 1000000 + 0.5).ToStr() + " Mbps"
+        return whole.ToStr() + "." + frac.ToStr() + " Mbps"
+    end function
+
+    ' "720p · 2 Mbps" for a tier, the bare bitrate for any other cap.
+    function label(bps as integer) as string
+        for each t in tiers()
+            if t.bps = bps then return t.name + " " + Chr(183) + " " + bitrateLabel(bps)
+        end for
+        return bitrateLabel(bps)
+    end function
+
+    ' Width cap that goes with an explicit bitrate cap (a tier, or a Settings
+    ' value). 0 = none: above the 1080p tier nothing should be scaled down.
+    function widthForCap(bps as integer) as integer
+        if bps <= 0 or bps > 20000000 then return 0
+        width = 0
+        ' Lowest tier at or above the cap, so an in-between cap gets the tier
+        ' it sits under.
+        for each t in tiers()
+            if t.bps >= bps then width = t.width
+        end for
+        return width
+    end function
+
+    ' Width cap for Auto. Auto sends none while the link can carry a full
+    ' picture: a width condition also blocks direct play of anything wider.
+    ' Below 3 Mbps a re-encode is certain and a smaller frame is the better
+    ' use of the bits.
+    function autoMaxWidth(capBps as integer) as integer
+        if capBps <= 0 or capBps >= 3000000 then return 0
+        if capBps >= 1500000 then return 1280
+        if capBps >= 900000 then return 854
+        return 640
+    end function
+
+    ' The Auto cap: 85% of the measured downstream, clamped to the lowest tier
+    ' and a sane ceiling. Unmeasured (<= 0) falls back on where the server is.
+    function autoCapBps(measuredBps as integer, isLocal as boolean) as integer
+        if measuredBps <= 0
+            if isLocal then return UNMEASURED_LOCAL_BPS
+            return UNMEASURED_REMOTE_BPS
+        end if
+        cap = Int(measuredBps * 0.85)
+        if cap < FLOOR_BPS then cap = FLOOR_BPS
+        if cap > AUTO_CEILING_BPS then cap = AUTO_CEILING_BPS
+        return cap
+    end function
+
+    ' Next cap after a stall at currentBps, or 0 when there is nowhere lower.
+    ' Each step roughly halves: the highest tier at or under half the current
+    ' rate, then the floor. 20 -> 8 -> 4 -> 2 -> 1 Mbps -> 720 kbps.
+    function nextStepDownBps(currentBps as integer) as integer
+        if currentBps <= FLOOR_BPS then return 0
+        for each t in tiers()
+            if t.bps * 2 <= currentBps then return t.bps
+        end for
+        return FLOOR_BPS
+    end function
+
+    ' The Maximum Bitrate setting is stored in Mbps as a string ("20", "0.72");
+    ' "0"/"" is Auto. "3" is the pre-1.6.3 "480p (3 Mbps)" option, which is now
+    ' the 4 Mbps tier.
+    function settingsCapBps(stored as string) as integer
+        stored = stored.Trim()
+        if stored = "3" then return 4000000
+        ' Whole Mbps stay in integer arithmetic; a single-precision float
+        ' cannot hold 8000000.5, so rounding there lands on 8000001.
+        if Instr(1, stored, ".") = 0 then return stored.ToInt() * 1000000
+        kbps = Int(Val(stored) * 1000 + 0.5)
+        if kbps <= 0 then return 0
+        return kbps * 1000
+    end function
+
+    ' Loopback, RFC 1918, link-local, .local and single-label hosts: none of
+    ' them resolve anywhere but the local network. Everything else, Tailscale's
+    ' 100.64/10 included, is a remote link.
+    function isLocalServer(url as string) as boolean
+        host = LCase(url.Trim())
+        p = Instr(1, host, "://")
+        if p > 0 then host = Mid(host, p + 3)
+        p = Instr(1, host, "/")
+        if p > 0 then host = Left(host, p - 1)
+        if host = "" then return false
+        if Left(host, 1) = "["
+            ' IPv6 literal: ::1, fe80::/10 link-local, fc00::/7 unique-local.
+            closeAt = Instr(1, host, "]")
+            if closeAt = 0 then return false
+            v6 = Mid(host, 2, closeAt - 2)
+            return v6 = "::1" or Left(v6, 5) = "fe80:" or Left(v6, 2) = "fc" or Left(v6, 2) = "fd"
+        end if
+        p = Instr(1, host, ":")
+        if p > 0 then host = Left(host, p - 1)
+        if host = "localhost" or Right(host, 6) = ".local" then return true
+        parts = host.Split(".")
+        if parts.Count() = 1 then return true
+        if parts.Count() <> 4 then return false
+        octets = []
+        for each part in parts
+            if part = "" or part.Len() > 3 then return false
+            for i = 1 to part.Len()
+                c = Asc(Mid(part, i, 1))
+                if c < 48 or c > 57 then return false
+            end for
+            octets.push(part.ToInt())
+        end for
+        a = octets[0]
+        b = octets[1]
+        if a = 127 or a = 10 then return true
+        if a = 192 and b = 168 then return true
+        if a = 169 and b = 254 then return true
+        return a = 172 and b >= 16 and b <= 31
+    end function
+
+    ' ---------- Bandwidth probe ----------
+
+    ' Bits per second for bytes received over elapsedMs. 0 when there is
+    ' nothing to divide.
+    function probeRateBps(bytes as integer, elapsedMs as integer) as integer
+        if bytes <= 0 or elapsedMs <= 0 then return 0
+        rate = (bytes * 8.0) / (elapsedMs / 1000.0)
+        ' Past a gigabit the number is timer noise, and it overflows an integer.
+        if rate > 1000000000 then return 1000000000
+        return Int(rate)
+    end function
+
+    ' Size of the second download, from the pilot's result: about six seconds
+    ' at the pilot's rate, so a fast link still gets the full-size sample and a
+    ' slow one is never asked for more than it can finish. 0 = the pilot alone
+    ' ran long enough to be the measurement.
+    function probeFollowUpBytes(pilotBps as integer, pilotMs as integer) as integer
+        if pilotBps <= 0 or pilotMs >= 3000 then return 0
+        bytes = Int((pilotBps / 8.0) * 6)
+        if bytes < 500000 then bytes = 500000
+        if bytes > PROBE_MAX_BYTES then bytes = PROBE_MAX_BYTES
+        return bytes
+    end function
+
+    ' A download that ran out of time is still a measurement: the link is at
+    ' best what would have finished the request in that time, and no faster
+    ' than an earlier completed sample said. (The platform does not expose the
+    ' bytes that did arrive, so the bound is all there is.)
+    function probeTimeoutEstimateBps(requestedBytes as integer, elapsedMs as integer, earlierBps as integer) as integer
+        bound = probeRateBps(requestedBytes, elapsedMs)
+        if earlierBps > 0 and (bound = 0 or earlierBps < bound) then return earlierBps
+        return bound
+    end function
+
+    ' ---------- Device profile ----------
+
+    ' Video CodecProfile conditions: the HD-output limit, tightened by a
+    ' tier's width cap. [] = unconstrained.
+    function videoConditions(uhd as boolean, maxWidth as integer) as object
+        width = 0
+        if not uhd then width = 1920
+        if maxWidth > 0 and (width = 0 or maxWidth < width) then width = maxWidth
+        conditions = []
+        if width > 0 then conditions.push({ Condition: "LessThanEqual", Property: "Width", Value: width.ToStr(), IsRequired: true })
+        ' An HD-only device can't direct-play 4K; ask the server to scale it.
+        if not uhd then conditions.push({ Condition: "LessThanEqual", Property: "Height", Value: "1080", IsRequired: true })
+        return conditions
+    end function
+
+end namespace

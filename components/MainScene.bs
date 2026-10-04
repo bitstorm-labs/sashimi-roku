@@ -533,6 +533,10 @@ sub measureConnection()
     ' drop any earlier probe first — its thread would otherwise sit in wait()
     ' for the life of the channel.
     stopBandwidthProbe()
+    ' A number measured against the previous server (or lowered by a stall
+    ' there) says nothing about this one; until the probe answers, Auto uses
+    ' its local/remote default.
+    m.global.measuredBitrate = 0
     task = createObject("roSGNode", "JellyfinApi")
     task.observeFieldScoped("response", "onBandwidthMeasured")
     m.bwTask = task

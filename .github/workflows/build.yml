@@ -27,6 +27,10 @@ jobs:
       - name: Build and validate
         run: npm run build
 
+      # Pure logic only (tests/), run off-device with the brs interpreter.
+      - name: Unit tests
+        run: npm test
+
       - name: Package
         run: npm run package
 
