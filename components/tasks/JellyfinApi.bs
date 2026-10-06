@@ -2005,16 +2005,31 @@ sub doReportPlayback(request as object, path as string)
     m.top.response = { success: true, action: request.action }
 end sub
 
-' Sibling episodes of a season, sorted by index (for auto-next-episode).
+' The episodes that follow one (for the Up Next screen). With a seriesId this
+' walks the whole series from startItemId on, so the season finale rolls over
+' into the next season; without one it falls back to the season's siblings.
+' UpNext.queueAfter orders and filters either answer.
 sub doGetSiblingEpisodes(request as object)
-    parentId = request.parentId
-    url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
-    url += "?ParentId=" + parentId
-    url += "&IncludeItemTypes=Episode&SortBy=IndexNumber&SortOrder=Ascending&Recursive=true&Limit=200"
     ' Chapters: auto-play-next hands these straight to the player, which has no
     ' second fetch to fall back on — without them the next episode inherits the
-    ' previous one's chapter marks.
-    url += "&Fields=Overview,UserData,ImageTags,ParentBackdropImageTags,Path,Chapters"
+    ' previous one's chapter marks. Overview, ratings and image tags fill the
+    ' Up Next screen.
+    fields = "&Fields=Overview,UserData,ImageTags,ParentBackdropImageTags,Path,Chapters,CommunityRating,OfficialRating"
+    if request.seriesId <> invalid and request.seriesId <> ""
+        url = Http.apiUrl("/Shows/" + request.seriesId + "/Episodes")
+        url += "?UserId=" + requestUserId()
+        ' StartItemId skips the series up to the finished episode, so a long
+        ' run (a daily show, a YouTube channel) is not fetched whole with
+        ' every episode's chapters just to find the next few.
+        if request.startItemId <> invalid and request.startItemId <> "" then url += "&StartItemId=" + request.startItemId
+        url += "&Limit=40"
+    else
+        url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
+        url += "?ParentId=" + request.parentId
+        url += "&IncludeItemTypes=Episode&SortBy=IndexNumber&SortOrder=Ascending&Recursive=true&Limit=200"
+    end if
+    url += fields
+    url += "&EnableImageTypes=Primary,Thumb,Backdrop"
     meta = {}
     result = Http.getJson(url, meta)
     if result <> invalid and result.Items <> invalid

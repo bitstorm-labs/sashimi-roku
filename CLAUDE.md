@@ -17,7 +17,9 @@ npm run dev       # package + sideload (needs ROKU_DEV_TARGET / ROKU_DEV_PASSWOR
 `@rokucommunity/brs` interpreter (`tests/run.js`). It covers **pure logic only**
 — today `source/utils/StreamQuality.bs` (quality tiers, step-down ladder, probe
 arithmetic) and `source/utils/Confirm.bs` (destructive-confirmation button
-order: `StandardMessageDialog` focuses its first button, so Cancel goes first).
+order: `StandardMessageDialog` focuses its first button, so Cancel goes first)
+and `source/utils/NextEpisode.bs` (the end-of-episode Up Next screen: next
+episode across seasons, countdown/Skip/Cancel state machine, screen text).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that

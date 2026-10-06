@@ -1,0 +1,259 @@
+import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/NextEpisode.bs"
+
+const PLAY_W = 280
+const BTN_H = 64
+const BTN_GAP = 24
+const CARD_TOP = 0
+const CARD_H = 405
+
+sub init()
+    m.root = m.top.findNode("root")
+    m.content = m.top.findNode("content")
+    m.bg = m.top.findNode("bg")
+    m.card = m.top.findNode("card")
+    m.eyebrowLabel = m.top.findNode("eyebrowLabel")
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.metaRow = m.top.findNode("metaRow")
+    m.runtimeLabel = m.top.findNode("runtimeLabel")
+    m.tmdbLogo = m.top.findNode("tmdbLogo")
+    m.ratingLabel = m.top.findNode("ratingLabel")
+    m.overviewLabel = m.top.findNode("overviewLabel")
+    m.messageLabel = m.top.findNode("messageLabel")
+    m.buttonRow = m.top.findNode("buttonRow")
+    m.playBtn = m.top.findNode("playBtn")
+    m.playTrack = m.top.findNode("playTrack")
+    m.playFill = m.top.findNode("playFill")
+    m.playIcon = m.top.findNode("playIcon")
+    m.playText = m.top.findNode("playText")
+    m.playRing = m.top.findNode("playRing")
+    m.otherBtns = m.top.findNode("otherBtns")
+    m.sweepAnim = m.top.findNode("sweepAnim")
+    m.fadeAnim = m.top.findNode("fadeAnim")
+    m.buttons = []   ' [{kind, bg, lbl, icon, ring}] -- Play is drawn by its own nodes
+end sub
+
+' Fade in from black over whatever the video left behind.
+sub present()
+    m.root.opacity = 0
+    m.fadeAnim.control = "stop"
+    m.fadeAnim.control = "start"
+end sub
+
+sub onEpisode()
+    ep = m.top.episode
+    if ep = invalid then ep = {}
+    m.titleLabel.text = NextEpisode.heading(ep)
+
+    ' The episode's own still, else the series art: an unaired or freshly
+    ' added episode often has no still yet.
+    still = ""
+    if ep.Id <> invalid and ep.ImageTags <> invalid and ep.ImageTags.Primary <> invalid
+        still = ImageUrl.primary(ep.Id, 720)
+    else if ep.ParentBackdropItemId <> invalid and ep.ParentBackdropImageTags <> invalid and ep.ParentBackdropImageTags.count() > 0
+        still = ImageUrl.backdrop(ep.ParentBackdropItemId, 720)
+    else if ep.SeriesId <> invalid
+        still = ImageUrl.primary(ep.SeriesId, 720)
+    end if
+    m.card.uri = still
+    ' Same picture behind, rendered small and blurred by the server.
+    if still <> ""
+        m.bg.uri = still.Replace("maxWidth=720", "maxWidth=480") + "&blur=18"
+    else
+        m.bg.uri = ""
+    end if
+
+    runtime = NextEpisode.runtimeLabel(ep.RunTimeTicks)
+    rating = NextEpisode.ratingLabel(ep.CommunityRating)
+    m.runtimeLabel.text = runtime
+    x = 0
+    if runtime <> "" then x = m.runtimeLabel.boundingRect().width + 28
+    if rating <> ""
+        m.tmdbLogo.visible = true
+        m.ratingLabel.visible = true
+        m.ratingLabel.text = rating
+        m.tmdbLogo.translation = [x, 2]
+        m.ratingLabel.translation = [x + 50, 0]
+    else
+        m.tmdbLogo.visible = false
+        m.ratingLabel.visible = false
+        m.ratingLabel.text = ""
+    end if
+
+    ov = ""
+    if ep.Overview <> invalid then ov = ep.Overview
+    m.overviewLabel.text = ov
+    layout()
+end sub
+
+sub onText()
+    m.eyebrowLabel.text = m.top.eyebrow
+    m.messageLabel.text = m.top.message
+    layout()
+end sub
+
+' Stack the text column from the top, then centre the whole composition --
+' card beside text, buttons under the text -- on the screen. A one-line title
+' with no overview and a two-line title with three lines of overview both
+' have to sit right.
+sub layout()
+    y = 0
+    m.eyebrowLabel.translation = [900, y]
+    y = y + 46
+    m.titleLabel.translation = [900, y]
+    th = m.titleLabel.boundingRect().height
+    if th < 60 then th = 60
+    y = y + th + 14
+
+    hasMeta = (m.runtimeLabel.text <> "" or m.ratingLabel.visible)
+    m.metaRow.visible = hasMeta
+    if hasMeta
+        m.metaRow.translation = [900, y]
+        y = y + 32 + 24
+    end if
+
+    ' The message (final episode, lookup failed) takes the overview's place.
+    msg = m.messageLabel.text <> ""
+    m.messageLabel.visible = msg
+    m.overviewLabel.visible = not msg and m.overviewLabel.text <> ""
+    if msg
+        m.messageLabel.translation = [900, y]
+        y = y + m.messageLabel.boundingRect().height
+    else if m.overviewLabel.visible
+        m.overviewLabel.translation = [900, y]
+        y = y + m.overviewLabel.boundingRect().height
+    end if
+
+    ' Buttons under the text, but never higher than the card's bottom edge.
+    by = y + 44
+    if by < CARD_TOP + CARD_H - BTN_H then by = CARD_TOP + CARD_H - BTN_H
+    m.buttonRow.translation = [900, by]
+
+    height = by + BTN_H
+    if height < CARD_TOP + CARD_H then height = CARD_TOP + CARD_H
+    top = Int((1080 - height) / 2)
+    ' Optical centre sits a touch above the geometric one.
+    m.content.translation = [0, top - 16]
+end sub
+
+sub onButtons()
+    while m.otherBtns.getChildCount() > 0
+        m.otherBtns.removeChildIndex(0)
+    end while
+    m.buttons = []
+    defs = m.top.buttonDefs
+    if defs = invalid then defs = []
+    x = 0
+    m.playBtn.visible = false
+    for each d in defs
+        if d.kind = "play"
+            m.playBtn.visible = true
+            m.playBtn.translation = [x, 0]
+            m.buttons.push({ kind: "play" })
+            setPlayText(d.label)
+            x = x + PLAY_W + BTN_GAP
+        else
+            icon = ""
+            if d.kind = "skip" then icon = "pkg:/images/icon_skip_next.png"
+            w = 64 + Len(d.label) * 15
+            if icon <> "" then w = w + 40
+            if w < 180 then w = 180
+            cell = m.otherBtns.createChild("Group")
+            cell.translation = [x, 0]
+            bg = cell.createChild("Poster")
+            bg.uri = "pkg:/images/pill64.9.png"
+            bg.width = w
+            bg.height = BTN_H
+            lbl = cell.createChild("Label")
+            lbl.text = d.label
+            lbl.height = BTN_H
+            lbl.vertAlign = "center"
+            f = CreateObject("roSGNode", "Font")
+            f.uri = "pkg:/fonts/Inter-Medium.ttf"
+            f.size = 28
+            lbl.font = f
+            iconNode = invalid
+            tw = lbl.boundingRect().width
+            if icon <> ""
+                ' Label then icon, the glyph trailing as on the remote's key.
+                startX = Int((w - tw - 12 - 26) / 2)
+                lbl.translation = [startX, 0]
+                iconNode = cell.createChild("Poster")
+                iconNode.uri = icon
+                iconNode.width = 26
+                iconNode.height = 26
+                iconNode.translation = [startX + tw + 12, Int((BTN_H - 26) / 2)]
+            else
+                lbl.translation = [Int((w - tw) / 2), 0]
+            end if
+            ring = cell.createChild("Poster")
+            ring.uri = "pkg:/images/pill64_ring.9.png"
+            ring.width = w
+            ring.height = BTN_H
+            m.buttons.push({ kind: d.kind, bg: bg, lbl: lbl, icon: iconNode, ring: ring })
+            x = x + w + BTN_GAP
+        end if
+    end for
+    restyle()
+end sub
+
+sub onPlayLabel()
+    setPlayText(m.top.playLabel)
+end sub
+
+' Icon and label centred together in the fixed-width capsule.
+sub setPlayText(text as string)
+    m.playText.text = text
+    tw = m.playText.boundingRect().width
+    startX = Int((PLAY_W - 26 - 14 - tw) / 2)
+    m.playIcon.translation = [startX, Int((BTN_H - 26) / 2)]
+    m.playText.translation = [startX + 26 + 14, 0]
+end sub
+
+' The OSD's convention: the highlighted button is the white one, with the
+' app's blue focus ring.
+sub restyle()
+    idx = m.top.focusIndex
+    for i = 0 to m.buttons.count() - 1
+        b = m.buttons[i]
+        focused = (i = idx)
+        if b.kind = "play"
+            ' Play keeps its accent fill (it is the countdown); the ring and
+            ' full opacity say it is the highlighted one.
+            m.playRing.visible = focused
+            if focused then m.playBtn.opacity = 1.0 else m.playBtn.opacity = 0.8
+        else
+            b.ring.visible = focused
+            if focused
+                b.bg.blendColor = "#FFFFFF"
+                b.bg.opacity = 1.0
+                b.lbl.color = "#000000"
+                if b.icon <> invalid then b.icon.blendColor = "#000000"
+            else
+                b.bg.blendColor = "#FFFFFF"
+                b.bg.opacity = 0.16
+                b.lbl.color = "#FFFFFF"
+                if b.icon <> invalid then b.icon.blendColor = "#FFFFFF"
+            end if
+        end if
+    end for
+end sub
+
+' The countdown on the Play button: a translucent track with the accent fill
+' sweeping across it. Without a countdown the button is simply solid accent.
+sub onSweep()
+    secs = m.top.sweepSecs
+    m.sweepAnim.control = "stop"
+    if secs > 0
+        m.playTrack.blendColor = "#FFFFFF"
+        m.playTrack.opacity = 0.16
+        m.playFill.width = 64
+        m.playFill.visible = true
+        m.sweepAnim.duration = secs
+        m.sweepAnim.control = "start"
+    else
+        m.playTrack.blendColor = "#8C5CC7"
+        m.playTrack.opacity = 1.0
+        m.playFill.visible = false
+    end if
+end sub

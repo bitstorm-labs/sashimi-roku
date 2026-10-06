@@ -1,0 +1,231 @@
+' The end-of-episode Up Next screen: which episode comes next, what the screen
+' shows in each case, and the countdown/Skip/Cancel state machine. Pure
+' functions only (no nodes, registry or network), so tests/NextEpisodeTests.brs can
+' run them off-device; PlayerScreen owns the nodes, timers and requests.
+'
+' State is a plain assocarray:
+'   mode      "countdown" | "manual" | "ended" | "starting"
+'   reason    why an "ended" screen is ended: "final" | "failed" | "cancelled"
+'   index     which entry of the queue is on screen
+'   count     how many episodes the queue holds
+'   remaining whole seconds left on the countdown
+namespace NextEpisode
+
+    const COUNTDOWN_SECS = 10
+
+    ' The episodes that follow `current`, in series order (season, then
+    ' episode). The server's own order is not trusted: the season-sibling
+    ' fallback is sorted by index only, and either answer can carry the
+    ' finished episode itself, another version of it, or specials.
+    function queueAfter(items as dynamic, current as dynamic) as object
+        out = []
+        if items = invalid or current = invalid then return out
+        if current.IndexNumber = invalid then return out
+        curSeason = seasonOf(current, current)
+        if curSeason < 0 then return out
+        ' A double episode (E1-E2) is followed by E3, not by its own second half.
+        curIdx = current.IndexNumber
+        if current.IndexNumberEnd <> invalid and current.IndexNumberEnd > curIdx then curIdx = current.IndexNumberEnd
+        curKey = curSeason * 100000 + curIdx
+
+        keyed = []
+        for each ep in items
+            if ep <> invalid and ep.IndexNumber <> invalid and not (ep.Id <> invalid and current.Id <> invalid and ep.Id = current.Id)
+                s = seasonOf(ep, current)
+                ' Specials sit outside the run: a viewer binging season 2
+                ' should not be handed a behind-the-scenes extra.
+                if s >= 0 and not (s = 0 and curSeason <> 0)
+                    key = s * 100000 + ep.IndexNumber
+                    if key > curKey then keyed.push({ key: key, ep: ep })
+                end if
+            end if
+        end for
+
+        ' Insertion sort: a few dozen entries at most, and stable, so of two
+        ' versions of one episode the server's first stays first.
+        for i = 1 to keyed.count() - 1
+            cur = keyed[i]
+            j = i - 1
+            while j >= 0 and keyed[j].key > cur.key
+                keyed[j + 1] = keyed[j]
+                j = j - 1
+            end while
+            keyed[j + 1] = cur
+        end for
+
+        lastKey = -1
+        for each k in keyed
+            if k.key <> lastKey then out.push(k.ep)
+            lastKey = k.key
+        end for
+        return out
+    end function
+
+    ' Season number, or -1 when there is none to order by. An item without a
+    ' ParentIndexNumber still orders within the finished episode's own season
+    ' (same SeasonId), which is all the old season-only lookup could do.
+    function seasonOf(ep as object, current as object) as integer
+        if ep.ParentIndexNumber <> invalid then return ep.ParentIndexNumber
+        if current.ParentIndexNumber = invalid and ep.SeasonId <> invalid and current.SeasonId <> invalid and ep.SeasonId = current.SeasonId then return 1
+        if current.ParentIndexNumber = invalid and ep.SeasonId = invalid and current.SeasonId = invalid then return 1
+        return -1
+    end function
+
+    ' Whether a finished item gets the Up Next screen at all. Movies, and
+    ' anything on a SashimiTV channel (which has its own between-programme
+    ' card), end the way they always have.
+    function offersNext(item as dynamic, isChannel as boolean) as boolean
+        if isChannel or item = invalid then return false
+        if item.Type = invalid or item.Type <> "Episode" then return false
+        return (item.SeriesId <> invalid and item.SeriesId <> "") or (item.SeasonId <> invalid and item.SeasonId <> "")
+    end function
+
+    ' What the screen opens on once the lookup has answered. Auto-Play Next
+    ' Episode only decides whether the countdown runs; the screen is the same.
+    function initialState(queue as dynamic, autoplay as boolean, lookupOk as boolean) as object
+        s = { mode: "ended", reason: "", index: 0, count: 0, remaining: 0 }
+        if queue <> invalid then s.count = queue.count()
+        if not lookupOk
+            s.reason = "failed"
+        else if s.count = 0
+            s.reason = "final"
+        else if autoplay
+            s.mode = "countdown"
+            s.remaining = COUNTDOWN_SECS
+        else
+            s.mode = "manual"
+        end if
+        return s
+    end function
+
+    function isOffering(s as object) as boolean
+        return s.mode = "countdown" or s.mode = "manual"
+    end function
+
+    ' One second of countdown. "play" exactly once, when it reaches zero; the
+    ' state then leaves "countdown" so a late tick cannot start it twice.
+    function tick(s as object) as string
+        if s.mode <> "countdown" then return ""
+        if s.remaining > 0 then s.remaining = s.remaining - 1
+        if s.remaining > 0 then return ""
+        s.mode = "starting"
+        return "play"
+    end function
+
+    ' Play (by hand, or the countdown running out): the shown episode.
+    function play(s as object) as boolean
+        if not isOffering(s) then return false
+        s.mode = "starting"
+        return true
+    end function
+
+    function canSkip(s as object) as boolean
+        return isOffering(s) and s.index + 1 < s.count
+    end function
+
+    ' Skip swaps in the episode after the shown one and gives the countdown its
+    ' full time again. Nothing is marked watched.
+    function skip(s as object) as boolean
+        if not canSkip(s) then return false
+        s.index = s.index + 1
+        if s.mode = "countdown" then s.remaining = COUNTDOWN_SECS
+        return true
+    end function
+
+    function cancel(s as object) as boolean
+        if not isOffering(s) then return false
+        s.mode = "ended"
+        s.reason = "cancelled"
+        s.remaining = 0
+        return true
+    end function
+
+    ' Button kinds, left to right. The first one takes the default focus.
+    function buttons(s as object) as object
+        if isOffering(s)
+            b = ["play"]
+            if canSkip(s) then b.push("skip")
+            b.push("cancel")
+            return b
+        end if
+        if s.mode = "ended" then return ["replay", "back"]
+        return []
+    end function
+
+    ' Focus after a Skip: stay on Skip so it can be pressed again, unless that
+    ' was the last one and the button is gone -- then Play, never Cancel.
+    function focusAfterSkip(s as object) as integer
+        b = buttons(s)
+        for i = 0 to b.count() - 1
+            if b[i] = "skip" then return i
+        end for
+        return 0
+    end function
+
+    function label(kind as string, s as object) as string
+        if kind = "play"
+            if s.mode = "countdown" then return "Play in " + s.remaining.toStr()
+            return "Play"
+        else if kind = "skip"
+            return "Skip"
+        else if kind = "cancel"
+            return "Cancel"
+        else if kind = "replay"
+            return "Replay"
+        else if kind = "back"
+            return "Back"
+        end if
+        return ""
+    end function
+
+    function eyebrow(s as object) as string
+        if s.mode = "ended" then return "EPISODE COMPLETE"
+        return "UP NEXT"
+    end function
+
+    ' The Apple client's end-card wording, so both say the same thing.
+    function message(s as object) as string
+        if s.mode <> "ended" then return ""
+        if s.reason = "final" then return "There are no more episodes."
+        if s.reason = "failed" then return "Next episode unavailable. Try again later, or replay."
+        return ""
+    end function
+
+    ' "S2:E5 • Title", as the player's info bar writes it.
+    function heading(ep as dynamic) as string
+        if ep = invalid then return ""
+        name = ""
+        if ep.Name <> invalid then name = ep.Name
+        if ep.ParentIndexNumber = invalid or ep.IndexNumber = invalid then return name
+        se = "S" + ep.ParentIndexNumber.toStr() + ":E" + ep.IndexNumber.toStr()
+        if ep.IndexNumberEnd <> invalid and ep.IndexNumberEnd > ep.IndexNumber then se = se + "-" + ep.IndexNumberEnd.toStr()
+        if name = "" then return se
+        return se + " " + Chr(8226) + " " + name
+    end function
+
+    ' "42 min"; "" when the server has no runtime.
+    function runtimeLabel(ticks as dynamic) as string
+        if ticks = invalid then return ""
+        mins = Int(ticks / 600000000#)
+        if mins <= 0 then return ""
+        return mins.toStr() + " min"
+    end function
+
+    ' Community rating to one decimal, as the detail screen shows it.
+    function ratingLabel(rating as dynamic) as string
+        if rating = invalid then return ""
+        return str(Int(rating * 10) / 10.0).Trim()
+    end function
+
+    ' Skip Credits (pressed, or the auto-skip setting) on credits that run to
+    ' the end goes straight to the Up Next screen instead of seeking to the
+    ' last frame and waiting for the stream to wind down. Credits that end
+    ' earlier (a post-credits scene follows) still just seek. The window is
+    ' the same 30 s the player uses to tell a real finish from a glitch.
+    function creditsSkipEndsPlayback(segEndSec as dynamic, durationSecs as dynamic) as boolean
+        if segEndSec = invalid or durationSecs = invalid then return false
+        if durationSecs <= 0 then return false
+        return segEndSec >= durationSecs - 30
+    end function
+
+end namespace

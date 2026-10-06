@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- The full-screen Up Next screen shown when an episode ends. Display only:
+     PlayerScreen keeps the remote (virtual highlight, see PlayerScreen.bs) and
+     the countdown state (source/utils/NextEpisode.bs), and drives this through its
+     fields. -->
+<component name="UpNextOverlay" extends="Group">
+    <interface>
+        <!-- The episode on screen: the one offered, or the finished one. -->
+        <field id="episode" type="assocarray" onChange="onEpisode" />
+        <field id="eyebrow" type="string" onChange="onText" />
+        <field id="message" type="string" onChange="onText" />
+        <!-- [{kind, label}], left to right -->
+        <field id="buttonDefs" type="array" onChange="onButtons" />
+        <field id="focusIndex" type="integer" value="0" onChange="restyle" />
+        <!-- Seconds the Play button's fill takes to sweep across; set again to
+             restart it (Skip). 0 = no countdown, Play drawn solid. -->
+        <field id="sweepSecs" type="integer" value="0" alwaysNotify="true" onChange="onSweep" />
+        <!-- The Play button's label only, so a countdown tick does not rebuild
+             the row. -->
+        <field id="playLabel" type="string" onChange="onPlayLabel" />
+        <function name="present" />
+    </interface>
+    <children>
+        <Group id="root" opacity="0">
+            <!-- Base colour while the artwork loads (and if there is none). -->
+            <Rectangle width="1920" height="1080" color="#0C0A12" />
+            <!-- Roku cannot blur live, so the server does: a small, blurred
+                 render of the episode's still, stretched full-bleed. -->
+            <Poster id="bg" width="1920" height="1080" loadWidth="480" loadHeight="270"
+                    loadDisplayMode="scaleToZoom" />
+            <Poster uri="pkg:/images/upnext_scrim.png" width="1920" height="1080" />
+
+            <Group id="content" translation="[0, 0]">
+                <!-- Crisp card. A rounded mask over a scaleToZoom poster: the
+                     still always fills the card, whatever its own shape. -->
+                <MaskGroup id="cardMask" maskUri="pkg:/images/wide_mask_r16.png" maskSize="[720, 405]" translation="[120, 0]">
+                    <Rectangle width="720" height="405" color="#1A1724" />
+                    <Poster id="card" width="720" height="405" loadWidth="720" loadHeight="405"
+                            loadDisplayMode="scaleToZoom" />
+                </MaskGroup>
+
+                <Label id="eyebrowLabel" text="" color="#8C5CC7" width="880" maxLines="1" translation="[900, 0]">
+                    <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="26" />
+                </Label>
+                <Label id="titleLabel" text="" color="#FFFFFF" width="880" maxLines="2" wrap="true"
+                       ellipsizeOnBoundary="true" translation="[900, 44]">
+                    <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="52" />
+                </Label>
+                <Group id="metaRow" translation="[900, 120]">
+                    <Label id="runtimeLabel" text="" color="#D9D9D9" height="32" vertAlign="center">
+                        <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+                    </Label>
+                    <Poster id="tmdbLogo" uri="pkg:/images/tmdb_logo_tv.png" width="40" height="28"
+                            loadDisplayMode="scaleToFit" visible="false" />
+                    <Label id="ratingLabel" text="" color="#FFFFFF" height="32" vertAlign="center" visible="false">
+                        <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="24" />
+                    </Label>
+                </Group>
+                <Label id="overviewLabel" text="" color="#BFBFBF" width="880" maxLines="3" wrap="true"
+                       lineSpacing="6" ellipsizeOnBoundary="true" translation="[900, 170]">
+                    <Font role="font" uri="pkg:/fonts/Inter-Regular.ttf" size="26" />
+                </Label>
+                <Label id="messageLabel" text="" color="#FFFFFF" width="880" maxLines="2" wrap="true"
+                       visible="false" translation="[900, 170]">
+                    <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="30" />
+                </Label>
+
+                <Group id="buttonRow" translation="[900, 340]">
+                    <!-- Play: a pale capsule track with an accent capsule
+                         growing across it, its width animated so the sweep is
+                         smooth. Both are the same 9-patch, so the fill keeps
+                         rounded ends at every width (a MaskGroup over a
+                         Rectangle left the animated fill unmasked on device). -->
+                    <Group id="playBtn" visible="false">
+                        <Poster id="playTrack" uri="pkg:/images/pill64.9.png" width="280" height="64" blendColor="#8C5CC7" />
+                        <Poster id="playFill" uri="pkg:/images/pill64.9.png" width="64" height="64" blendColor="#8C5CC7" visible="false" />
+                        <Poster id="playIcon" uri="pkg:/images/icon_play.png" width="26" height="26" />
+                        <Label id="playText" text="Play" color="#FFFFFF" height="64" vertAlign="center">
+                            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="28" />
+                        </Label>
+                        <Poster id="playRing" uri="pkg:/images/pill64_ring.9.png" width="280" height="64" visible="false" />
+                    </Group>
+                    <Group id="otherBtns" />
+                </Group>
+            </Group>
+        </Group>
+
+        <Animation id="sweepAnim" duration="10" easeFunction="linear">
+            <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[64.0, 280.0]" fieldToInterp="playFill.width" />
+        </Animation>
+        <Animation id="fadeAnim" duration="0.4" easeFunction="outQuad">
+            <FloatFieldInterpolator key="[0.0, 1.0]" keyValue="[0.0, 1.0]" fieldToInterp="root.opacity" />
+        </Animation>
+    </children>
+</component>
