@@ -5,6 +5,7 @@ import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/TimeFormat.bs"
 import "pkg:/source/utils/ViewMode.bs"
 import "pkg:/source/utils/StreamQuality.bs"
+import "pkg:/source/utils/NextEpisode.bs"
 
 ' tvOS PlayerViewModel parity on Roku. Design rules learned the hard way:
 '  - The screen NEVER gives remote focus to a child node. Every key lands in
@@ -70,6 +71,15 @@ sub init()
     m.upNextTimer.duration = 1
     m.upNextTimer.repeat = true
     m.upNextTimer.observeFieldScoped("fire", "tickUpNext")
+    ' End of an episode: the Up Next screen (NextEpisode.bs holds its logic).
+    m.nextUpNode = m.top.findNode("nextUp")
+    m.nextUp = invalid        ' NextEpisode state while the screen is up
+    m.nextUpQueue = []        ' the episodes after the finished one
+    m.nextUpFocus = 0
+    m.nextUpTimer = CreateObject("roSGNode", "Timer")
+    m.nextUpTimer.duration = 1
+    m.nextUpTimer.repeat = true
+    m.nextUpTimer.observeFieldScoped("fire", "onNextUpTick")
     m.guide = invalid
     m.rollRetries = 0
     m.rollRetryTimer = CreateObject("roSGNode", "Timer")
@@ -126,7 +136,8 @@ sub init()
     m.isPaused = false
     m.subtitleBase = ""
     m.videoAspect = 0.0       ' display aspect of the current stream; 0 = unknown
-    m.siblingsRetried = false ' one retry per autoplay handoff (reset in onPlaybackEnded)
+    m.siblingsRetried = false ' one retry per next-episode lookup (reset in onPlaybackEnded)
+    m.nextUpPending = false   ' that lookup is in flight
 
     ' OSD virtual-highlight state
     m.osdVisible = false
@@ -210,6 +221,7 @@ sub onItemDataChanged()
     data = m.top.itemData
     if data = invalid then return
     m.item = data
+    hideNextUp()
     m.statusLabel.visible = true
     m.statusLabel.text = "Loading..."
     m.startedReported = false
@@ -397,6 +409,12 @@ sub onBufferTimer()
     ' where the node can sit in "buffering" by the viewer's own choice.
     state = m.video.state
     if state = "playing" or state = "paused" or m.isPaused then return
+    ' The next-episode lookup never answered: say so on the Up Next screen
+    ' (Replay / Back) rather than with a playback error about a finished video.
+    if m.nextUpPending = true
+        showNextUp([], false)
+        return
+    end if
     ' A stream that is loading but not arriving is asking for more than the
     ' link carries: ask for less, from the same spot, before giving up. This
     ' used to go straight to "Try Again", which re-requested the same bitrate.
@@ -934,6 +952,7 @@ sub checkSegment(posSecs as dynamic)
         segKey = active.segType + "_" + Int(active.startSec).toStr()
         if autoSkip and not m.skippedSegments.DoesExist(segKey)
             m.skippedSegments[segKey] = true
+            if isCredits and finishAtCredits(active) then return
             m.seeking = false
             #if DEBUG
                 print "[Player] skip seek -> "; Int(active.endSec); " dur="; m.durationSecs
@@ -964,6 +983,7 @@ end sub
 
 sub skipCurrentSegment()
     if m.curSegment = invalid then return
+    if LCase(m.curSegment.segType) = "credits" and finishAtCredits(m.curSegment) then return
     m.seeking = false
     #if DEBUG
         print "[Player] skip seek -> "; Int(m.curSegment.endSec); " dur="; m.durationSecs
@@ -972,6 +992,22 @@ sub skipCurrentSegment()
     m.curSegment = invalid
     hideSkipPill()
 end sub
+
+' Skipping credits that run to the end is finishing the episode: go straight to
+' what follows (the Up Next screen for an episode) instead of seeking onto the
+' last frame and waiting for the stream to wind down. False when the credits
+' end earlier, so the caller seeks as before.
+function finishAtCredits(seg as object) as boolean
+    if not NextEpisode.creditsSkipEndsPlayback(seg.endSec, m.durationSecs) then return false
+    if not m.startedReported or m.stoppedReported then return false
+    m.seeking = false
+    m.curSegment = invalid
+    hideSkipPill()
+    m.lastPosition = m.video.position
+    m.video.control = "stop"
+    onPlaybackEnded()
+    return true
+end function
 
 sub onProgressTimer()
     if m.video.state = "playing" then report("reportProgress", currentTicks(), false)
@@ -1934,29 +1970,39 @@ sub onPlaybackEnded()
 
     enqueue({ action: "markPlayed", itemId: m.item.Id })
 
-    autoplay = AppSettings.autoPlayNextEpisode()
-    itemType = ""
-    if m.item.Type <> invalid then itemType = m.item.Type
+    ' An episode ends on the Up Next screen whatever Auto-Play Next Episode
+    ' says; the setting only decides whether its countdown runs. Anything
+    ' else ends the way it always has.
     #if DEBUG
-        print "[Player] ended autoplay="; autoplay; " type="; itemType; " hasSeasonId="; (m.item.SeasonId <> invalid)
+        print "[Player] ended autoplay="; AppSettings.autoPlayNextEpisode(); " offersNext="; NextEpisode.offersNext(m.item, false)
     #end if
-    if autoplay and itemType = "Episode" and m.item.SeasonId <> invalid
+    if NextEpisode.offersNext(m.item, false)
         m.statusLabel.visible = true
         m.statusLabel.text = "Up next..."
         m.siblingsRetried = false
-        enqueue({ action: "getSiblingEpisodes", parentId: m.item.SeasonId })
+        m.nextUpPending = true
+        requestFollowingEpisodes()
         ' The handoff is up to three serialized 30s requests (reportStopped,
-        ' markPlayed, siblings). Without a watchdog a dead server freezes the
-        ' last frame behind "Up next..." indefinitely; the stall dialog at
-        ' least gives the viewer Try Again / Back. requestStream re-arms it
-        ' when the next stream starts negotiating.
+        ' markPlayed, the lookup). Without a watchdog a dead server freezes the
+        ' last frame behind "Up next..." indefinitely; onBufferTimer turns a
+        ' lookup that never answers into the screen's "unavailable" state.
         armStallWatchdog()
     else
         m.top.done = true
     end if
 end sub
 
+sub requestFollowingEpisodes()
+    req = { action: "getSiblingEpisodes", startItemId: m.item.Id }
+    if m.item.SeriesId <> invalid then req.seriesId = m.item.SeriesId
+    if m.item.SeasonId <> invalid then req.parentId = m.item.SeasonId
+    enqueue(req)
+end sub
+
 sub onSiblingsLoaded(r as object)
+    ' Answered after the watchdog already gave up on it, or after the viewer
+    ' left the screen: nothing is waiting for it any more.
+    if m.nextUpPending <> true then return
     ' success=false is a failed FETCH (timeout / non-2xx), not an empty season
     ' — the two used to be indistinguishable, which made a dropped request look
     ' like "no next episode". Retry once before giving up.
@@ -1964,86 +2010,211 @@ sub onSiblingsLoaded(r as object)
         if not m.siblingsRetried
             m.siblingsRetried = true
             #if DEBUG
-                print "[Player] siblings fetch failed - retrying once"
+                print "[Player] next-episode lookup failed - retrying once"
             #end if
-            enqueue({ action: "getSiblingEpisodes", parentId: m.item.SeasonId })
+            requestFollowingEpisodes()
             armStallWatchdog()
             return
         end if
         #if DEBUG
-            print "[Player] autoplay giving up: siblings fetch failed twice"
+            print "[Player] next-episode lookup failed twice"
         #end if
-        m.bufferTimer.control = "stop"
-        m.top.done = true
+        showNextUp([], false)
         return
     end if
-
-    nextEp = invalid
-    curIdx = -1
-    if r.items <> invalid and m.item.IndexNumber <> invalid
-        curIdx = m.item.IndexNumber
-        for each ep in r.items
-            if ep.IndexNumber <> invalid and ep.IndexNumber = curIdx + 1
-                nextEp = ep
-                exit for
-            end if
-        end for
-        if nextEp = invalid
-            for each ep in r.items
-                if ep.IndexNumber <> invalid and ep.IndexNumber > curIdx
-                    nextEp = ep
-                    exit for
-                end if
-            end for
-        end if
-    end if
-
-    n = 0
-    if r.items <> invalid then n = r.items.count()
-    nextIdx = -1
-    if nextEp <> invalid and nextEp.IndexNumber <> invalid then nextIdx = nextEp.IndexNumber
+    queue = NextEpisode.queueAfter(r.items, m.item)
     #if DEBUG
-        print "[Player] siblings n="; n; " curIdx="; curIdx; " next="; nextIdx
+        n = 0
+        if r.items <> invalid then n = r.items.count()
+        print "[Player] next-episode lookup n="; n; " following="; queue.count()
     #end if
+    showNextUp(queue, true)
+end sub
 
-    if nextEp <> invalid
-        m.stoppedReported = false
-        m.startedReported = false
-        m.lastPosition = 0
-        m.top.playAction = "play"
-        m.item = nextEp
-        ' Everything per-ITEM has to reset here, not just the track indexes —
-        ' this path bypasses onItemDataChanged. Leaving forceTranscode or a
-        ' step-down cap set means one bad episode silently pins the whole binge
-        ' to a re-encoded, bitrate-capped stream; leaving the chapters set makes
-        ' the Chapters menu seek to the previous episode's timestamps.
-        m.forceTranscode = false
-        m.stepDownBps = 0
-        m.pendingNotice = ""
-        m.rebufferTimes = []
-        m.pendingStartSecs = -1
-        ' Runtime comes from the next episode's own PlaybackInfo; a stale value
-        ' would place the chapter ticks and scrubber against the wrong length.
-        m.runTimeTicks = 0
-        m.durationSecs = 0
-        setChapters(nextEp)
-        ' Subtitle indexes are per-file — reset; onStreamReady re-matches the
-        ' session's remembered track by title. Quality choice persists.
-        m.curSubIdx = -1
-        m.curAudIdx = -1
-        m.subPrefApplied = false
-        populateInfoBar()
-        requestStream(nextEp)
+' Hand the player over to another episode of the same series. Everything
+' per-ITEM has to reset here, not just the track indexes -- this path bypasses
+' onItemDataChanged.
+sub playEpisode(nextEp as object)
+    m.stoppedReported = false
+    m.startedReported = false
+    m.lastPosition = 0
+    m.top.playAction = "play"
+    m.item = nextEp
+    ' Leaving forceTranscode or a step-down cap set means one bad episode
+    ' silently pins the whole binge to a re-encoded, bitrate-capped stream;
+    ' leaving the chapters set makes the Chapters menu seek to the previous
+    ' episode's timestamps.
+    m.forceTranscode = false
+    m.stepDownBps = 0
+    m.pendingNotice = ""
+    m.rebufferTimes = []
+    m.pendingStartSecs = -1
+    ' Runtime comes from the next episode's own PlaybackInfo; a stale value
+    ' would place the chapter ticks and scrubber against the wrong length.
+    m.runTimeTicks = 0
+    m.durationSecs = 0
+    setChapters(nextEp)
+    ' Subtitle indexes are per-file — reset; onStreamReady re-matches the
+    ' session's remembered track by title. Quality choice persists.
+    m.curSubIdx = -1
+    m.curAudIdx = -1
+    m.subPrefApplied = false
+    populateInfoBar()
+    m.statusLabel.visible = true
+    m.statusLabel.text = "Loading..."
+    requestStream(nextEp)
+end sub
+
+' ---------- Up Next screen (end of an episode) ----------
+
+sub showNextUp(queue as object, lookupOk as boolean)
+    m.nextUpPending = false
+    m.bufferTimer.control = "stop"
+    m.statusLabel.visible = false
+    hideSkipPill()
+    hideTrickplay()
+    if m.zone = "menu" then closeMenu()
+    m.zone = "scrub"
+    hideOsd()
+    m.nextUpQueue = queue
+    m.nextUp = NextEpisode.initialState(queue, AppSettings.autoPlayNextEpisode(), lookupOk)
+    m.nextUpFocus = 0
+    renderNextUp()
+    m.nextUpNode.visible = true
+    m.nextUpNode.callFunc("present")
+    startNextUpCountdown()
+end sub
+
+' The countdown (re)starts from full: on opening, and after every Skip.
+sub startNextUpCountdown()
+    m.nextUpTimer.control = "stop"
+    if m.nextUp <> invalid and m.nextUp.mode = "countdown"
+        m.nextUpNode.sweepSecs = m.nextUp.remaining
+        m.nextUpTimer.control = "start"
     else
-        ' Season genuinely over (or this item carries no IndexNumber to
-        ' advance from) — a normal end, same behavior as before.
-        #if DEBUG
-            print "[Player] autoplay done: no next episode in season"
-        #end if
-        m.bufferTimer.control = "stop"
-        m.top.done = true
+        m.nextUpNode.sweepSecs = 0
     end if
 end sub
+
+' Push the state onto the screen. Offering, it shows the episode on offer;
+' ended (cancelled, final episode, lookup failed), the one just finished.
+sub renderNextUp()
+    s = m.nextUp
+    if s = invalid then return
+    shown = m.item
+    if NextEpisode.isOffering(s) and s.index < m.nextUpQueue.count() then shown = m.nextUpQueue[s.index]
+    n = m.nextUpNode
+    n.episode = shown
+    n.eyebrow = NextEpisode.eyebrow(s)
+    n.message = NextEpisode.message(s)
+    defs = []
+    for each kind in NextEpisode.buttons(s)
+        defs.push({ kind: kind, label: NextEpisode.label(kind, s) })
+    end for
+    n.buttonDefs = defs
+    if m.nextUpFocus >= defs.count() then m.nextUpFocus = 0
+    n.focusIndex = m.nextUpFocus
+end sub
+
+sub onNextUpTick()
+    if m.nextUp = invalid
+        m.nextUpTimer.control = "stop"
+        return
+    end if
+    if NextEpisode.tick(m.nextUp) = "play"
+        startShownEpisode()
+        return
+    end if
+    m.nextUpNode.playLabel = NextEpisode.label("play", m.nextUp)
+end sub
+
+sub startShownEpisode()
+    ep = m.nextUpQueue[m.nextUp.index]
+    hideNextUp()
+    playEpisode(ep)
+end sub
+
+sub hideNextUp()
+    m.nextUpPending = false
+    if m.nextUpTimer <> invalid then m.nextUpTimer.control = "stop"
+    if m.nextUp = invalid then return
+    m.nextUp = invalid
+    m.nextUpNode.sweepSecs = 0
+    m.nextUpNode.visible = false
+end sub
+
+' Start the finished episode again from the beginning.
+sub replayFinished()
+    hideNextUp()
+    m.stoppedReported = false
+    m.startedReported = false
+    m.lastPosition = 0
+    m.top.playAction = "play"
+    m.pendingStartSecs = -1
+    m.statusLabel.visible = true
+    m.statusLabel.text = "Loading..."
+    requestStream(m.item)
+end sub
+
+sub activateNextUp()
+    s = m.nextUp
+    kinds = NextEpisode.buttons(s)
+    if m.nextUpFocus < 0 or m.nextUpFocus >= kinds.count() then return
+    kind = kinds[m.nextUpFocus]
+    if kind = "play"
+        if NextEpisode.play(s) then startShownEpisode()
+    else if kind = "skip"
+        if NextEpisode.skip(s)
+            m.nextUpFocus = NextEpisode.focusAfterSkip(s)
+            renderNextUp()
+            startNextUpCountdown()
+        end if
+    else if kind = "cancel"
+        cancelNextUp()
+    else if kind = "replay"
+        replayFinished()
+    else if kind = "back"
+        hideNextUp()
+        exitPlayer()
+    end if
+end sub
+
+sub cancelNextUp()
+    if not NextEpisode.cancel(m.nextUp) then return
+    m.nextUpFocus = 0
+    renderNextUp()
+    startNextUpCountdown()
+end sub
+
+' The screen's remote. Same virtual-highlight rule as the rest of the player:
+' the overlay never takes focus, the keys land here.
+function onNextUpKey(key as string, press as boolean) as boolean
+    ' Cert 4.4: "*" belongs to Roku.
+    if key = "options" then return false
+    if not press then return true
+    count = NextEpisode.buttons(m.nextUp).count()
+    if key = "left"
+        if m.nextUpFocus > 0 then m.nextUpFocus = m.nextUpFocus - 1
+        m.nextUpNode.focusIndex = m.nextUpFocus
+    else if key = "right"
+        if m.nextUpFocus < count - 1 then m.nextUpFocus = m.nextUpFocus + 1
+        m.nextUpNode.focusIndex = m.nextUpFocus
+    else if key = "OK"
+        activateNextUp()
+    else if key = "play"
+        ' The remote's Play starts what is on offer, wherever the highlight is.
+        if NextEpisode.play(m.nextUp) then startShownEpisode()
+    else if key = "back"
+        ' Back is Cancel while something is on offer, then leaves.
+        if NextEpisode.isOffering(m.nextUp)
+            cancelNextUp()
+        else
+            hideNextUp()
+            exitPlayer()
+        end if
+    end if
+    return true
+end function
 
 ' ---------- Keys (single handler; no child ever holds focus) ----------
 
@@ -2062,6 +2233,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
         if press and key = "back" then closeGuide()
         return true
     end if
+
+    if m.nextUp <> invalid then return onNextUpKey(key, press)
 
     ' A channel has its own remote (onChannelKey) — except inside a menu, and
     ' except OK while the skip pill is up, which still skips.

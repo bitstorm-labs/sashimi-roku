@@ -179,6 +179,10 @@
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="22" />
         </Label>
 
+        <!-- End of an episode: full-screen Up Next, over everything else.
+             Display only; the keys stay with this screen. -->
+        <UpNextOverlay id="nextUp" visible="false" />
+
         <Timer id="progressTimer" repeat="true" duration="5" />
         <Timer id="osdTimer" repeat="false" duration="5" />
         <Timer id="clockTimer" repeat="true" duration="15" />
