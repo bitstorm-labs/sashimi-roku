@@ -1,0 +1,136 @@
+' Continue Watching: Resume + Next Up, most recent activity first, one entry per
+' series. Port of sashimi-apple's mergeAndSortContinueItems. Pure functions
+' only, so tests/ContinueWatchingTests.brs can run them off-device.
+'
+' Every candidate gets a real activity date. Resume items, and Next Up items the
+' server dates, use their own LastPlayedDate. An unstarted Next Up episode has
+' none (nor does its Series item), so it takes its series' last finished episode
+' (seriesDates, from getNextUp's recently played lookup). Failing that it sits a
+' second below the item before it -- Next Up is ordered by series activity --
+' starting just below the newest real date.
+'
+' Stamping the first undated Next Up "now" let an unstarted next episode outrank
+' the episode just stopped part-way, and replace it when it was the same show.
+' Anchoring without the series date put a show binged all evening behind any
+' other show with a date (sashimi-apple#647).
+namespace ContinueWatching
+
+    ' Epoch seconds of an ISO 8601 timestamp, or 0. Jellyfin stamps 7-digit
+    ' fractional seconds ("...T04:48:25.0000000Z") which FromISO8601String
+    ' won't parse, so the timestamp is trimmed to whole seconds.
+    function isoSeconds(raw as dynamic) as integer
+        if raw = invalid or raw = "" or Len(raw) < 19 then return 0
+        dt = CreateObject("roDateTime")
+        dt.FromISO8601String(Left(raw, 19) + "Z")
+        return dt.AsSeconds()
+    end function
+
+    ' Epoch seconds of an item's last play, or 0 when it has never been played.
+    function playedSeconds(item as object) as integer
+        if item = invalid or item.UserData = invalid then return 0
+        return isoSeconds(item.UserData.LastPlayedDate)
+    end function
+
+    ' Sortable key: zero-padded seconds so string order matches time order, plus
+    ' a trailing digit so Resume outranks Next Up at an identical timestamp.
+    function activityKey(secs as integer, isResume as boolean) as string
+        if secs <= 0 then return "00000000000"
+        padded = Right("0000000000" + str(secs).Trim(), 10)
+        if isResume then return padded + "1"
+        return padded + "0"
+    end function
+
+    ' Folders (a partly watched Season or Series from Resume) can't be resumed.
+    function isPlayable(item as object) as boolean
+        if item = invalid then return false
+        t = item.Type
+        if t = invalid then return true
+        return not (t = "Season" or t = "Series" or t = "BoxSet" or t = "Folder" or t = "CollectionFolder")
+    end function
+
+    ' SeriesId -> epoch seconds of that series' latest finished episode.
+    function seriesLastPlayed(episodes as dynamic) as object
+        dates = {}
+        if episodes = invalid then return dates
+        for each ep in episodes
+            if ep.SeriesId <> invalid
+                secs = playedSeconds(ep)
+                if secs > 0
+                    if not dates.DoesExist(ep.SeriesId) or dates[ep.SeriesId] < secs then dates[ep.SeriesId] = secs
+                end if
+            end if
+        end for
+        return dates
+    end function
+
+    function merge(resume as object, nextUp as object, seriesDates as object) as object
+        candidates = []
+        newestKnown = 0
+        for each item in resume
+            if isPlayable(item)
+                secs = playedSeconds(item)
+                if secs > newestKnown then newestKnown = secs
+                candidates.push({ item: item, sortKey: activityKey(secs, true) })
+            end if
+        end for
+        for each item in nextUp
+            secs = playedSeconds(item)
+            if secs > newestKnown then newestKnown = secs
+        end for
+
+        carried = newestKnown
+        if carried = 0 then carried = CreateObject("roDateTime").AsSeconds()
+        for each item in nextUp
+            if isPlayable(item)
+                secs = playedSeconds(item)
+                if secs > 0
+                    carried = secs
+                else if item.SeriesId <> invalid and seriesDates.DoesExist(item.SeriesId)
+                    carried = seriesDates[item.SeriesId]
+                else
+                    carried = carried - 1
+                end if
+                candidates.push({ item: item, sortKey: activityKey(carried, false) })
+            end if
+        end for
+
+        ' Newest first. Fixed-width zero-padded keys compare as strings in
+        ' timestamp order, which sidesteps 32-bit overflow on epoch-seconds
+        ' arithmetic; the trailing digit breaks ties toward Resume, so a
+        ' part-watched episode is offered for resuming rather than skipped past.
+        ' A stable insertion sort (the row is ~40 candidates) rather than
+        ' roArray.SortBy, which the off-device interpreter gets wrong for
+        ' camelCase keys, so the tests run the code the device runs.
+        for i = 1 to candidates.count() - 1
+            current = candidates[i]
+            j = i - 1
+            while j >= 0 and candidates[j].sortKey < current.sortKey
+                candidates[j + 1] = candidates[j]
+                j = j - 1
+            end while
+            candidates[j + 1] = current
+        end for
+
+        merged = []
+        seenSeries = {}
+        seenIds = {}
+        for each candidate in candidates
+            item = candidate.item
+            itemId = ""
+            if item.Id <> invalid then itemId = item.Id
+            seriesId = ""
+            if item.SeriesId <> invalid then seriesId = item.SeriesId
+
+            isDupe = (itemId <> "" and seenIds.DoesExist(itemId))
+            if not isDupe and seriesId <> "" and seenSeries.DoesExist(seriesId) then isDupe = true
+
+            if not isDupe
+                if itemId <> "" then seenIds[itemId] = true
+                if seriesId <> "" then seenSeries[seriesId] = true
+                merged.push(item)
+            end if
+        end for
+        return merged
+    end function
+
+end namespace
