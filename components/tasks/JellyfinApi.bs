@@ -4,6 +4,7 @@ import "pkg:/source/utils/SignInError.bs"
 import "pkg:/source/utils/Filmography.bs"
 import "pkg:/source/utils/ChannelManagement.bs"
 import "pkg:/source/utils/StreamQuality.bs"
+import "pkg:/source/utils/ContinueWatching.bs"
 
 sub init()
     m.top.functionName = "taskLoop"
@@ -722,7 +723,17 @@ sub doGetNextUp(request as object)
         #if DEBUG
             print "[API] Found " + str(result.Items.count()) + " next up items"
         #end if
-        m.top.response = { success: true, action: "getNextUp", items: result.Items, context: request.context }
+        response = { success: true, action: "getNextUp", items: result.Items, context: request.context }
+        ' Continue Watching dates an unstarted next episode by its series' last
+        ' finished one: Jellyfin gives neither the episode nor the Series item a
+        ' LastPlayedDate. Optional -- without it the row keeps Next Up's order.
+        if request.withSeriesDates <> invalid and request.withSeriesDates = true
+            played = Http.getJson(recentlyPlayedEpisodesUrl(100))
+            if played <> invalid and played.Items <> invalid
+                response.seriesLastPlayed = ContinueWatching.seriesLastPlayed(played.Items)
+            end if
+        end if
+        m.top.response = response
     else
         m.top.response = { success: true, action: "getNextUp", items: [], context: request.context }
     end if
@@ -2135,6 +2146,15 @@ function firstRegularEpisode(seriesId as string, unplayedOnly as boolean) as dyn
 end function
 
 ' /Shows/NextUp for the whole Next Up row, or for one series ("" = all).
+' Most recently finished episodes, newest first, for ContinueWatching dates.
+function recentlyPlayedEpisodesUrl(limit as integer) as string
+    url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
+    url += "?Recursive=true&IncludeItemTypes=Episode&Filters=IsPlayed"
+    url += "&SortBy=DatePlayed&SortOrder=Descending&Limit=" + str(limit).Trim()
+    url += "&EnableUserData=true&EnableImages=false"
+    return url
+end function
+
 function nextUpUrl(limit as integer, seriesId as string) as string
     url = Http.apiUrl("/Shows/NextUp")
     url += "?UserId=" + requestUserId()

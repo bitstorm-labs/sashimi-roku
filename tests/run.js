@@ -14,7 +14,8 @@ const brs = path.join(root, 'node_modules', '.bin', 'brs');
 const suites = {
     'StreamQualityTests.brs': ['out/source/utils/StreamQuality.brs'],
     'ConfirmTests.brs': ['out/source/utils/Confirm.brs'],
-    'NextEpisodeTests.brs': ['out/source/utils/NextEpisode.brs']
+    'NextEpisodeTests.brs': ['out/source/utils/NextEpisode.brs'],
+    'ContinueWatchingTests.brs': ['out/source/utils/ContinueWatching.brs']
 };
 
 // SASHIMI_TEST_MODULE swaps in another build of the module under test, to
