@@ -82,11 +82,15 @@ namespace ContinueWatching
         if carried = 0 then carried = CreateObject("roDateTime").AsSeconds()
         for each item in nextUp
             if isPlayable(item)
+                ' An episode opened weeks ago keeps that stale date while the
+                ' season before it is binged: take the newer of its own and its
+                ' series' last watch.
                 secs = playedSeconds(item)
+                if item.SeriesId <> invalid and seriesDates.DoesExist(item.SeriesId)
+                    if seriesDates[item.SeriesId] > secs then secs = seriesDates[item.SeriesId]
+                end if
                 if secs > 0
                     carried = secs
-                else if item.SeriesId <> invalid and seriesDates.DoesExist(item.SeriesId)
-                    carried = seriesDates[item.SeriesId]
                 else
                     carried = carried - 1
                 end if
