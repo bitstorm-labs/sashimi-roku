@@ -137,4 +137,23 @@ namespace ContinueWatching
         return merged
     end function
 
+    ' The server's Continue Watching plugin
+    ' (bitstorm-labs/jellyfin-plugin-continue-watching) ranks the whole row, so
+    ' every client shows the same order. Path and query for its endpoint:
+    function serverRowPath(userId as string, limit as integer) as string
+        path = "/ContinueWatching?userId=" + userId
+        path += "&limit=" + str(limit).Trim()
+        path += "&fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,ParentBackdropImageTags,Path,MediaStreams"
+        path += "&enableImageTypes=Primary,Backdrop,Thumb"
+        return path
+    end function
+
+    ' The plugin's items, or invalid when there is no usable answer (no plugin:
+    ' 404 -> invalid from Http.getJson), so the caller merges the row itself.
+    function serverRowItems(response as dynamic) as dynamic
+        if response = invalid or type(response) <> "roAssociativeArray" then return invalid
+        if response.Items = invalid or type(response.Items) <> "roArray" then return invalid
+        return response.Items
+    end function
+
 end namespace
