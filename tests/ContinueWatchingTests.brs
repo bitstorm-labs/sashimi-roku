@@ -9,6 +9,7 @@ sub main()
     testJustStoppedEpisodeLeads(t)
     testFoldersDropped(t)
     testSeriesLastPlayed(t)
+    testStaleNextUpDateUsesSeries(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -88,4 +89,26 @@ sub testSeriesLastPlayed(t as object)
     ])
     eq(t, "one entry per dated series", dates.Count(), 1)
     eq(t, "newest episode wins", dates["a"], ContinueWatching_isoSeconds("2026-10-02T00:00:00Z"))
+end sub
+
+' 2026-10-12: The 100's next episode had been opened weeks ago, so it carried
+' that stale date while the season before it was binged, and sank to the end.
+' A Next Up item ranks by the newer of its own date and its series' last watch.
+sub testStaleNextUpDateUsesSeries(t as object)
+    resume = [
+        item("gcn-video", "gcn", "2026-10-12T01:12:39.5072017Z")
+        item("exploring-video", "exploring", "2026-10-10T02:03:13.3005753Z")
+        item("sabrina-e2", "sabrina", "2026-10-01T17:35:26.9334059Z")
+        item("the100-s1e13", "the100", "2026-09-22T01:32:59.8909118Z")
+    ]
+    nextUp = [
+        item("the100-s5e1", "the100", "2026-09-22T02:11:50.7976901Z")
+        item("gcn-video", "gcn", "2026-10-12T01:12:39.5072017Z")
+        item("darkmatter-s2e5", "darkmatter", "2026-10-02T18:13:24.3329621Z")
+    ]
+    dates = ContinueWatching_seriesLastPlayed([
+        item("the100-s4e13", "the100", "2026-10-12T05:41:17.0124389Z")
+        item("gcn-old", "gcn", "2026-10-12T01:05:36.656826Z")
+    ])
+    eq(t, "stale next-up date uses series", ids(ContinueWatching_merge(resume, nextUp, dates)), "the100-s5e1,gcn-video,exploring-video,darkmatter-s2e5,sabrina-e2")
 end sub
