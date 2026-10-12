@@ -10,6 +10,8 @@ sub main()
     testFoldersDropped(t)
     testSeriesLastPlayed(t)
     testStaleNextUpDateUsesSeries(t)
+    testServerRowRequest(t)
+    testServerRowAnswer(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -111,4 +113,23 @@ sub testStaleNextUpDateUsesSeries(t as object)
         item("gcn-old", "gcn", "2026-10-12T01:05:36.656826Z")
     ])
     eq(t, "stale next-up date uses series", ids(ContinueWatching_merge(resume, nextUp, dates)), "the100-s5e1,gcn-video,exploring-video,darkmatter-s2e5,sabrina-e2")
+end sub
+
+' The server's Continue Watching plugin: the request asks for this user's row with
+' the same fields and images as Resume, so the cards render identically.
+sub testServerRowRequest(t as object)
+    path = ContinueWatching_serverRowPath("u1", 20)
+    eq(t, "server row path", Left(path, 30), "/ContinueWatching?userId=u1&li")
+    eq(t, "server row limit", Instr(1, path, "&limit=20&") > 0, true)
+    eq(t, "server row user data", Instr(1, path, "UserData") > 0, true)
+    eq(t, "server row images", Instr(1, path, "&enableImageTypes=Primary,Backdrop,Thumb") > 0, true)
+end sub
+
+' A usable answer is used as-is; no answer (plugin absent: 404 -> invalid) or a
+' malformed one sends the caller to its own merge.
+sub testServerRowAnswer(t as object)
+    eq(t, "server row items", ids(ContinueWatching_serverRowItems({ Items: [item("the100-s5e1", "the100", invalid), item("gcn", "gcn", invalid)] })), "the100-s5e1,gcn")
+    eq(t, "no plugin", type(ContinueWatching_serverRowItems(invalid)), "Invalid")
+    eq(t, "malformed answer", type(ContinueWatching_serverRowItems({ Error: "x" })), "Invalid")
+    eq(t, "empty row is still an answer", ContinueWatching_serverRowItems({ Items: [] }).count(), 0)
 end sub
