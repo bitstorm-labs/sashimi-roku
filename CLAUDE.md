@@ -159,6 +159,15 @@ Read trickplay geometry from the item's own `Trickplay` metadata rather than
 assuming — it carries `Width`, `Height`, `TileWidth`, `TileHeight`,
 `ThumbnailCount` and `Interval` per item.
 
+## Fix what you find
+
+If you come across a problem while working (a missing test, a red or flaky CI job, a
+bug, dead code, a broken workflow), fix it as part of the work. Don't just mention
+it in a summary and move on. If the fix doesn't belong in the current PR, open a
+follow-up issue and do it next. Only hand something back when it truly needs the
+user: credentials, a paid account, a product decision, or physical hardware. Say
+exactly what's needed.
+
 ## Conventions
 
 - Comments explain **why**, especially where the code looks odd — most of the
