@@ -387,6 +387,12 @@ sub applyHomeRowConfig()
 end sub
 
 sub onResumeItemsLoaded(response as object)
+    if response.success and response.ranked = true and response.items <> invalid
+        ' Already ranked by the server's Continue Watching plugin: no merge here.
+        m.continueWatchingItems = response.items
+        buildHomeRows()
+        return
+    end if
     if response.success and response.items <> invalid
         ' Dedup resume items by series — keep only the most recent per series
         seenSeries = {}
@@ -420,7 +426,10 @@ sub onNextUpLoaded(response as object)
         if seriesDates = invalid then seriesDates = {}
         m.continueWatchingItems = ContinueWatching.merge(m.continueWatchingItems, response.items, seriesDates)
     end if
+    buildHomeRows()
+end sub
 
+sub buildHomeRows()
     m.rowContent = CreateObject("roSGNode", "ContentNode")
     ' Reset so a stale index from the previous load can't tag a library row as
     ' the landscape CW row (addContinueWatchingRow re-sets it when CW exists).
