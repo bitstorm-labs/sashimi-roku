@@ -18,7 +18,8 @@ const suites = {
     'ContinueWatchingTests.brs': ['out/source/utils/ContinueWatching.brs'],
     'HeroTrailerTests.brs': ['out/source/utils/HeroTrailer.brs'],
     'ShowStatusTests.brs': ['out/source/utils/ShowStatus.brs'],
-    'SeriesMetaTests.brs': ['out/source/utils/SeriesMeta.brs']
+    'SeriesMetaTests.brs': ['out/source/utils/SeriesMeta.brs'],
+    'ImageUrlTests.brs': ['out/source/utils/ImageUrl.brs']
 };
 
 // SASHIMI_TEST_MODULE swaps in another build of the module under test, to

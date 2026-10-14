@@ -1,3 +1,14 @@
+' Jellyfin image URLs. Every builder takes the image's TAG (from the item's
+' ImageTags / BackdropImageTags / Parent*ImageTag fields) and appends it as
+' &tag=. The tag is a hash of the image file, so a replaced image (a metadata
+' refresh swapping a 400px still for a 3840px one) gets a NEW url. Without it
+' the url never changes and a stale copy can be served from SceneGraph's
+' texture cache, which is keyed by uri for the life of the app, or from any
+' HTTP cache in between (an untagged image answers "Cache-Control: public"
+' with no max-age, so caches may keep it heuristically; a tagged one answers
+' "max-age=31536000, immutable"). An empty tag still builds a working,
+' untagged url. The tag helpers and builders below that take an explicit
+' server are pure, so tests/ImageUrlTests.brs can run them off-device.
 namespace ImageUrl
 
     ' The server artwork comes from. A screen showing a title from a saved
@@ -9,21 +20,115 @@ namespace ImageUrl
         return m.global.serverUrl
     end function
 
-    function primary(itemId as string, maxWidth as integer) as string
-        return primaryAt(base(), itemId, maxWidth)
+    function primary(itemId as string, maxWidth as integer, tag = "" as dynamic) as string
+        return primaryAt(base(), itemId, maxWidth, tag)
     end function
 
     ' For screens that mix servers item by item (PersonScreen).
-    function primaryAt(serverUrl as string, itemId as string, maxWidth as integer) as string
-        return serverUrl + "/Items/" + itemId + "/Images/Primary?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
+    function primaryAt(serverUrl as string, itemId as string, maxWidth as integer, tag = "" as dynamic) as string
+        return imageAt(serverUrl, itemId, "Primary", maxWidth, tag)
     end function
 
-    function backdrop(itemId as string, maxWidth as integer) as string
-        return base() + "/Items/" + itemId + "/Images/Backdrop?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
+    function backdrop(itemId as string, maxWidth as integer, tag = "" as dynamic) as string
+        return imageAt(base(), itemId, "Backdrop", maxWidth, tag)
     end function
 
-    function art(itemId as string, maxWidth as integer) as string
-        return base() + "/Items/" + itemId + "/Images/Art?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
+    function art(itemId as string, maxWidth as integer, tag = "" as dynamic) as string
+        return imageAt(base(), itemId, "Art", maxWidth, tag)
+    end function
+
+    function thumb(itemId as string, maxWidth as integer, tag = "" as dynamic) as string
+        return imageAt(base(), itemId, "Thumb", maxWidth, tag)
+    end function
+
+    function banner(itemId as string, maxWidth as integer, tag = "" as dynamic) as string
+        return imageAt(base(), itemId, "Banner", maxWidth, tag)
+    end function
+
+    function logo(itemId as string, maxWidth as integer, tag = "" as dynamic) as string
+        return imageAt(base(), itemId, "Logo", maxWidth, tag)
+    end function
+
+    function imageAt(serverUrl as string, itemId as string, imageType as string, maxWidth as integer, tag = "" as dynamic) as string
+        return withTag(serverUrl + "/Items/" + itemId + "/Images/" + imageType + "?maxWidth=" + maxWidth.ToStr() + "&quality=90", tag)
+    end function
+
+    ' Appends &tag= to a url that already has a query; anything but a
+    ' non-empty string leaves the url as it was.
+    function withTag(url as string, tag as dynamic) as string
+        if not isText(tag) then return url
+        if tag = "" then return url
+        return url + "&tag=" + tag
+    end function
+
+    ' ---- Tags, read off a BaseItemDto. "" when the item has none. ----
+
+    ' The item's own image of a type (ImageTags.Primary / Logo / Thumb ...).
+    function tagOf(item as dynamic, imageType as string) as string
+        if type(item) <> "roAssociativeArray" then return ""
+        tags = item.ImageTags
+        if type(tags) <> "roAssociativeArray" then return ""
+        t = tags[imageType]
+        if isText(t) then return t
+        return ""
+    end function
+
+    function primaryTag(item as dynamic) as string
+        return tagOf(item, "Primary")
+    end function
+
+    ' The item's own first backdrop (the one /Images/Backdrop serves).
+    function backdropTag(item as dynamic) as string
+        if type(item) <> "roAssociativeArray" then return ""
+        return firstTag(item.BackdropImageTags)
+    end function
+
+    ' The backdrop of ParentBackdropItemId (an episode's series, usually).
+    function parentBackdropTag(item as dynamic) as string
+        if type(item) <> "roAssociativeArray" then return ""
+        return firstTag(item.ParentBackdropImageTags)
+    end function
+
+    ' An episode's or season's series poster (for item.SeriesId).
+    function seriesPrimaryTag(item as dynamic) as string
+        if type(item) <> "roAssociativeArray" then return ""
+        if isText(item.SeriesPrimaryImageTag) then return item.SeriesPrimaryImageTag
+        return ""
+    end function
+
+    ' The logo of ParentLogoItemId (an episode's series).
+    function parentLogoTag(item as dynamic) as string
+        if type(item) <> "roAssociativeArray" then return ""
+        if isText(item.ParentLogoImageTag) then return item.ParentLogoImageTag
+        return ""
+    end function
+
+    ' The tag for image imageType of item id, where id is the item itself or
+    ' one of the parents the item names a tag for (series backdrop / thumb /
+    ' logo / poster). Any other id is unknown here: "" (an untagged url).
+    function tagFor(item as dynamic, id as dynamic, imageType as string) as string
+        if type(item) <> "roAssociativeArray" or not isText(id) or id = "" then return ""
+        if isText(item.Id) and id = item.Id
+            if imageType = "Backdrop" then return backdropTag(item)
+            return tagOf(item, imageType)
+        end if
+        if imageType = "Backdrop" and isText(item.ParentBackdropItemId) and id = item.ParentBackdropItemId then return parentBackdropTag(item)
+        if imageType = "Thumb" and isText(item.ParentThumbItemId) and id = item.ParentThumbItemId and isText(item.ParentThumbImageTag) then return item.ParentThumbImageTag
+        if imageType = "Logo" and isText(item.ParentLogoItemId) and id = item.ParentLogoItemId then return parentLogoTag(item)
+        if imageType = "Primary" and isText(item.SeriesId) and id = item.SeriesId then return seriesPrimaryTag(item)
+        return ""
+    end function
+
+    function firstTag(tags as dynamic) as string
+        if type(tags) <> "roArray" then return ""
+        if tags.count() = 0 then return ""
+        if isText(tags[0]) then return tags[0]
+        return ""
+    end function
+
+    function isText(v as dynamic) as boolean
+        t = type(v)
+        return t = "String" or t = "roString"
     end function
 
     ' A channel's logo (Channels plugin 0.8.0+). Anonymous like item images;
@@ -34,10 +139,6 @@ namespace ImageUrl
         url = base() + "/VirtualChannels/" + channelId + "/Logo?key=" + key
         if mono then url += "&style=mono"
         return url
-    end function
-
-    function thumb(itemId as string, maxWidth as integer) as string
-        return base() + "/Items/" + itemId + "/Images/Thumb?maxWidth=" + str(maxWidth).Trim() + "&quality=90"
     end function
 
 end namespace

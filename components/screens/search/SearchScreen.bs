@@ -199,9 +199,9 @@ sub onSearchResults(response as object)
         if item.Id <> invalid then itemId = item.Id
         if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
             if isYT
-                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+                child.HDPosterUrl = ImageUrl.primary(itemId, 400, ImageUrl.primaryTag(item))
             else
-                child.HDPosterUrl = ImageUrl.primary(itemId, 210)
+                child.HDPosterUrl = ImageUrl.primary(itemId, 210, ImageUrl.primaryTag(item))
             end if
         end if
 
