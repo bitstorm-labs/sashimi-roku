@@ -21,10 +21,18 @@ namespace HeroTrailer
     const START_DELAY = 2.0
     const CROSS_FADE = 0.6
     ' Trailarr's files are MKV/VP9/Opus, which no Roku plays directly, so the
-    ' server always transcodes. Low-power Rokus (the 9100X soundbar) choke on
-    ' a high-bitrate start, and a 864px-wide hero gains nothing above 720p.
-    const MAX_BITRATE = 4000000
-    const MAX_WIDTH = 1280
+    ' server always transcodes, and re-encodes (allowVideoStreamCopy false).
+    ' The hero now fills ~55% of the screen (1056px) and most local trailers
+    ' are 1080p, so 720p/4 Mbps looked soft; a re-encoded 1080p H.264 stream
+    ' at 8 Mbps starts promptly on the 9100X soundbar (what choked it was a
+    ' ~15 Mbps stream COPY). Apple: sashimi-apple#680.
+    const MAX_BITRATE = 8000000
+    const MAX_WIDTH = 1920
+
+    ' The transcode caps the hero asks for, as one value the tests can pin.
+    function streamCaps() as object
+        return { maxBitrate: MAX_BITRATE, maxWidth: MAX_WIDTH }
+    end function
 
     ' The item whose local trailer plays in this screen's hero, or "" when the
     ' screen never plays one. Seasons and episodes use their series' trailer:

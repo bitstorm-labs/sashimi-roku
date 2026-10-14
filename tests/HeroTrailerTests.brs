@@ -16,6 +16,7 @@ sub main()
     testDismissed(t)
     testSourceChanged(t)
     testPendingStartHandsOff(t)
+    testStreamCaps(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -246,4 +247,13 @@ sub testPendingStartHandsOff(t as object)
     HeroTrailer_dismissed(s, "series", "")
     d = HeroTrailer_appeared(s, "series", "s1", "")
     eq(t, "a new visit starts afresh", d.kind, "start")
+end sub
+
+' The hero fills ~55% of a 1080p screen and most local trailers are 1080p, so
+' it asks for a 1920-wide, 8 Mbps transcode (it was 1280 / 4 Mbps when the
+' hero was a small corner, and looked soft once it grew).
+sub testStreamCaps(t as object)
+    c = HeroTrailer_streamCaps()
+    eq(t, "trailer width cap", c.maxWidth, 1920)
+    eq(t, "trailer bitrate cap", c.maxBitrate, 8000000)
 end sub
