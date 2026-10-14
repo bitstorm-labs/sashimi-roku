@@ -88,9 +88,8 @@ sub init()
     m.heroFadeInterp = m.top.findNode("heroFadeInterp")
     m.heroFade.duration = HeroTrailer.CROSS_FADE
     m.trailerVideo = invalid
-    m.backdropRegionW = 864
-    m.backdropRegionH = 580
-    m.backdropRight = 1920 - 140
+    m.backdropRegionW = 1056
+    m.backdropRegionH = 648
 
     m.top.observeField("focusedChild", "onFocusDelegate")
     ' The administrator flag arrives after launch (MainScene asks the server
@@ -743,11 +742,12 @@ sub applyOverviewLines(overviewY as integer)
     end if
 end sub
 
-' Fit the feather mask to the image's real rendered rect. scaleToFit CENTERS
-' the decoded image inside the poster's region, so a fixed-size mask feathers
-' the region's edges, not the image's — leaving hard top/bottom lines on 16:9
-' art (same bug class as the hero fixes). The decoded bitmap preserves aspect,
-' so refit poster + mask to the aspect-correct size, anchored top-right (tvOS).
+' Fit the fade mask to the image's real rendered rect. scaleToFit CENTERS
+' the decoded image inside the poster's region, so a fixed-size mask fades
+' the region's edges, not the image's — leaving hard lines on art whose aspect
+' differs from the region (same bug class as the hero fixes). The decoded
+' bitmap preserves aspect, so refit poster + mask to the aspect-correct size,
+' flush against the top-right screen corner (home hero / tvOS parity).
 sub onBackdropStatus()
     if m.backdropImage.loadStatus <> "ready" then return
     bw = m.backdropImage.bitmapWidth
@@ -765,23 +765,21 @@ sub onBackdropStatus()
     m.backdropImage.width = fw
     m.backdropImage.height = fh
     m.backdropMask.maskSize = [fw, fh]
-    m.backdropMask.translation = [m.backdropRight - fw, 60]
+    m.backdropMask.translation = [1920 - fw, 0]
     layoutTrailer()
 end sub
 
 sub setBackdrop(item as object)
-    frac = 0.45
-    if m.itemType = "Series"
-        frac = 0.55
-        if m.isYouTube then frac = 0.65
-    end if
-    ' Region the image fits INTO (tvOS width fractions, right margin 140).
-    ' onBackdropStatus shrinks poster + feather mask to the fitted image and
-    ' re-anchors top-right once the decoded size is known.
+    ' Region the image fits INTO: the Apple app's widths (55% of the screen,
+    ' 60% for a YouTube channel's wide banner), flush top-right like the home
+    ' hero. 648 = a 16:9 picture at 60%, so 16:9 art always gets the full
+    ' width; anything taller is held above the rows. onBackdropStatus shrinks
+    ' poster + mask to the fitted image once the decoded size is known.
+    frac = 0.55
+    if m.isYouTube and m.itemType = "Series" then frac = 0.60
     m.backdropRegionW = Int(1920 * frac)
-    m.backdropRegionH = 580
-    m.backdropRight = 1920 - 140
-    m.backdropMask.translation = [m.backdropRight - m.backdropRegionW, 60]
+    m.backdropRegionH = 648
+    m.backdropMask.translation = [1920 - m.backdropRegionW, 0]
     m.backdropMask.maskSize = [m.backdropRegionW, m.backdropRegionH]
     m.backdropImage.width = m.backdropRegionW
     m.backdropImage.height = m.backdropRegionH
@@ -861,12 +859,12 @@ sub layoutTrailer()
             w = Int(h * 16 / 9)
         end if
     end if
-    x = m.backdropRight - w
-    m.trailerFeather.translation = [x, 60]
+    x = 1920 - w
+    m.trailerFeather.translation = [x, 0]
     m.trailerFeather.width = w
     m.trailerFeather.height = h
     if m.trailerVideo = invalid then return
-    m.trailerVideo.translation = [x, 60]
+    m.trailerVideo.translation = [x, 0]
     m.trailerVideo.width = w
     m.trailerVideo.height = h
 end sub
