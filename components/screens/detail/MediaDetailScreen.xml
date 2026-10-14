@@ -37,25 +37,27 @@
 
         <!-- Hero trailer (HeroTrailerPlayer). The Video node sits UNDER the
              backdrop so the image cross-fades over it, and the image coming
-             back is just its opacity returning to 1. The Video draws with hard
-             edges, so trailerFeather -- the backdrop feather inverted and
-             painted in the page gradient's colours row by row, since a flat
-             colour can't feather against a gradient -- melts them into the
-             page the way the mask melts the image's. -->
+             back is just its opacity returning to 1. A MaskGroup can't mask a
+             Video, so trailerFeather -- the backdrop mask inverted and painted
+             in the page gradient's colours row by row, since a flat colour
+             can't feather against a gradient -- fades its left and bottom
+             edges into the page exactly as the mask fades the image's
+             (scripts/make-detail-fades.sh builds both). -->
         <Group id="trailerSlot" />
         <Poster id="trailerFeather" uri="pkg:/images/trailer_feather.png"
-                width="864" height="580" translation="[916, 60]" visible="false" />
+                width="1056" height="594" translation="[864, 0]" visible="false" />
 
-        <!-- Backdrop: top-right, fitted, feathered on ALL edges (tvOS parity —
-             MediaDetailView masks the image with stacked gradients so every
-             edge melts into the background). The feather mask + group are
-             resized in onBackdropStatus to hug the FITTED image: scaleToFit
-             centers the image inside this region, so fade strips anchored at
-             the region's edges missed the image's real edges (hard top/bottom
-             lines) — the same class of bug as the hero fixes. -->
+        <!-- Backdrop / episode thumbnail, laid out like the home hero
+             (HeroBanner) and the Apple MediaDetailView: ~half the screen wide,
+             flush against the top and right screen edges, fading only on its
+             LEFT edge (into the title text) and BOTTOM edge (into the rows).
+             The mask + poster are resized in onBackdropStatus to hug the
+             FITTED image: scaleToFit centers the image inside its region, so a
+             mask sized to the region would fade the region's edges, not the
+             image's -- the hero seam bug. -->
         <MaskGroup id="backdropMask" maskUri="pkg:/images/backdrop_feather.png"
-                   maskSize="[864, 580]" translation="[916, 60]">
-            <Poster id="backdropImage" width="864" height="580" loadWidth="1728" loadHeight="1160"
+                   maskSize="[1056, 594]" translation="[864, 0]">
+            <Poster id="backdropImage" width="1056" height="594" loadWidth="1280" loadHeight="720"
                     loadDisplayMode="scaleToFit" />
         </MaskGroup>
 

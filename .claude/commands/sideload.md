@@ -23,7 +23,7 @@ just shows "Loading your library...":
 
 ```bash
 sleep 11
-curl -s --digest -u "rokudev:$PW" -F mysubmit=Screenshot -F archive= -F passwd= \
+curl -s --digest -u "rokudev:$PW" -F mysubmit=Screenshot -F archive= -F passwd="$PW" \
      "http://$DEVICE/plugin_inspect" >/dev/null
 curl -s --digest -u "rokudev:$PW" "http://$DEVICE/pkgs/dev.jpg" -o /tmp/roku_shot.jpg
 ```
