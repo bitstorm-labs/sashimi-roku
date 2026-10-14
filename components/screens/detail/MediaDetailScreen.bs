@@ -804,13 +804,13 @@ sub setBackdrop(item as object)
     itemId = item.Id
     uri = ""
     if m.itemType = "Episode"
-        uri = ImageUrl.primary(itemId, 1280)              ' episode thumbnail (own id)
+        uri = ImageUrl.primary(itemId, 1280, ImageUrl.primaryTag(item))   ' episode thumbnail (own id)
     else if m.isYouTube and m.itemType = "Series"
-        uri = ImageUrl.base() + "/Items/" + itemId + "/Images/Banner?maxWidth=1280&quality=90"
+        uri = ImageUrl.banner(itemId, 1280, ImageUrl.tagOf(item, "Banner"))
     else if item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
-        uri = ImageUrl.backdrop(itemId, 1280)
+        uri = ImageUrl.backdrop(itemId, 1280, ImageUrl.backdropTag(item))
     else if item.ParentBackdropItemId <> invalid
-        uri = ImageUrl.backdrop(item.ParentBackdropItemId, 1280)
+        uri = ImageUrl.backdrop(item.ParentBackdropItemId, 1280, ImageUrl.parentBackdropTag(item))
     end if
     m.backdropImage.uri = uri
     layoutTrailer()
@@ -958,16 +958,18 @@ sub setHeader(item as object)
 
     if m.itemType = "Movie"
         m.moviePosterMask.visible = true
-        m.moviePoster.uri = ImageUrl.primary(item.Id, 400)
+        m.moviePoster.uri = ImageUrl.primary(item.Id, 400, ImageUrl.primaryTag(item))
     else if m.isYouTube
         m.channelMask.visible = true
         channelId = item.Id
+        channelTag = ImageUrl.primaryTag(item)
         if item.SeriesId <> invalid
             ' YouTube episode: avatar = the channel (series) art, and show the
             ' channel name beside it (tvOS parity — the episode/video title
             ' stays in titleLabel below). Channel-page items keep their name in
             ' titleLabel, so only episodes need the extra label.
             channelId = item.SeriesId
+            channelTag = ImageUrl.seriesPrimaryTag(item)
             cname = ""
             if item.SeriesName <> invalid then cname = YT.cleanTitle(item.SeriesName)
             if cname <> ""
@@ -975,10 +977,10 @@ sub setHeader(item as object)
                 m.channelLabel.visible = true
             end if
         end if
-        m.channelImage.uri = ImageUrl.primary(channelId, 240)
+        m.channelImage.uri = ImageUrl.primary(channelId, 240, channelTag)
     else if m.itemType = "Series"
         ' Series swap the title text for the logo (onLogoStatus hides title).
-        m.logoImage.uri = ImageUrl.base() + "/Items/" + item.Id + "/Images/Logo?maxWidth=1240&quality=90"
+        m.logoImage.uri = ImageUrl.logo(item.Id, 1240, ImageUrl.tagOf(item, "Logo"))
         m.logoImage.visible = true
         ' An episode's "Series" button reloads THIS screen as the series, and
         ' the episode header already showed the series logo from this exact
@@ -991,7 +993,11 @@ sub setHeader(item as object)
     else if m.itemType = "Episode" and item.SeriesId <> invalid
         ' Episodes show the series logo ABOVE the title (tvOS parity) — the
         ' title stays visible because onLogoStatus only hides it for Series.
-        m.logoImage.uri = ImageUrl.base() + "/Items/" + item.SeriesId + "/Images/Logo?maxWidth=1240&quality=90"
+        ' Same tag as the series' own ImageTags.Logo, so the url matches the
+        ' series screen's exactly (the "Series" button relies on that, #161).
+        logoTag = ""
+        if item.ParentLogoItemId = item.SeriesId then logoTag = ImageUrl.parentLogoTag(item)
+        m.logoImage.uri = ImageUrl.logo(item.SeriesId, 1240, logoTag)
         m.logoImage.visible = true
     end if
 end sub
@@ -1487,9 +1493,9 @@ sub onEpisodesLoaded(response as object)
         end if
         child.description = sub_
         if ep.Id <> invalid and ep.ImageTags <> invalid and ep.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primary(ep.Id, 480)
+            child.HDPosterUrl = ImageUrl.primary(ep.Id, 480, ImageUrl.primaryTag(ep))
         else if ep.SeriesId <> invalid
-            child.HDPosterUrl = ImageUrl.primary(ep.SeriesId, 480)
+            child.HDPosterUrl = ImageUrl.primary(ep.SeriesId, 480, ImageUrl.seriesPrimaryTag(ep))
         end if
         ' Carry the YouTube flag into each episode so opening one from a
         ' channel's detail keeps the channel avatar + name header (the fetched
@@ -1557,7 +1563,7 @@ sub buildCastRow(item as object)
             end if
             child.description = desc
             if pid <> "" and person.PrimaryImageTag <> invalid
-                child.HDPosterUrl = ImageUrl.primary(pid, 200)
+                child.HDPosterUrl = ImageUrl.primary(pid, 200, person.PrimaryImageTag)
             end if
             if pid <> "" then child.personJson = FormatJSON(person)
         end if

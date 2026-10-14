@@ -792,14 +792,14 @@ function channelCardArtwork(item as object) as string
     itemId = ""
     if item.Id <> invalid then itemId = item.Id
     hasSeriesBackdrop = (item.ParentBackdropItemId <> invalid) and (item.ParentBackdropImageTags <> invalid)
-    if hasSeriesBackdrop then return ImageUrl.backdrop(item.ParentBackdropItemId, 880)
+    if hasSeriesBackdrop then return ImageUrl.backdrop(item.ParentBackdropItemId, 880, ImageUrl.parentBackdropTag(item))
     if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
-        return ImageUrl.backdrop(itemId, 880)
+        return ImageUrl.backdrop(itemId, 880, ImageUrl.backdropTag(item))
     end if
     if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-        return ImageUrl.primary(itemId, 880)
+        return ImageUrl.primary(itemId, 880, ImageUrl.primaryTag(item))
     end if
-    if item.SeriesId <> invalid and item.SeriesId <> "" then return ImageUrl.primary(item.SeriesId, 880)
+    if item.SeriesId <> invalid and item.SeriesId <> "" then return ImageUrl.primary(item.SeriesId, 880, ImageUrl.seriesPrimaryTag(item))
     return ""
 end function
 
@@ -838,7 +838,7 @@ sub addContinueWatchingRow(items as object)
         if isYouTubeItem
             ' YouTube: use episode primary image (thumbnail)
             if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-                child.HDPosterUrl = ImageUrl.primary(itemId, 880)
+                child.HDPosterUrl = ImageUrl.primary(itemId, 880, ImageUrl.primaryTag(item))
             end if
             ' Title: channel name; subtitle: "{date} - {video title}" (tvOS)
             channelName = ""
@@ -873,11 +873,11 @@ sub addContinueWatchingRow(items as object)
             ' YouTube channels), leaving the card blank.
             hasSeriesBackdrop = (item.ParentBackdropItemId <> invalid) and (item.ParentBackdropImageTags <> invalid)
             if hasSeriesBackdrop
-                child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 880)
+                child.HDPosterUrl = ImageUrl.backdrop(item.ParentBackdropItemId, 880, ImageUrl.parentBackdropTag(item))
             else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-                child.HDPosterUrl = ImageUrl.primary(itemId, 880)
+                child.HDPosterUrl = ImageUrl.primary(itemId, 880, ImageUrl.primaryTag(item))
             else if item.SeriesId <> invalid and item.SeriesId <> ""
-                child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 880)
+                child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 880, ImageUrl.seriesPrimaryTag(item))
             end if
 
             ' Subtitle: "S1:E5 - Episode Name"
@@ -901,9 +901,9 @@ sub addContinueWatchingRow(items as object)
 
             ' Use item backdrop
             if itemId <> "" and item.BackdropImageTags <> invalid and item.BackdropImageTags.count() > 0
-                child.HDPosterUrl = ImageUrl.backdrop(itemId, 880)
+                child.HDPosterUrl = ImageUrl.backdrop(itemId, 880, ImageUrl.backdropTag(item))
             else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-                child.HDPosterUrl = ImageUrl.primary(itemId, 880)
+                child.HDPosterUrl = ImageUrl.primary(itemId, 880, ImageUrl.primaryTag(item))
             end if
 
             ' Subtitle: year
@@ -993,7 +993,7 @@ sub addRow(title as string, items as object, isYouTube = false as boolean, badge
             child.addFields({ isCircular: false })
             child.isCircular = true
             if item.SeriesId <> invalid and item.SeriesId <> ""
-                child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 400)
+                child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 400, ImageUrl.seriesPrimaryTag(item))
                 if item.SeriesName <> invalid
                     ' Clean YouTube channel names: strip " - Videos", " - Shorts", etc.
                     channelName = item.SeriesName
@@ -1004,13 +1004,13 @@ sub addRow(title as string, items as object, isYouTube = false as boolean, badge
                     child.title = channelName
                 end if
             else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-                child.HDPosterUrl = ImageUrl.primary(itemId, 400)
+                child.HDPosterUrl = ImageUrl.primary(itemId, 400, ImageUrl.primaryTag(item))
             end if
         else if item.SeriesId <> invalid and item.SeriesId <> ""
             ' TV show episode: always use series poster
-            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 440)
+            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 440, ImageUrl.seriesPrimaryTag(item))
         else if itemId <> "" and item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primary(itemId, 440)
+            child.HDPosterUrl = ImageUrl.primary(itemId, 440, ImageUrl.primaryTag(item))
         end if
 
         ' Store item data (+ forceYouTubeStyle flag for the detail screen)
@@ -1126,7 +1126,7 @@ function heroImageCandidates(item as object) as object
             ' The item's own tags are authoritative, so a guaranteed 404 never
             ' gets queued. A parent id carries no tags here and has to be probed.
             if id = itemId and not heroHasImage(item, t) then continue for
-            uris.push(heroImageUrl(id, t))
+            uris.push(heroImageUrl(id, t, ImageUrl.tagFor(item, id, t)))
         end for
     end for
     return uris
@@ -1144,11 +1144,11 @@ function heroHasImage(item as object, imageType as string) as boolean
     return item.ImageTags.DoesExist(imageType)
 end function
 
-function heroImageUrl(itemId as string, imageType as string) as string
-    if imageType = "Primary" then return ImageUrl.primary(itemId, 1280)
-    if imageType = "Art" then return ImageUrl.art(itemId, 1280)
-    if imageType = "Thumb" then return ImageUrl.thumb(itemId, 1280)
-    return ImageUrl.backdrop(itemId, 1280)
+function heroImageUrl(itemId as string, imageType as string, tag = "" as string) as string
+    if imageType = "Primary" then return ImageUrl.primary(itemId, 1280, tag)
+    if imageType = "Art" then return ImageUrl.art(itemId, 1280, tag)
+    if imageType = "Thumb" then return ImageUrl.thumb(itemId, 1280, tag)
+    return ImageUrl.backdrop(itemId, 1280, tag)
 end function
 
 ' Append an id if it is usable and not already queued — ParentBackdropItemId is

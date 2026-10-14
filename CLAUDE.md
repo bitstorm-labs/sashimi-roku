@@ -25,7 +25,9 @@ trailer a screen plays, the 10-40 s clip rule, once-per-visit ownership)
 and `source/utils/ShowStatus.bs` (the show-status pill on series, season
 and episode screens: the series' `Status` to Continuing / Ended / Upcoming,
 nothing otherwise) and `source/utils/SeriesMeta.bs` (the series meta line,
-"1 Season" vs "7 Seasons").
+"1 Season" vs "7 Seasons") and `source/utils/ImageUrl.bs` (image urls
+carry Jellyfin's `&tag=`, read off the right ImageTags / Parent*ImageTag
+field, so a replaced image gets a new url instead of a cached stale copy).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that
