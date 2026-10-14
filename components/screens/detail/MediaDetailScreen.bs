@@ -7,6 +7,7 @@ import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/HeroTrailer.bs"
 import "pkg:/source/utils/ShowStatus.bs"
 import "pkg:/source/utils/SeriesMeta.bs"
+import "pkg:/source/utils/RowWindow.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -62,6 +63,10 @@ sub init()
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
     m.rowList.observeFieldScoped("rowItemSelected", "onRowItemSelected")
+    m.rowList.observeFieldScoped("rowItemFocused", "onRowItemFocused")
+    ' Leftmost visible card per episode row (RowWindow), keyed by row index.
+    m.rowStart = {}
+    m.lastFocusRow = -1
     m.detailButtons.observeFieldScoped("activatedKind", "onButtonActivated")
     m.detailButtons.observeFieldScoped("goDown", "onButtonsGoDown")
     m.logoImage.observeFieldScoped("loadStatus", "onLogoStatus")
@@ -1641,7 +1646,51 @@ sub resetRowFocus()
         if target >= count then target = count - 1
         if target < 0 then target = 0
         m.rowList.jumpToRowItem = [i, target]
+        if i < m.rowKinds.count() and m.rowKinds[i] = "episode"
+            ' The jump scrolls the current card into view; then park the row's
+            ' focus on the leftmost visible card (no scroll: it is on screen),
+            ' so entering the row lands there and the current card keeps only
+            ' its passive "current" ring.
+            start = RowWindow.follow(0, target, episodeRowVisible())
+            m.rowStart[i.ToStr()] = start
+            m.rowList.jumpToRowItem = [i, RowWindow.entry(start, count)]
+        end if
     end for
+    m.lastFocusRow = -1
+end sub
+
+' Whole episode cards across the row: RowList itemSize width 1800, cards 240
+' wide and 30 apart (commitRows).
+function episodeRowVisible() as integer
+    return RowWindow.visibleCount(1800, 240, 30)
+end function
+
+' Follow the focus to keep each episode row's leftmost visible card, and send
+' focus that ENTERS an episode row from another row (Seasons -> Episodes,
+' Cast -> More Episodes) to that card rather than the row's remembered item.
+sub onRowItemFocused()
+    f = m.rowList.rowItemFocused
+    if f = invalid or f.count() < 2 then return
+    row = f[0]
+    idx = f[1]
+    if row < 0 or row >= m.rowKinds.count() or m.rowKinds[row] <> "episode"
+        m.lastFocusRow = row
+        return
+    end if
+    key = row.ToStr()
+    start = 0
+    if m.rowStart.DoesExist(key) then start = m.rowStart[key]
+    entering = (m.lastFocusRow <> row) and m.rowList.isInFocusChain()
+    m.lastFocusRow = row
+    if entering
+        count = m.rowContent.getChild(row).getChildCount()
+        target = RowWindow.entry(start, count)
+        if idx <> target
+            m.rowList.jumpToRowItem = [row, target]
+            return
+        end if
+    end if
+    m.rowStart[key] = RowWindow.follow(start, idx, episodeRowVisible())
 end sub
 
 sub onRowItemSelected()
@@ -1685,6 +1734,13 @@ end sub
 sub focusZone(zone as string)
     m.zone = zone
     if zone = "rows" and m.rowList.visible
+        ' From the buttons, focus enters row 0. When that is an episode row
+        ' (episode and season screens), land on its leftmost visible card.
+        if m.rowKinds.count() > 0 and m.rowKinds[0] = "episode" and m.rowContent <> invalid and m.rowContent.getChildCount() > 0
+            start = 0
+            if m.rowStart.DoesExist("0") then start = m.rowStart["0"]
+            m.rowList.jumpToRowItem = [0, RowWindow.entry(start, m.rowContent.getChild(0).getChildCount())]
+        end if
         m.rowList.setFocus(true)
     else
         m.zone = "buttons"
