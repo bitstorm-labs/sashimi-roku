@@ -2,14 +2,14 @@
 ' the transpiled module (out/source/utils/ShowStatus.brs). The series detail
 ' screen draws a status pill from what ShowStatus_badge returns: a label and a
 ' colour for the three values Jellyfin sends, nothing for anything else, and
-' nothing at all off a Series.
+' nothing at all off a Series, Season or Episode.
 
 sub main()
     t = { passed: 0, failed: 0 }
 
     testKnownStatuses(t)
     testUnknownStatuses(t)
-    testSeriesOnly(t)
+    testTvOnly(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -61,8 +61,14 @@ sub testUnknownStatuses(t as object)
     isNone(t, "non-string", ShowStatus_badge("Series", 1))
 end sub
 
-sub testSeriesOnly(t as object)
-    for each kind in ["Season", "Episode", "Movie", "BoxSet", ""]
+sub testTvOnly(t as object)
+    ' Seasons and episodes show their series' status (the caller passes it).
+    isBadge(t, "Season shows its series' status", ShowStatus_badge("Season", "Ended"), "Ended", "#B8B6C4FF")
+    isBadge(t, "Episode shows its series' status", ShowStatus_badge("Episode", "Continuing"), "Continuing", "#3FBF7FFF")
+    isBadge(t, "Episode of an upcoming show", ShowStatus_badge("Episode", "Unreleased"), "Upcoming", "#5CADE6FF")
+    isNone(t, "Episode, series status unknown", ShowStatus_badge("Episode", invalid))
+    isNone(t, "Season, series status unknown", ShowStatus_badge("Season", ""))
+    for each kind in ["Movie", "BoxSet", "Video", ""]
         isNone(t, kind + " gets no badge", ShowStatus_badge(kind, "Continuing"))
     end for
     isNone(t, "no item type", ShowStatus_badge(invalid, "Continuing"))
