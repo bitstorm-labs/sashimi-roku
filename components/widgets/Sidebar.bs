@@ -200,7 +200,7 @@ sub buildItems()
         else
             item.iconLocal = "pkg:/images/lib_generic.png"
             item.iconSelected = "pkg:/images/lib_generic_selected.png"
-            if lib.Id <> invalid then item.iconUri = ImageUrl.primary(lib.Id, 120)
+            if lib.Id <> invalid then item.iconUri = ImageUrl.primary(lib.Id, 120, ImageUrl.primaryTag(lib))
         end if
         m.items.push(item)
     end for

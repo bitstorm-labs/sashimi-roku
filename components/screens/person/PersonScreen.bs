@@ -106,7 +106,7 @@ sub onPersonDataChanged()
     origin = m.serverById[m.originServerId]
     if m.personId <> "" and origin <> invalid and person.PrimaryImageTag <> invalid and person.PrimaryImageTag <> ""
         ' The id belongs to the origin server, so its portrait does too.
-        m.personImage.uri = ImageUrl.primaryAt(origin.url, m.personId, 320)
+        m.personImage.uri = ImageUrl.primaryAt(origin.url, m.personId, 320, person.PrimaryImageTag)
         m.personInitial.text = ""
     else
         m.personImage.uri = ""
@@ -331,7 +331,7 @@ sub buildGrid(groups as object)
         ' Artwork from the server the first source lives on. Ids are
         ' server-scoped, so any other server's URL would 404.
         if item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            child.HDPosterUrl = ImageUrl.primaryAt(m.serverById[src.serverId].url, item.Id, 210)
+            child.HDPosterUrl = ImageUrl.primaryAt(m.serverById[src.serverId].url, item.Id, 210, ImageUrl.primaryTag(item))
         end if
 
         pills = []
