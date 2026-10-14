@@ -1,0 +1,31 @@
+' The series detail screen's meta line ("2014 • 7 Seasons"). It is written
+' twice, once from the item's ChildCount and again once the season list loads,
+' and the second path used to say "1 Seasons". Pure functions only, so
+' tests/SeriesMetaTests.brs can run them off-device.
+namespace SeriesMeta
+
+    ' "1 Season", "7 Seasons"; nothing for zero or an unknown count.
+    function seasons(count as dynamic) as string
+        if count = invalid then return ""
+        t = type(count)
+        if t <> "Integer" and t <> "roInt" and t <> "roInteger" and t <> "LongInteger" and t <> "roLongInteger" then return ""
+        if count <= 0 then return ""
+        if count = 1 then return "1 Season"
+        return count.ToStr() + " Seasons"
+    end function
+
+    ' Year and season count joined the way the rest of the meta line is.
+    function line(year as dynamic, seasonCount as dynamic) as string
+        parts = []
+        if year <> invalid and (type(year) = "Integer" or type(year) = "roInt" or type(year) = "roInteger") then parts.push(year.ToStr())
+        s = seasons(seasonCount)
+        if s <> "" then parts.push(s)
+        out = ""
+        for i = 0 to parts.count() - 1
+            if i > 0 then out += " " + Chr(8226) + " "
+            out += parts[i]
+        end for
+        return out
+    end function
+
+end namespace

@@ -6,6 +6,7 @@ import "pkg:/source/utils/ChannelManagement.bs"
 import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/HeroTrailer.bs"
 import "pkg:/source/utils/ShowStatus.bs"
+import "pkg:/source/utils/SeriesMeta.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -16,6 +17,9 @@ import "pkg:/source/utils/ShowStatus.bs"
 '    fight this; a single multi-row list is the working pattern.)
 
 sub init()
+    m.statusPill = invalid
+    m.badgesEndX = 0
+    m.seriesStatus = invalid
     m.backdropImage = m.top.findNode("backdropImage")
     m.backdropMask = m.top.findNode("backdropMask")
     ' Snap the feather mask to the fitted image once its decoded size is known.
@@ -401,6 +405,12 @@ sub onItemLoaded(response as object)
     while m.badgesGroup.getChildCount() > 0
         m.badgesGroup.removeChildIndex(0)
     end while
+    m.badgesEndX = 0
+    m.statusPill = invalid
+    ' The status pill shows the SERIES' status: a series has it on the item;
+    ' a season or episode gets it when the seriesMeta fetch lands.
+    m.seriesStatus = invalid
+    if m.itemType = "Series" then m.seriesStatus = item.Status
 
     setBackdrop(item)
     setHeader(item)
@@ -415,7 +425,7 @@ sub onItemLoaded(response as object)
         m.tomatoScore.visible = false
         m.badgesGroup.translation = m.ratingsGroup.translation
     end if
-    buildStatusBadge(item)
+    renderStatusPill()
     buildTags(item)
 
     overview = ""
@@ -440,6 +450,8 @@ sub onItemLoaded(response as object)
         ' itself "Play S1:E1" / "Resume S1:E2" like the other clients.
         enqueue({ action: "getNextUp", seriesId: item.Id, limit: 1, context: "playTargetNextUp" })
     else if m.itemType = "Season"
+        ' The series' status for the pill (seasons have none of their own).
+        if item.SeriesId <> invalid and item.SeriesId <> "" and not m.isYouTube then enqueue({ action: "getItem", itemId: item.SeriesId, context: "seriesMeta" })
         enqueue({ action: "getItems", parentId: item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, context: "playTargetUnwatched" })
         ' Cert 5.2 allows mediaType=season to show a springboard instead of
         ' playing, but only one "highlighting the season's episodes" — and this
@@ -907,14 +919,8 @@ sub setHeader(item as object)
             m.endsAtText = "Ends at " + TimeFormat.clock(eh, em)
         end if
     else if m.itemType = "Series"
-        if item.ProductionYear <> invalid then meta.push(str(item.ProductionYear).Trim())
-        if item.ChildCount <> invalid and item.ChildCount > 0
-            if item.ChildCount = 1
-                meta.push("1 Season")
-            else
-                meta.push(str(item.ChildCount).Trim() + " Seasons")
-            end if
-        end if
+        line = SeriesMeta.line(item.ProductionYear, item.ChildCount)
+        if line <> "" then meta.push(line)
     else
         ' Movies: release year + runtime + Ends at (cert/genres live in the tags row)
         if item.ProductionYear <> invalid then meta.push(str(item.ProductionYear).Trim())
@@ -1044,13 +1050,17 @@ sub setRatings(item as object)
     m.badgesGroup.translation = [rt[0] + endX, rt[1]]
 end sub
 
-' Episodes rarely carry their own ratings — fall back to the series (tvOS).
+' The parent series of a season or episode: its status drives the pill, and
+' episodes, which rarely carry their own ratings, borrow its (tvOS).
 sub onSeriesMetaLoaded(response as object)
     if not response.success then return
     series = response.item
     if series = invalid then return
-    if m.item.CommunityRating = invalid and m.item.CriticRating = invalid then setRatings(series)
-    ' The donated rating may have made the ratings row appear — restack.
+    if m.itemType = "Episode" and m.item.CommunityRating = invalid and m.item.CriticRating = invalid then setRatings(series)
+    m.seriesStatus = series.Status
+    renderStatusPill()
+    ' The donated rating or the pill may have made the ratings row appear —
+    ' restack.
     reflowHeader()
 end sub
 
@@ -1067,24 +1077,34 @@ sub onPlaybackInfoLoaded(response as object)
             buildCastRow(m.item)
             commitRows()
         end if
-        ' YouTube: the "series" is a Pinchflat channel — its metadata must not
-        ' donate TMDB/critic scores to individual videos.
-        needSeriesMeta = (m.item.CommunityRating = invalid) and (m.item.CriticRating = invalid) and (m.item.SeriesId <> invalid) and (not m.isYouTube)
-        if needSeriesMeta then enqueue({ action: "getItem", itemId: m.item.SeriesId, context: "seriesMeta" })
+        ' The series supplies the status pill and any missing ratings. YouTube:
+        ' the "series" is a Pinchflat channel, which has no status and whose
+        ' metadata must not donate TMDB/critic scores to individual videos.
+        ' Fetched after playback info so the pill lands after the media chips
+        ' (renderStatusPill re-appends it if buildBadges runs again anyway).
+        if m.item.SeriesId <> invalid and not m.isYouTube then enqueue({ action: "getItem", itemId: m.item.SeriesId, context: "seriesMeta" })
     end if
 end sub
 
-' Series status pill (Continuing / Ended / Upcoming), at the end of the
-' ratings row where movies and episodes carry their media chips. Series never
-' request playback info, so buildBadges never clears the group under it.
-' Same 24px line as those chips: a capsule tinted with the status colour, a
+' Show-status pill (Continuing / Ended / Upcoming) at the end of the ratings
+' row, after any media chips: the series' own status on a series, the parent
+' series' on a season or episode (m.seriesStatus). buildBadges clears the
+' group when an episode's chips arrive, so it calls this again; the pill is
+' tracked so a repeat call replaces it rather than drawing a second one.
+' Same 24px line as the chips: a capsule tinted with the status colour, a
 ' dot, then the word in that colour.
-sub buildStatusBadge(item as object)
-    b = ShowStatus.badge(m.itemType, item.Status)
+sub renderStatusPill()
+    if m.statusPill <> invalid
+        m.badgesGroup.removeChild(m.statusPill)
+        m.statusPill = invalid
+    end if
+    b = ShowStatus.badge(m.itemType, m.seriesStatus)
     if b = invalid then return
     ' Parent the pill before measuring its label, and add the tint first so it
     ' draws underneath the dot and the word.
     pill = m.badgesGroup.createChild("Group")
+    pill.translation = [m.badgesEndX, 0]
+    m.statusPill = pill
     bg = pill.createChild("Poster")
     bg.uri = "pkg:/images/pill64.9.png"
     bg.height = 24
@@ -1236,7 +1256,11 @@ sub buildBadges(src as object)
         logo.loadDisplayMode = "scaleToFit"
         logo.translation = [x, 0]
         m.badgesGroup.appendChild(logo)
+        x += lw + 14
     end if
+    m.badgesEndX = x
+    m.statusPill = invalid
+    renderStatusPill()
 end sub
 
 function formatCodec(codec as string) as string
@@ -1403,13 +1427,7 @@ sub onSeasonsLoaded(response as object)
     if not response.success then return
     m.seasons = response.items
 
-    meta = ""
-    if m.item.ProductionYear <> invalid then meta = str(m.item.ProductionYear).Trim()
-    if m.seasons.count() > 0
-        if meta <> "" then meta += " " + Chr(8226) + " "
-        meta += str(m.seasons.count()).Trim() + " Seasons"
-    end if
-    m.metaLabel.text = meta
+    m.metaLabel.text = SeriesMeta.line(m.item.ProductionYear, m.seasons.count())
 
     if m.seasons.count() > 0
         m.selectedSeasonIndex = 0

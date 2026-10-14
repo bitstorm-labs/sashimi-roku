@@ -1,6 +1,7 @@
-' The series detail screen's status pill: Jellyfin's BaseItemDto.Status for a
+' The detail screen's show-status pill: Jellyfin's BaseItemDto.Status for a
 ' Series ("Continuing", "Ended", "Unreleased") mapped to the label and colours
-' the pill is drawn with. Pure functions only, so tests/ShowStatusTests.brs can
+' the pill is drawn with. Season and episode screens show their series'
+' status, so the caller passes the SERIES' Status for those. Pure functions only, so tests/ShowStatusTests.brs can
 ' run them off-device; MediaDetailScreen draws the pill.
 '
 ' Colours are SceneGraph #RRGGBBAA (alpha LAST). The pill background is the
@@ -10,11 +11,12 @@ namespace ShowStatus
 
     const TINT_OPACITY = 0.14
 
-    ' Seasons, episodes and movies carry no show status of their own, and an
-    ' unknown or missing value draws nothing rather than guessing.
+    ' Series, Season and Episode screens get a pill (the latter two from their
+    ' series' status); movies and anything else never do, and an unknown or
+    ' missing value draws nothing rather than guessing.
     function badge(itemType as dynamic, status as dynamic) as dynamic
         if type(itemType) <> "String" and type(itemType) <> "roString" then return invalid
-        if itemType <> "Series" then return invalid
+        if itemType <> "Series" and itemType <> "Season" and itemType <> "Episode" then return invalid
         if type(status) <> "String" and type(status) <> "roString" then return invalid
         s = LCase(status.Trim())
         if s = "continuing" then return { label: "Continuing", color: "#3FBF7FFF" }
