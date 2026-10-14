@@ -5,6 +5,7 @@ import "pkg:/source/utils/Filmography.bs"
 import "pkg:/source/utils/ChannelManagement.bs"
 import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/HeroTrailer.bs"
+import "pkg:/source/utils/ShowStatus.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -414,6 +415,7 @@ sub onItemLoaded(response as object)
         m.tomatoScore.visible = false
         m.badgesGroup.translation = m.ratingsGroup.translation
     end if
+    buildStatusBadge(item)
     buildTags(item)
 
     overview = ""
@@ -673,8 +675,10 @@ sub reflowHeader()
     ' The ratings/badges row takes space only when something renders in it: a
     ' rating visible now, or media badges once getPlaybackInfo lands (of the
     ' non-movie types, only episodes request playback info).
+    ' A series' status pill lives in the badges group too, so it alone is
+    ' enough to keep the row.
     hasRating = m.tmdbScore.visible or m.tomatoScore.visible
-    if hasRating or m.itemType = "Episode"
+    if hasRating or m.itemType = "Episode" or m.badgesGroup.getChildCount() > 0
         m.ratingsGroup.translation = [60, y]
         m.badgesGroup.translation = [m.badgesGroup.translation[0], y]
         y += 40
@@ -1068,6 +1072,42 @@ sub onPlaybackInfoLoaded(response as object)
         needSeriesMeta = (m.item.CommunityRating = invalid) and (m.item.CriticRating = invalid) and (m.item.SeriesId <> invalid) and (not m.isYouTube)
         if needSeriesMeta then enqueue({ action: "getItem", itemId: m.item.SeriesId, context: "seriesMeta" })
     end if
+end sub
+
+' Series status pill (Continuing / Ended / Upcoming), at the end of the
+' ratings row where movies and episodes carry their media chips. Series never
+' request playback info, so buildBadges never clears the group under it.
+' Same 24px line as those chips: a capsule tinted with the status colour, a
+' dot, then the word in that colour.
+sub buildStatusBadge(item as object)
+    b = ShowStatus.badge(m.itemType, item.Status)
+    if b = invalid then return
+    ' Parent the pill before measuring its label, and add the tint first so it
+    ' draws underneath the dot and the word.
+    pill = m.badgesGroup.createChild("Group")
+    bg = pill.createChild("Poster")
+    bg.uri = "pkg:/images/pill64.9.png"
+    bg.height = 24
+    bg.blendColor = b.color
+    bg.opacity = ShowStatus.TINT_OPACITY
+    dot = pill.createChild("Poster")
+    dot.uri = "pkg:/images/circle_mask.png"
+    dot.width = 8
+    dot.height = 8
+    dot.blendColor = b.color
+    dot.translation = [12, 8]
+    lbl = pill.createChild("Label")
+    lbl.text = b.label
+    lbl.height = 24
+    lbl.vertAlign = "center"
+    lbl.color = b.color
+    f = CreateObject("roSGNode", "Font")
+    f.uri = "pkg:/fonts/Inter-Bold.ttf"
+    f.size = 15
+    lbl.font = f
+    lbl.translation = [26, 0]
+    ' Measured: a per-character estimate drifts between "Continuing" and "Ended".
+    bg.width = 26 + Int(lbl.boundingRect().width) + 12
 end sub
 
 ' Outlined chips: certification + up to 3 genres (tvOS tags row)

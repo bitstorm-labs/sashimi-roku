@@ -1433,6 +1433,8 @@ sub doGetItem(request as object)
         print "[API] Getting item: " + itemId
     #end if
     url = Http.apiUrl("/Users/" + requestUserId() + "/Items/" + itemId)
+    ' A Series' Status (the detail screen's status pill) is not an ItemFields
+    ' value: the server always sends it, so it has no place in Fields.
     url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags,Path,LocalTrailerCount"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     result = Http.getJson(url)
