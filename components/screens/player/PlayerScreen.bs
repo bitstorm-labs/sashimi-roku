@@ -6,6 +6,7 @@ import "pkg:/source/utils/TimeFormat.bs"
 import "pkg:/source/utils/ViewMode.bs"
 import "pkg:/source/utils/StreamQuality.bs"
 import "pkg:/source/utils/NextEpisode.bs"
+import "pkg:/source/utils/SkipPill.bs"
 
 ' tvOS PlayerViewModel parity on Roku. Design rules learned the hard way:
 '  - The screen NEVER gives remote focus to a child node. Every key lands in
@@ -31,6 +32,17 @@ sub init()
     m.osdChips = m.top.findNode("osdChips")
     m.skipPill = m.top.findNode("skipPill")
     m.skipPillLabel = m.top.findNode("skipPillLabel")
+    m.skipScale = m.top.findNode("skipScale")
+    m.skipScaleBack = m.top.findNode("skipScaleBack")
+    m.skipFillMask = m.top.findNode("skipFillMask")
+    m.skipFillW = 340
+    m.skipFill = m.top.findNode("skipFill")
+    m.skipTime = m.top.findNode("skipTime")
+    m.skipRing = m.top.findNode("skipRing")
+    m.skipTimer = m.top.findNode("skipTimer")
+    m.skipTimer.observeFieldScoped("fire", "updateSkipPill")
+    m.skipTimeText = ""
+    m.skipFocused = invalid
     m.osdLogo = m.top.findNode("osdLogo")
     m.osdChannelCircle = m.top.findNode("osdChannelCircle")
     m.osdChannelName = m.top.findNode("osdChannelName")
@@ -964,12 +976,12 @@ sub checkSegment(posSecs as dynamic)
         end if
         if m.curSegment = invalid or m.curSegment.segType <> active.segType
             m.curSegment = active
-            label = "Skip Intro"
-            if isCredits then label = "Skip Credits"
-            m.skipPillLabel.text = label + "  " + Chr(8226) + "  OK"
+            m.skipPillLabel.text = SkipPill.label(active.segType)
             m.skipPill.visible = true
             m.skipVisible = true
+            m.skipTimer.control = "start"
         end if
+        updateSkipPill()
     else if m.curSegment <> invalid
         m.curSegment = invalid
         hideSkipPill()
@@ -979,6 +991,94 @@ end sub
 sub hideSkipPill()
     m.skipPill.visible = false
     m.skipVisible = false
+    m.skipTimer.control = "stop"
+end sub
+
+' The pill's moving parts, from the Video node's position: every position
+' notification and every 250 ms while the pill is up (the notifications alone
+' are too coarse for a smooth sweep), so a seek inside the segment shows at
+' once. Focused = OK will skip (the scrub zone owns OK); in the OSD's buttons
+' or a menu, OK goes elsewhere and the pill rests.
+sub updateSkipPill()
+    if not m.skipVisible or m.curSegment = invalid then return
+    at = m.video.position
+    seg = m.curSegment
+    ' With the OSD up, sit above its scrubber and time labels (y ~1000-1050)
+    ' instead of on top of them.
+    if m.osdVisible
+        m.skipPill.translation = [1500, 920]
+    else
+        m.skipPill.translation = [1500, 980]
+    end if
+    focused = (m.zone = "scrub")
+    if m.skipFocused = invalid or m.skipFocused <> focused
+        m.skipFocused = focused
+        m.skipRing.visible = focused
+        k = 1.0
+        m.skipFill.opacity = 0.55
+        if focused
+            k = 1.08
+            ' Not 1.0: on the 9100X a fully opaque Rectangle inside a MaskGroup
+            ' draws UNMASKED (a square fill poking past the capsule); any
+            ' opacity below 1 is clipped.
+            m.skipFill.opacity = 0.99
+        end if
+        m.skipScale.scale = [k, k]
+        m.skipScaleBack.scale = [k, k]
+        ' The fill's box, scaled about the pill's centre (170, 28) by hand, in
+        ' whole pixels with a mask bitmap cut for that size so the capsule
+        ' ends are never resampled.
+        if focused
+            m.skipFillW = 368
+            m.skipFillMask.maskUri = "pkg:/images/skip_pill_mask_focus.png"
+            m.skipFillMask.maskSize = [368, 60]
+            m.skipFillMask.translation = [-14, -2]
+            m.skipFill.height = 60
+        else
+            m.skipFillW = 340
+            m.skipFillMask.maskUri = "pkg:/images/skip_pill_mask.png"
+            m.skipFillMask.maskSize = [340, 56]
+            m.skipFillMask.translation = [0, 0]
+            m.skipFill.height = 56
+        end if
+    end if
+    m.skipFill.width = Int(m.skipFillW * SkipPill.fraction(at, seg.startSec, seg.endSec))
+    setSkipTime(SkipPill.timeLeft(at, seg.endSec))
+end sub
+
+' m:ss right-aligned at x316 (24px in from the pill's right edge), one fixed
+' cell per character: Inter's digits are proportional, so a single label
+' would shuffle sideways every second.
+sub setSkipTime(text as string)
+    if text = m.skipTimeText then return
+    if Len(text) <> Len(m.skipTimeText)
+        while m.skipTime.getChildCount() > 0
+            m.skipTime.removeChildIndex(0)
+        end while
+        f = CreateObject("roSGNode", "Font")
+        f.uri = "pkg:/fonts/Inter-Medium.ttf"
+        f.size = 25
+        x = 316
+        for i = Len(text) to 1 step -1
+            w = 16
+            if Mid(text, i, 1) = ":" then w = 8
+            x -= w
+            cell = m.skipTime.createChild("Label")
+            cell.font = f
+            cell.width = w
+            cell.height = 56
+            cell.horizAlign = "center"
+            cell.vertAlign = "center"
+            cell.color = "#FFFFFFCC"
+            cell.translation = [x, 0]
+        end for
+    end if
+    ' Cells were created right to left.
+    n = Len(text)
+    for i = 0 to n - 1
+        m.skipTime.getChild(i).text = Mid(text, n - i, 1)
+    end for
+    m.skipTimeText = text
 end sub
 
 sub skipCurrentSegment()

@@ -1,0 +1,50 @@
+' The player's Skip Intro / Skip Credits pill ("countdown fill"): the label for
+' a segment, the time left in it as m:ss, and how much of it has elapsed (the
+' purple fill's width). Pure functions only, so tests/SkipPillTests.brs can run
+' them off-device; PlayerScreen draws the pill.
+namespace SkipPill
+
+    ' segType is PlayerScreen's vocabulary (JellyfinApi.nativeSegmentType and
+    ' the Intro Skipper keys): Introduction, Credits, Recap, Preview.
+    function label(segType as dynamic) as string
+        t = ""
+        if type(segType) = "String" or type(segType) = "roString" then t = LCase(segType)
+        if t = "credits" then return "Skip Credits"
+        if t = "recap" then return "Skip Recap"
+        if t = "preview" then return "Skip Preview"
+        return "Skip Intro"
+    end function
+
+    ' Share of the segment already played, 0 at its start to 1 at its end,
+    ' clamped either side (a seek can land anywhere).
+    function fraction(posSecs as dynamic, startSec as dynamic, endSec as dynamic) as float
+        if not isNumber(posSecs) or not isNumber(startSec) or not isNumber(endSec) then return 0.0
+        span = endSec - startSec
+        if span <= 0 then return 1.0
+        f = (posSecs - startSec) / span
+        if f < 0 then return 0.0
+        if f > 1 then return 1.0
+        return f
+    end function
+
+    ' Time left in the segment as m:ss, rounded UP so it reads 0:01 until the
+    ' segment is actually over (and never shows 0:00 while the pill is up).
+    function timeLeft(posSecs as dynamic, endSec as dynamic) as string
+        if not isNumber(posSecs) or not isNumber(endSec) then return "0:00"
+        left = endSec - posSecs
+        if left <= 0 then return "0:00"
+        secs = Int(left)
+        if secs < left then secs = secs + 1
+        mins = secs \ 60
+        rest = secs mod 60
+        s = rest.ToStr()
+        if rest < 10 then s = "0" + s
+        return mins.ToStr() + ":" + s
+    end function
+
+    function isNumber(v as dynamic) as boolean
+        t = type(v)
+        return t = "Integer" or t = "roInt" or t = "roInteger" or t = "Float" or t = "roFloat" or t = "Double" or t = "roDouble" or t = "LongInteger" or t = "roLongInteger"
+    end function
+
+end namespace

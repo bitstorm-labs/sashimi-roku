@@ -29,7 +29,8 @@ nothing otherwise) and `source/utils/SeriesMeta.bs` (the series meta line,
 carry Jellyfin's `&tag=`, read off the right ImageTags / Parent*ImageTag
 field, so a replaced image gets a new url instead of a cached stale copy)
 and `source/utils/RowWindow.bs` (the leftmost visible card of a floatingFocus
-episode row, where focus lands on entering it).
+episode row, where focus lands on entering it) and `source/utils/SkipPill.bs`
+(the player's skip pill: label, m:ss left, the fill's share of the segment).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that
@@ -139,6 +140,11 @@ instead of playing muted under it as the Apple app does. A Video node outside
 the focused screen never takes focus as long as nothing calls `setFocus` on it
 and `enableUI` is false; it can be re-parented between screens while playing
 (the hero trailer's series -> episode hand-off relies on this).
+
+**A fully opaque Rectangle inside a MaskGroup draws unmasked** (seen on the
+9100X soundbar: the skip pill's purple fill poked out square past its capsule
+at opacity 1.0, and was clipped at 0.99 and 0.55). Keep masked fills below
+opacity 1.
 
 **Subtitles are burned in server-side** (`SubtitleStreamIndex` + an Encode
 profile). Roku's native HLS-VTT rendering silently fails; burn-in works for
