@@ -1,0 +1,40 @@
+' Which cards of a floatingFocus RowList row are on screen, so focus entering
+' an episode row can land on the LEFTMOST VISIBLE card instead of the row's
+' remembered item (the current episode, which already wears the passive
+' "current" ring). RowList exposes no scroll offset, so the screen keeps one
+' per row by following the focus the way floatingFocus moves: the row scrolls
+' only when focus would leave the fully visible cards, and then only far
+' enough to show it. Pure functions only, so tests/RowWindowTests.brs can run
+' them off-device.
+namespace RowWindow
+
+    ' Cards that fit WHOLLY in the row: a card cut off at the right edge is one
+    ' floatingFocus scrolls to reveal before focusing it.
+    function visibleCount(rowWidth as integer, itemWidth as integer, spacing as integer) as integer
+        if itemWidth <= 0 then return 1
+        n = Int((rowWidth + spacing) / (itemWidth + spacing))
+        if n < 1 then n = 1
+        return n
+    end function
+
+    ' The leftmost visible index after focus moves to `focus`, given it was
+    ' `start` before.
+    function follow(start as integer, focus as integer, visible as integer) as integer
+        if visible < 1 then visible = 1
+        if focus < 0 then focus = 0
+        if start < 0 then start = 0
+        if focus < start then return focus
+        if focus > start + visible - 1 then return focus - visible + 1
+        return start
+    end function
+
+    ' Where focus lands on entering a row of `count` cards whose leftmost
+    ' visible card is `start`.
+    function entry(start as integer, count as integer) as integer
+        if count <= 0 then return 0
+        if start < 0 then return 0
+        if start > count - 1 then return count - 1
+        return start
+    end function
+
+end namespace

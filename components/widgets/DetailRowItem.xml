@@ -30,9 +30,10 @@
                     translation="[208, 8]" visible="false" />
             <!-- next-up pulsing white stroke — rounded 9-patch (r8, matching
                  the episode_mask_r8 thumbs) instead of the old square 4-rect border -->
-            <Poster id="epPulse" uri="pkg:/images/focus_ring_r8.9.png"
+            <Poster id="epPulse" uri="pkg:/images/current_ring_r8.9.png"
                     width="240" height="135" opacity="0.0" />
-            <!-- accent focus border (same rounded ring) -->
+            <!-- accent focus border: the same rounded ring in the accent purple
+                 (scripts/make-focus-rings.sh), so focus never reads as "current" -->
             <Poster id="epFocus" uri="pkg:/images/focus_ring_r8.9.png"
                     width="240" height="135" opacity="0.0" />
             <Label id="epName" text="" color="#FFFFFF" width="240" maxLines="1"
