@@ -145,14 +145,36 @@
             <Poster id="osdPlayPause" width="44" height="44" translation="[938,930]" uri="pkg:/images/osd_pause.png" visible="false" />
         </Group>
 
-        <!-- Skip Intro/Credits pill (Intro Skipper) — independent of the OSD -->
-        <Group id="skipPill" visible="false">
-            <Poster uri="pkg:/images/btn_dark.9.png" width="300" height="56" translation="[1540,980]" />
-            <Label id="skipPillLabel" text="" color="#FFFFFF" width="300" height="56"
-                   horizAlign="center" vertAlign="center" translation="[1540,980]">
-                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="25" />
-            </Label>
+        <!-- Skip Intro/Credits pill ("countdown fill", Apple/Android parity) —
+             independent of the OSD. A 340x56 capsule, right edge at x1840 as
+             before: skip glyph, label, the m:ss left in the segment, and a
+             purple fill sweeping left to right across the segment, clipped to
+             the capsule. Focused (OK skips): white ring + 1.08 scale, full
+             purple; idle: purple at 55%. Assets: scripts/make-skip-pill.sh. -->
+        <Group id="skipPill" visible="false" translation="[1500,980]">
+            <!-- The focus "pop" scales the background and the contents; the
+                 fill's MaskGroup sits between them unscaled, and focus resizes
+                 it to the scaled pill by hand (updateSkipPill), so its mask is
+                 always a bitmap cut for the exact size it draws at. -->
+            <Group id="skipScaleBack" scaleRotateCenter="[170, 28]">
+                <Poster uri="pkg:/images/skip_pill_bg.9.png" width="340" height="56" />
+            </Group>
+            <MaskGroup id="skipFillMask" maskUri="pkg:/images/skip_pill_mask.png" maskSize="[340, 56]">
+                <Rectangle id="skipFill" width="0" height="56" color="#8C5CC7" opacity="0.55" />
+            </MaskGroup>
+            <Group id="skipScale" scaleRotateCenter="[170, 28]">
+                <Poster uri="pkg:/images/skip_glyph.png" width="26" height="26" translation="[24, 15]" />
+                <Label id="skipPillLabel" text="" color="#FFFFFF" height="56" vertAlign="center"
+                       translation="[62, 0]">
+                    <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="25" />
+                </Label>
+                <!-- m:ss, one fixed-width cell per character (built in code) -->
+                <Group id="skipTime" />
+                <Poster id="skipRing" uri="pkg:/images/skip_pill_ring.9.png" width="346" height="62"
+                        translation="[-3, -3]" visible="false" />
+            </Group>
         </Group>
+        <Timer id="skipTimer" duration="0.25" repeat="true" />
 
         <!-- Popup menu (subtitles / audio / quality / view mode) -->
         <Group id="osdMenu" visible="false">
