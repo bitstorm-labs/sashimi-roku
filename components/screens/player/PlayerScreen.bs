@@ -1781,7 +1781,7 @@ sub populateInfoBar()
     if itype = "Episode" and item.SeriesId <> invalid
         if isYT
             m.osdChannelCircle.visible = true
-            m.osdChannelCircle.uri = ImageUrl.primary(item.SeriesId, 160)
+            m.osdChannelCircle.uri = ImageUrl.primary(item.SeriesId, 160, ImageUrl.seriesPrimaryTag(item))
             m.osdChannelName.visible = true
             chName = ""
             if item.SeriesName <> invalid then chName = YT.cleanTitle(item.SeriesName)
@@ -1789,12 +1789,12 @@ sub populateInfoBar()
             hasHeaderArt = true
         else
             m.osdLogo.visible = true
-            m.osdLogo.uri = m.global.serverUrl + "/Items/" + item.SeriesId + "/Images/Logo?maxHeight=144&quality=90"
+            m.osdLogo.uri = ImageUrl.withTag(m.global.serverUrl + "/Items/" + item.SeriesId + "/Images/Logo?maxHeight=144&quality=90", ImageUrl.tagFor(item, item.SeriesId, "Logo"))
             hasHeaderArt = true
         end if
     else if itype = "Series"
         m.osdLogo.visible = true
-        m.osdLogo.uri = m.global.serverUrl + "/Items/" + item.Id + "/Images/Logo?maxHeight=144&quality=90"
+        m.osdLogo.uri = ImageUrl.withTag(m.global.serverUrl + "/Items/" + item.Id + "/Images/Logo?maxHeight=144&quality=90", ImageUrl.tagOf(item, "Logo"))
         hasHeaderArt = true
     end if
 

@@ -49,11 +49,11 @@ sub onEpisode()
     ' added episode often has no still yet.
     still = ""
     if ep.Id <> invalid and ep.ImageTags <> invalid and ep.ImageTags.Primary <> invalid
-        still = ImageUrl.primary(ep.Id, 720)
+        still = ImageUrl.primary(ep.Id, 720, ImageUrl.primaryTag(ep))
     else if ep.ParentBackdropItemId <> invalid and ep.ParentBackdropImageTags <> invalid and ep.ParentBackdropImageTags.count() > 0
-        still = ImageUrl.backdrop(ep.ParentBackdropItemId, 720)
+        still = ImageUrl.backdrop(ep.ParentBackdropItemId, 720, ImageUrl.parentBackdropTag(ep))
     else if ep.SeriesId <> invalid
-        still = ImageUrl.primary(ep.SeriesId, 720)
+        still = ImageUrl.primary(ep.SeriesId, 720, ImageUrl.seriesPrimaryTag(ep))
     end if
     m.card.uri = still
     ' Same picture behind, rendered small and blurred by the server.
