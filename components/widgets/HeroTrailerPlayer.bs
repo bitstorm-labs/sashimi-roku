@@ -1,0 +1,412 @@
+import "pkg:/source/utils/HeroTrailer.bs"
+
+' The detail-screen hero trailer (Apple parity, sashimi #658): the backdrop
+' shows first, then after 2 s cross-fades to the title's LOCAL trailer playing
+' in its place, and fades back to the image when the clip ends.
+'
+' OWNERSHIP. MainScene reports every pushed and popped screen; HeroTrailer's
+' owner rules decide start / hand off / stop, so a trailer plays at most once
+' per source per visit and drilling series -> episode keeps it running.
+'
+' ONE VIDEO, LENT OUT. The Video node has to sit inside the top screen's tree
+' -- between its background and its backdrop image -- to draw in the hero, so
+' it is created here and attached to whichever screen owns it. It never takes
+' focus: nothing ever calls setFocus on it, and enableUI is off, so the
+' buttons keep the remote throughout.
+'
+' THEME FIRST, THEN TRAILER. Apple plays the trailer muted under the theme
+' song. Roku can't: a Video started while ThemeSongPlayer's Audio plays fails
+' at once with "player: only one playing instance supported" (verified on the
+' 9100X soundbar). So a trailer whose start falls inside a theme waits for the
+' theme to end (they run about 30 s) and then plays with its own sound -- the
+' "audible when no theme is playing" half of the Apple rule.
+'
+' NO VOLUME RAMP. The Video node's only audio control is the boolean `mute`
+' (see ThemeSongPlayer), so the sound runs through the picture's fade and stops
+' with it rather than ramping down.
+'
+' EVERY FAILURE PATH IS THE IMAGE. No trailer, a failed lookup, a stream that
+' never starts: the backdrop simply stays. Nothing raises a dialog or toast.
+
+sub init()
+    m.startTimer = m.top.findNode("startTimer")
+    m.fadeTimer = m.top.findNode("fadeTimer")
+    m.revealTimer = m.top.findNode("revealTimer")
+    m.apiTask = m.top.findNode("heroApiTask")
+    m.startTimer.duration = HeroTrailer.START_DELAY
+    m.fadeTimer.duration = HeroTrailer.CROSS_FADE
+
+    m.startTimer.observeFieldScoped("fire", "onStartTimer")
+    m.fadeTimer.observeFieldScoped("fire", "onFadeTimer")
+    m.revealTimer.observeFieldScoped("fire", "onRevealTimeout")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+
+    m.owners = HeroTrailer.newOwners()
+    m.screens = {}          ' owner -> its screen node
+    m.activeOwner = ""      ' the screen that shows (or will show) the trailer
+    ' Bumped by every start and stop, so an answer to an abandoned request is
+    ' recognised as stale when it lands.
+    m.gen = 0
+    m.pending = invalid     ' { sourceId, owner, gen } between schedule and play
+    m.waitingForTheme = false ' the start delay passed while a theme played
+    ' sourceId -> { id, seconds }, or "" for "no trailer". Misses are cached so
+    ' a trailerless title isn't asked again; failed requests are not.
+    m.cache = {}
+
+    m.video = invalid
+    m.host = invalid        ' the screen the Video is attached to
+    m.playingSourceId = ""
+    m.playSessionId = ""
+    m.clip = invalid
+    m.revealed = false
+    m.finishing = false
+
+    m.reqQueue = []
+    m.reqActive = false
+    m.inflight = invalid
+end sub
+
+sub onThemePlayerSet()
+    if m.top.themePlayer <> invalid then m.top.themePlayer.observeFieldScoped("isPlaying", "onThemePlaying")
+end sub
+
+' A trailer held back for the theme starts once it ends. And, for parity, a
+' theme that starts under a playing trailer silences it -- though on Roku that
+' theme can't actually play (see above), so in practice this never mutes.
+sub onThemePlaying()
+    themeOn = (m.top.themePlayer.isPlaying = true)
+    if not themeOn and m.waitingForTheme
+        m.waitingForTheme = false
+        if m.pending <> invalid and isCurrent(m.pending.gen) then resolveTrailer()
+        return
+    end if
+    if m.video = invalid then return
+    if HeroTrailer.shouldMute(themeOn) then m.video.mute = true
+end sub
+
+function isThemePlaying() as boolean
+    return (m.top.themePlayer <> invalid and m.top.themePlayer.isPlaying = true)
+end function
+
+' ---------- Public interface (callFunc) ----------
+
+function screenAppeared(args as object) as void
+    if args = invalid or args.owner = invalid then return
+    m.screens[args.owner] = args.screen
+    apply(HeroTrailer.appeared(m.owners, args.owner, eligibleSource(args.sourceId), m.playingSourceId))
+end function
+
+function sourceChanged(args as object) as void
+    if args = invalid or args.owner = invalid then return
+    apply(HeroTrailer.sourceChanged(m.owners, args.owner, eligibleSource(args.sourceId), m.playingSourceId))
+end function
+
+function screenDismissed(owner as string) as void
+    decision = HeroTrailer.dismissed(m.owners, owner, m.playingSourceId)
+    apply(decision)
+    m.screens.Delete(owner)
+end function
+
+' Play, Trailer or Shuffle pressed: the trailer must be gone before the
+' player's own stream opens -- two Video nodes must never compete for the
+' decoder.
+function stopForPlayback(reason as string) as void
+    #if DEBUG
+        print "[HeroTrailer] stop (" + reason + ")"
+    #end if
+    stopTrailer()
+end function
+
+' Sign-out or server switch: the screen stack and the cached ids belong to
+' the previous session.
+function resetSession(reason as string) as void
+    #if DEBUG
+        print "[HeroTrailer] reset (" + reason + ")"
+    #end if
+    stopTrailer()
+    HeroTrailer.reset(m.owners)
+    m.screens = {}
+    m.cache = {}
+    m.activeOwner = ""
+end function
+
+function eligibleSource(sourceId as dynamic) as string
+    if sourceId = invalid then return ""
+    if m.global.playHeroTrailers <> true then return ""
+    return sourceId
+end function
+
+' ---------- Decisions ----------
+
+sub apply(decision as object)
+    #if DEBUG
+        print "[HeroTrailer] decision "; decision.kind
+    #end if
+    if decision.kind = "start"
+        stopTrailer()
+        m.activeOwner = HeroTrailer.topOwner(m.owners)
+        scheduleStart(decision.sourceId)
+    else if decision.kind = "handOff"
+        m.activeOwner = HeroTrailer.topOwner(m.owners)
+        moveToActiveScreen()
+    else if decision.kind = "stop"
+        stopTrailer()
+        m.activeOwner = HeroTrailer.topOwner(m.owners)
+    end if
+end sub
+
+sub scheduleStart(sourceId as string)
+    m.gen = m.gen + 1
+    m.pending = { sourceId: sourceId, owner: m.activeOwner, gen: m.gen }
+    m.startTimer.control = "stop"
+    m.startTimer.control = "start"
+end sub
+
+' The pending start is still the one in force, for the screen still on top.
+function isCurrent(gen as integer) as boolean
+    return (m.pending <> invalid and m.pending.gen = gen and m.pending.owner = m.activeOwner)
+end function
+
+sub onStartTimer()
+    if m.pending = invalid or not isCurrent(m.pending.gen) then return
+    if isThemePlaying()
+        m.waitingForTheme = true
+        return
+    end if
+    resolveTrailer()
+end sub
+
+sub resolveTrailer()
+    sourceId = m.pending.sourceId
+    if m.cache.DoesExist(sourceId)
+        onTrailerResolved(m.cache[sourceId])
+    else
+        enqueue({ action: "getLocalTrailers", itemId: sourceId, heroKind: "lookup", heroGen: m.pending.gen, heroSource: sourceId })
+    end if
+end sub
+
+sub onTrailerResolved(trailer as dynamic)
+    if m.pending = invalid then return
+    if trailer = invalid or GetInterface(trailer, "ifAssociativeArray") = invalid
+        m.pending = invalid
+        return
+    end if
+    c = HeroTrailer.clip(trailer.seconds)
+    enqueue({
+        action: "getPlaybackStream"
+        itemId: trailer.id
+        maxBitrate: HeroTrailer.MAX_BITRATE
+        maxWidth: HeroTrailer.MAX_WIDTH
+        forceTranscode: true
+        allowVideoStreamCopy: false
+        skipTrickplay: true
+        heroKind: "stream"
+        heroGen: m.pending.gen
+        heroSource: m.pending.sourceId
+        heroClip: c
+    })
+end sub
+
+' ---------- Playback ----------
+
+sub play(stream as object, sourceId as string, c as object)
+    host = m.screens[m.activeOwner]
+    if host = invalid
+        stopEncoding(stream.playSessionId)
+        return
+    end if
+    m.pending = invalid
+
+    video = CreateObject("roSGNode", "Video")
+    ' No trick-play bar, buffering spinner or "Retrieving..." over the hero.
+    video.enableUI = false
+    video.enableTrickPlay = false
+    video.notificationInterval = 0.25
+    video.mute = HeroTrailer.shouldMute(isThemePlaying())
+    content = CreateObject("roSGNode", "ContentNode")
+    content.url = stream.url
+    content.streamFormat = stream.streamFormat
+    ' Integer, never a LongInteger or Float: the Video node silently ignores
+    ' those (see PlayerScreen's seek notes).
+    if c.startSecs > 0 then content.PlayStart = Int(c.startSecs)
+    video.content = content
+    video.observeFieldScoped("state", "onVideoState")
+    video.observeFieldScoped("position", "onVideoPosition")
+
+    m.video = video
+    m.playingSourceId = sourceId
+    m.playSessionId = ""
+    if stream.playSessionId <> invalid then m.playSessionId = stream.playSessionId
+    m.clip = c
+    m.revealed = false
+    m.finishing = false
+    attachTo(host)
+    video.control = "play"
+    m.revealTimer.control = "start"
+    #if DEBUG
+        print "[HeroTrailer] play from "; c.startSecs; " to "; c.endSecs; " mute="; video.mute
+    #end if
+end sub
+
+sub attachTo(host as object)
+    m.host = host
+    host.callFunc("heroTrailerAttach", m.video)
+    if m.revealed then host.callFunc("heroTrailerShow", true)
+end sub
+
+' A handed-off trailer moves to the new top screen without restarting.
+sub moveToActiveScreen()
+    if m.video = invalid then return
+    host = m.screens[m.activeOwner]
+    if host = invalid
+        stopTrailer()
+        return
+    end if
+    if m.host <> invalid and m.host.isSameNode(host) then return
+    if m.finishing
+        ' Already fading out; the new screen just shows its image.
+        stopTrailer()
+        return
+    end if
+    if m.host <> invalid then m.host.callFunc("heroTrailerDetach", "")
+    attachTo(host)
+    #if DEBUG
+        print "[HeroTrailer] handed off at "; m.video.position; " state="; m.video.state
+    #end if
+end sub
+
+sub onVideoState()
+    if m.video = invalid then return
+    state = m.video.state
+    #if DEBUG
+        print "[HeroTrailer] state "; state
+        if state = "error" then print "[HeroTrailer] error "; m.video.errorCode; " "; m.video.errorMsg; " "; FormatJson(m.video.errorInfo)
+    #end if
+    ' The natural end of the stream, or a failure, ends the clip early. A
+    ' "finished" at position 0 after an error is still an end.
+    if state = "finished" or state = "error" then finish()
+end sub
+
+sub onVideoPosition()
+    if m.video = invalid or m.clip = invalid or m.finishing then return
+    secs = m.video.position
+    ' Reveal only once frames are actually flowing, so a slow transcode start
+    ' never fades the image out to black.
+    if not m.revealed and m.video.state = "playing" and secs > m.clip.startSecs + 0.1
+        m.revealed = true
+        m.revealTimer.control = "stop"
+        if m.host <> invalid then m.host.callFunc("heroTrailerShow", true)
+        #if DEBUG
+            print "[HeroTrailer] revealed at "; secs
+        #end if
+    end if
+    if secs >= HeroTrailer.fadeAt(m.clip) then finish()
+end sub
+
+sub onRevealTimeout()
+    if m.video <> invalid and not m.revealed then stopTrailer()
+end sub
+
+' End of the clip: fade back to the image, then let the Video go. Reached from
+' the fade point or the stream's own end, whichever comes first.
+sub finish()
+    if m.video = invalid or m.finishing then return
+    m.finishing = true
+    m.revealTimer.control = "stop"
+    #if DEBUG
+        print "[HeroTrailer] finish at "; m.video.position; " revealed="; m.revealed
+    #end if
+    if m.revealed and m.host <> invalid
+        m.host.callFunc("heroTrailerShow", false)
+        m.fadeTimer.control = "stop"
+        m.fadeTimer.control = "start"
+    else
+        teardown()
+    end if
+end sub
+
+sub onFadeTimer()
+    if m.finishing then teardown()
+end sub
+
+sub stopTrailer()
+    m.gen = m.gen + 1
+    m.pending = invalid
+    m.waitingForTheme = false
+    m.startTimer.control = "stop"
+    teardown()
+end sub
+
+sub teardown()
+    m.fadeTimer.control = "stop"
+    m.revealTimer.control = "stop"
+    if m.video <> invalid
+        m.video.unobserveFieldScoped("state")
+        m.video.unobserveFieldScoped("position")
+        m.video.control = "stop"
+        m.video.content = invalid
+    end if
+    ' The detach puts the image back at full opacity, whatever the fade was
+    ' doing: the backdrop must always be there once the trailer is gone.
+    if m.host <> invalid then m.host.callFunc("heroTrailerDetach", "")
+    m.host = invalid
+    m.video = invalid
+    m.playingSourceId = ""
+    m.clip = invalid
+    m.revealed = false
+    m.finishing = false
+    stopEncoding(m.playSessionId)
+    m.playSessionId = ""
+end sub
+
+' Ends the server's transcode now instead of on its idle timeout.
+sub stopEncoding(playSessionId as dynamic)
+    if playSessionId = invalid or playSessionId = "" then return
+    enqueue({ action: "stopEncoding", playSessionId: playSessionId })
+end sub
+
+' ---------- API ----------
+' Same serialized queue as the screens: the task reads only the latest request
+' per tick. One request in flight at a time also means m.inflight says which
+' request the next response answers.
+
+sub enqueue(req as object)
+    m.reqQueue.push(req)
+    pumpQueue()
+end sub
+
+sub pumpQueue()
+    if m.reqActive then return
+    if m.reqQueue.count() = 0 then return
+    m.reqActive = true
+    m.inflight = m.reqQueue.shift()
+    m.apiTask.request = m.inflight
+end sub
+
+sub onApiResponse()
+    response = m.apiTask.response
+    if response = invalid then return
+    req = m.inflight
+    m.reqActive = false
+    m.inflight = invalid
+
+    if req <> invalid and req.heroKind = "lookup"
+        trailer = HeroTrailer.source(response.items)
+        if response.success
+            if trailer = invalid then m.cache[req.heroSource] = "" else m.cache[req.heroSource] = trailer
+        end if
+        if isCurrent(req.heroGen) then onTrailerResolved(trailer)
+    else if req <> invalid and req.heroKind = "stream"
+        if not isCurrent(req.heroGen)
+            ' Abandoned while the server was setting up: end that encode.
+            if response.success then stopEncoding(response.playSessionId)
+        else if response.success and response.url <> invalid and response.url <> ""
+            play(response, req.heroSource, req.heroClip)
+        else
+            m.pending = invalid
+        end if
+    end if
+
+    pumpQueue()
+end sub

@@ -35,6 +35,7 @@ sub init()
     m.apiTask = m.top.findNode("themeApiTask")
 
     m.startTimer.observeFieldScoped("fire", "onStartTimer")
+    m.audio.observeFieldScoped("state", "onAudioState")
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
 
@@ -76,9 +77,10 @@ function exitSeries(key as string) as void
     if m.activeKey = key then stopAndDisarm()
 end function
 
-' Video or a trailer is about to start. The Audio and Video nodes mix rather
-' than displace each other, so the theme has to be off BEFORE the player opens
-' its stream. Visit depth is deliberately left alone: the screen underneath is
+' Video or a trailer is about to start. Roku runs one media player instance
+' at a time: a Video started while this Audio plays fails outright ("player:
+' only one playing instance supported"), so the theme has to be off BEFORE the
+' player opens its stream. Visit depth is deliberately left alone: the screen underneath is
 ' still being visited, and because a restart only happens on the 0 -> 1 edge,
 ' coming back out of the player stays silent on its own.
 function stopPlayback(reason as string) as void
@@ -145,6 +147,11 @@ sub maybeStart()
     m.started = true
     m.audio.content = content
     m.audio.control = "play"
+end sub
+
+sub onAudioState()
+    state = m.audio.state
+    m.top.isPlaying = (state = "playing" or state = "buffering")
 end sub
 
 sub stopAndDisarm()
