@@ -15,6 +15,7 @@ sub main()
     testHandOffAndOncePerVisit(t)
     testDismissed(t)
     testSourceChanged(t)
+    testPendingStartHandsOff(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -115,6 +116,7 @@ end sub
 sub testHandOffAndOncePerVisit(t as object)
     s = HeroTrailer_newOwners()
     HeroTrailer_appeared(s, "series", "s1", "")
+    HeroTrailer_settled(s, "s1") ' the delay passed and it plays
     ' Drilling into an episode of the same show while the trailer runs.
     d = HeroTrailer_appeared(s, "episode", "s1", "s1")
     eq(t, "same show hands off", d.kind, "handOff")
@@ -179,4 +181,69 @@ sub testSourceChanged(t as object)
     eq(t, "and back on top it does not start", d.kind, "stop")
     d = HeroTrailer_sourceChanged(s, "nobody", "m1", "")
     eq(t, "unknown owner", d.kind, "ignore")
+end sub
+
+' Issue #186: the start waits out a 2 s delay (and on Roku a theme song), so a
+' quick series -> episode arrives while nothing is playing yet. The pending
+' start must be handed over, not counted as already played and stopped.
+sub testPendingStartHandsOff(t as object)
+    s = HeroTrailer_newOwners()
+    d = HeroTrailer_appeared(s, "series", "s1", "")
+    eq(t, "series schedules a start", d.kind, "start")
+    d = HeroTrailer_appeared(s, "episode", "s1", "")
+    eq(t, "episode inside the delay takes the pending start", d.kind, "handOff")
+    eq(t, "and hands over the series' source", d.sourceId, "s1")
+    eq(t, "the episode is top", HeroTrailer_topOwner(s), "episode")
+    ' Back to the series before it starts: the pending start comes back too.
+    d = HeroTrailer_dismissed(s, "episode", "")
+    eq(t, "back inside the delay keeps the pending start", d.kind, "handOff")
+    ' Go to Series from an episode screen, same show.
+    d = HeroTrailer_appeared(s, "series2", "s1", "")
+    eq(t, "Go to Series inside the delay hands off", d.kind, "handOff")
+
+    ' Still waiting for the theme song to end: same rule, nothing has played.
+    s = HeroTrailer_newOwners()
+    HeroTrailer_appeared(s, "series", "s1", "")
+    d = HeroTrailer_appeared(s, "season", "s1", "")
+    eq(t, "a hand-off while waiting for the theme keeps the start", d.kind, "handOff")
+
+    ' Once it plays, the playing source carries hand-offs; after it ends,
+    ' the same show doesn't replay.
+    s = HeroTrailer_newOwners()
+    HeroTrailer_appeared(s, "series", "s1", "")
+    HeroTrailer_settled(s, "s1")
+    d = HeroTrailer_appeared(s, "episode", "s1", "s1")
+    eq(t, "playing trailer still hands off", d.kind, "handOff")
+    d = HeroTrailer_appeared(s, "episode2", "s1", "")
+    eq(t, "a started-then-finished trailer does not replay", d.kind, "stop")
+
+    ' A pending start that gave up (no trailer, failed stream) is not handed on.
+    s = HeroTrailer_newOwners()
+    HeroTrailer_appeared(s, "series", "s1", "")
+    HeroTrailer_settled(s, "s1")
+    d = HeroTrailer_appeared(s, "episode", "s1", "")
+    eq(t, "a start that gave up is not handed off", d.kind, "stop")
+
+    ' A stop cancels the pending start: nothing to hand over afterwards.
+    s = HeroTrailer_newOwners()
+    HeroTrailer_appeared(s, "series", "s1", "")
+    HeroTrailer_appeared(s, "person", "", "")
+    d = HeroTrailer_appeared(s, "episode", "s1", "")
+    eq(t, "a stopped pending start is not handed off", d.kind, "stop")
+    ' Another title's start replaces the pending one.
+    s = HeroTrailer_newOwners()
+    HeroTrailer_appeared(s, "series", "s1", "")
+    HeroTrailer_appeared(s, "movie", "m2", "")
+    HeroTrailer_settled(s, "s1")
+    d = HeroTrailer_appeared(s, "movie2", "m2", "")
+    eq(t, "a stale settle leaves the newer pending start", d.kind, "handOff")
+    HeroTrailer_dismissed(s, "movie2", "")
+    d = HeroTrailer_dismissed(s, "movie", "")
+    eq(t, "back to the series after another title stops", d.kind, "stop")
+    ' The stack emptying ends the visit and its pending start.
+    s = HeroTrailer_newOwners()
+    HeroTrailer_appeared(s, "series", "s1", "")
+    HeroTrailer_dismissed(s, "series", "")
+    d = HeroTrailer_appeared(s, "series", "s1", "")
+    eq(t, "a new visit starts afresh", d.kind, "start")
 end sub

@@ -8,6 +8,8 @@
 ' Owner state is a plain assocarray, mutated in place:
 '   stack   [{ owner, sourceId }] for every pushed screen, newest last
 '   played  sourceId -> true for each trailer started during this visit
+'   pending the sourceId of a start still waiting out its delay (or a theme
+'           song), "" once it plays, gives up or is stopped
 namespace HeroTrailer
 
     ' A full trailer opens on the green rating card or a studio logo, so a
@@ -99,10 +101,24 @@ namespace HeroTrailer
     ' series into one of its episodes hands the running trailer over instead
     ' of restarting it, and one that already finished doesn't play again until
     ' every detail screen has been dismissed.
+    '
+    ' A start waits out START_DELAY (and on Roku any theme song) before
+    ' anything plays, so the trailer "for this source" is the pending one as
+    ' well as the playing one. A screen for the same show pushed or uncovered
+    ' inside that wait takes the pending start over: comparing against the
+    ' playing source alone made a quick series -> episode (or Go to Series)
+    ' see "already played", stop, and cancel the only start of the visit.
 
     function newOwners() as object
-        return { stack: [], played: {} }
+        return { stack: [], played: {}, pending: "" }
     end function
+
+    ' The player's pending start for srcId ended: it is now playing (and
+    ' compared as the playing source), or it gave up. A newer pending start
+    ' for another source is left alone.
+    sub settled(state as object, srcId as string)
+        if state.pending = srcId then state.pending = ""
+    end sub
 
     function topOwner(state as object) as string
         if state.stack.count() = 0 then return ""
@@ -115,10 +131,11 @@ namespace HeroTrailer
     function appeared(state as object, owner as string, srcId as string, playingSourceId as string) as object
         removeOwner(state, owner)
         state.stack.push({ owner: owner, sourceId: srcId })
-        if srcId = "" then return decision("stop", "")
-        if srcId = playingSourceId then return decision("handOff", srcId)
-        if state.played.DoesExist(srcId) then return decision("stop", "")
+        if srcId = "" then return stopDecision(state)
+        if srcId = playingSourceId or srcId = state.pending then return decision("handOff", srcId)
+        if state.played.DoesExist(srcId) then return stopDecision(state)
         state.played[srcId] = true
+        state.pending = srcId
         return decision("start", srcId)
     end function
 
@@ -143,18 +160,27 @@ namespace HeroTrailer
         state.stack.delete(idx)
         if state.stack.count() = 0
             state.played = {}
-            return decision("stop", "")
+            return stopDecision(state)
         end if
         if not wasTop then return decision("ignore", "")
         top = state.stack.peek()
-        if playingSourceId <> "" and top.sourceId = playingSourceId then return decision("handOff", playingSourceId)
-        return decision("stop", "")
+        current = playingSourceId
+        if current = "" then current = state.pending
+        if current <> "" and top.sourceId = current then return decision("handOff", current)
+        return stopDecision(state)
     end function
 
     sub reset(state as object)
         state.stack = []
         state.played = {}
+        state.pending = ""
     end sub
+
+    ' Every stop cancels the pending start along with the playing trailer.
+    function stopDecision(state as object) as object
+        state.pending = ""
+        return decision("stop", "")
+    end function
 
     function decision(kind as string, srcId as string) as object
         return { kind: kind, sourceId: srcId }
