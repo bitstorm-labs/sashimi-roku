@@ -207,11 +207,12 @@ sub onTrailerResolved(trailer as dynamic)
         return
     end if
     c = HeroTrailer.clip(trailer.seconds)
+    caps = HeroTrailer.streamCaps()
     enqueue({
         action: "getPlaybackStream"
         itemId: trailer.id
-        maxBitrate: HeroTrailer.MAX_BITRATE
-        maxWidth: HeroTrailer.MAX_WIDTH
+        maxBitrate: caps.maxBitrate
+        maxWidth: caps.maxWidth
         forceTranscode: true
         allowVideoStreamCopy: false
         skipTrickplay: true
