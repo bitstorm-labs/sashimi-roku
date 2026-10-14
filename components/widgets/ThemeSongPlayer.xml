@@ -12,6 +12,9 @@
         <function name="exitSeries" />
         <function name="stopPlayback" />
         <function name="resetSession" />
+        <!-- True while the theme is audible (or about to be). The hero trailer
+             mutes itself under it. -->
+        <field id="isPlaying" type="boolean" value="false" />
     </interface>
     <children>
         <Audio id="audio" />

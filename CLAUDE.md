@@ -19,7 +19,9 @@ npm run dev       # package + sideload (needs ROKU_DEV_TARGET / ROKU_DEV_PASSWOR
 arithmetic) and `source/utils/Confirm.bs` (destructive-confirmation button
 order: `StandardMessageDialog` focuses its first button, so Cancel goes first)
 and `source/utils/NextEpisode.bs` (the end-of-episode Up Next screen: next
-episode across seasons, countdown/Skip/Cancel state machine, screen text).
+episode across seasons, countdown/Skip/Cancel state machine, screen text)
+and `source/utils/HeroTrailer.bs` (the detail-screen hero trailer: whose
+trailer a screen plays, the 10-40 s clip rule, once-per-visit ownership).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that
@@ -58,8 +60,9 @@ curl --digest -u "rokudev:$PW" -F mysubmit=Screenshot -F archive= -F passwd="$PW
 curl --digest -u "rokudev:$PW" http://192.168.86.30/pkgs/dev.jpg -o shot.jpg
 
 # debug console (print output) — attach AFTER launching; a channel replace
-# drops the connection
-nc 192.168.86.30 8085
+# drops the connection. Use -d when running it in the background: without it
+# nc exits as soon as its stdin closes, which looks like "no output".
+nc -d 192.168.86.30 8085
 ```
 
 **ECP names the Options key `Info`.** `POST /keypress/Options` returns 200 and
@@ -118,6 +121,16 @@ are only safe when a screen issues exactly one request at a time.
 **Focus.** The player uses a *virtual* highlight (`m.zone` / `m.btnIdx` /
 `m.menuIdx`) rather than real SceneGraph focus, because real focus produced
 invisible-button traps twice. Don't "simplify" it back to real focus.
+
+**One media player instance plays at a time.** A Video node started while
+another Audio or Video node is playing fails at once with `errorMsg` "player:
+only one playing instance supported" (`state = "error"`, verified on the 9100X
+soundbar). So the theme song must stop before the player opens a stream, and
+the detail-screen hero trailer (`HeroTrailerPlayer`) waits for a theme to end
+instead of playing muted under it as the Apple app does. A Video node outside
+the focused screen never takes focus as long as nothing calls `setFocus` on it
+and `enableUI` is false; it can be re-parented between screens while playing
+(the hero trailer's series -> episode hand-off relies on this).
 
 **Subtitles are burned in server-side** (`SubtitleStreamIndex` + an Encode
 profile). Roku's native HLS-VTT rendering silently fails; burn-in works for

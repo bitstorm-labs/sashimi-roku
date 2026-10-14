@@ -1463,9 +1463,14 @@ sub doGetLocalTrailers(request as object)
     itemId = request.itemId
     url = Http.apiUrl("/Users/" + requestUserId() + "/Items/" + itemId + "/LocalTrailers")
     result = Http.getJson(url)
-    trailers = []
-    if result <> invalid and GetInterface(result, "ifArray") <> invalid then trailers = result
-    m.top.response = { success: true, action: "getLocalTrailers", items: trailers }
+    ' A dead server is a failure, not "no trailers": the hero trailer caches a
+    ' miss for the whole session, so an empty success would hide a title's
+    ' trailer until the channel restarts.
+    if result = invalid or GetInterface(result, "ifArray") = invalid
+        m.top.response = { success: false, action: "getLocalTrailers", items: [], itemId: itemId }
+        return
+    end if
+    m.top.response = { success: true, action: "getLocalTrailers", items: result, itemId: itemId }
 end sub
 
 ' Theme song for a series (companion Theme Songs plugin writes theme.mp3 into
@@ -1750,6 +1755,11 @@ sub doGetPlaybackStream(request as object)
         body.EnableDirectPlay = false
         body.EnableDirectStream = false
     end if
+    ' The detail-screen hero trailer: a copied video stream would carry the
+    ' source's bitrate straight past the cap, so the video is re-encoded.
+    if request.allowVideoStreamCopy <> invalid and request.allowVideoStreamCopy = false
+        body.AllowVideoStreamCopy = false
+    end if
     ' Force Direct Play setting: tell the server not to transcode so it hands
     ' back a direct-play/direct-stream source. Exception: a selected burn-in
     ' subtitle (above) REQUIRES a re-encode — with transcoding also disabled
@@ -1878,10 +1888,13 @@ sub doGetPlaybackStream(request as object)
     ' player has no other fetch to hang it off. One small extra GET at stream
     ' negotiation is cheaper than threading Trickplay through every screen that
     ' can hand the player an item.
+    ' The hero trailer has no scrubber, so it skips the round trip.
     trickplay = invalid
-    tpResult = Http.getJson(Http.apiUrl("/Items") + "?Ids=" + itemId + "&Fields=Trickplay")
-    if tpResult <> invalid and tpResult.Items <> invalid and tpResult.Items.count() > 0
-        trickplay = tpResult.Items[0].Trickplay
+    if request.skipTrickplay = invalid or request.skipTrickplay <> true
+        tpResult = Http.getJson(Http.apiUrl("/Items") + "?Ids=" + itemId + "&Fields=Trickplay")
+        if tpResult <> invalid and tpResult.Items <> invalid and tpResult.Items.count() > 0
+            trickplay = tpResult.Items[0].Trickplay
+        end if
     end if
 
     m.top.response = {

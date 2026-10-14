@@ -97,6 +97,15 @@ Movies use the same layout without seasons.*
   (`LocalTrailerCount > 0`, e.g. one downloaded by
   [Trailarr](https://github.com/nandyalu/trailarr)). It opens the trailer in the
   normal player. Remote and YouTube-hosted trailers are not supported.
+- **Hero trailer** — after two seconds on a movie, series, season or episode
+  screen, the backdrop cross-fades to 30 seconds of the title's local trailer
+  (seasons and episodes use their series' trailer; long trailers skip their
+  first 10 seconds), then fades back to the image. It plays once per visit,
+  keeps running when you drill from a series into one of its episodes, and
+  stops the moment you play something or leave. The server transcodes it to
+  720p at 4 Mbps. Roku can only play one stream at a time, so when the show's
+  theme song is playing the trailer waits for it to finish and then plays with
+  sound. Turn it off with **Play Trailers on Detail Screens**.
 - **Add to Channel** (server administrators only) — puts a movie or series (an
   episode or season adds its series) on a SashimiTV channel, or takes it off.
   ✓ marks the channels it was added to; a dimmed ✓ "(via …)" marks one it airs
@@ -229,11 +238,16 @@ press **Connect**.
 | **Auto-Skip Credits** | Off | Requires the Intro Skipper plugin. |
 | **Resume Threshold** | 30 seconds | How far in you must be before Sashimi offers to resume rather than start over. |
 | **Default View Mode** | Normal | Normal, Zoom or Stretch. A mode picked in the player overrides it for the rest of that session; changing it here replaces that pick. |
+| **TV Shuffle** | Random Episode | What Shuffle on a TV library plays: a random episode, or a random show's next episode. |
+| **Audio Language** | Default | Preferred audio track language. |
 | **Subtitles On By Default** | Off | Selects the first subtitle track when playback starts. |
+| **Subtitle Language** | Default | Preferred subtitle track language. |
 | **24-Hour Time** | Off | Affects the player clock, "Finishes at" and "Ends at". |
 | **Show Quality Badges** | On | 4K / HD / SD badges on artwork. |
 | **Show Review Ratings** | On | Community ratings on artwork. |
 | **Use Episode Ratings** | Off | When off, episode tiles show the series rating. |
+| **Play Theme Songs** | On | A show's theme song on its detail screens (needs theme files, e.g. from the Theme Songs plugin). |
+| **Play Trailers on Detail Screens** | On | The hero trailer described under Detail screens. |
 | **Version** | — | Read-only. |
 | **Sign Out** | — | Clears stored credentials and asks the server to revoke the token. |
 

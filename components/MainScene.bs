@@ -1,6 +1,7 @@
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/Servers.bs"
 import "pkg:/source/utils/AppSettings.bs"
+import "pkg:/source/utils/HeroTrailer.bs"
 
 ' tvOS-parity navigation: persistent top TabBar (Home/Library/Search/Settings)
 ' with root screens kept alive, plus a push stack for detail/grid screens.
@@ -25,6 +26,7 @@ sub init()
         showReviewRatings: (AppSettings.read("showReviewRatings", "true") = "true")
         useEpisodeRatings: (AppSettings.read("useEpisodeRatings", "false") = "true")
         playThemeSongs: (AppSettings.read("playThemeSongs", "true") = "true")
+        playHeroTrailers: (AppSettings.read("playHeroTrailers", "true") = "true")
         memoryTier: budget.tier
         memoryLimitKb: budget.limitKb
         reminderShowing: false
@@ -83,6 +85,14 @@ sub init()
     ' position among the scene's children does not matter.
     m.themePlayer = createObject("roSGNode", "ThemeSongPlayer")
     m.top.appendChild(m.themePlayer)
+
+    ' Detail-screen hero trailers, on the same model: every pushed and popped
+    ' screen is reported here, and the player decides. Non-visual too -- it
+    ' lends its Video node to the screen on top.
+    m.heroTrailer = createObject("roSGNode", "HeroTrailerPlayer")
+    m.heroTrailer.themePlayer = m.themePlayer
+    m.top.appendChild(m.heroTrailer)
+    m.heroOwnerSeq = 0
 
     ' Multi-server: migrate legacy single auth, observe switch requests
     Servers.migrate()
@@ -789,7 +799,10 @@ sub onDetailSwitchServer(event as object)
     showDetailScreen(req.item)
 end sub
 
-sub pushScreen(screen as object)
+' heroSource: whose trailer a detail screen's hero plays, as far as the item
+' it was opened with can tell ("" for every other screen, which stops any
+' trailer underneath it). A detail screen corrects it once its item loads.
+sub pushScreen(screen as object, heroSource = "" as string)
     if m.currentScreen <> invalid
         m.currentScreen.visible = false
     end if
@@ -799,6 +812,7 @@ sub pushScreen(screen as object)
     liftOverlays()
     m.currentScreen = screen
     screen.setFocus(true)
+    heroAppeared(screen, heroSource)
 end sub
 
 sub showDetailScreen(itemData as object)
@@ -819,9 +833,28 @@ sub showDetailScreen(itemData as object)
     screen.addField("themeKey", "string", false)
     screen.themeKey = key
 
-    pushScreen(screen)
+    pushScreen(screen, HeroTrailer.sourceId(itemData))
     screen.itemData = itemData
     enterTheme(key)
+end sub
+
+' ---------- Hero trailers ----------
+' See HeroTrailerPlayer. Each pushed screen gets an owner id; detail screens
+' also report their trailer source when their item loads.
+
+sub heroAppeared(screen as object, heroSource as string)
+    m.heroOwnerSeq = m.heroOwnerSeq + 1
+    owner = "o" + m.heroOwnerSeq.ToStr()
+    screen.addField("heroOwner", "string", false)
+    screen.heroOwner = owner
+    if screen.hasField("trailerSourceId") then screen.observeFieldScoped("trailerSourceId", "onTrailerSource")
+    m.heroTrailer.callFunc("screenAppeared", { owner: owner, screen: screen, sourceId: heroSource })
+end sub
+
+sub onTrailerSource(event as object)
+    screen = event.getRoSGNode()
+    if screen = invalid or not screen.hasField("heroOwner") then return
+    m.heroTrailer.callFunc("sourceChanged", { owner: screen.heroOwner, sourceId: event.getData() })
 end sub
 
 ' ---------- Theme songs ----------
@@ -888,6 +921,7 @@ sub onPlayItem(event as object)
     ' direct play and both deep-link paths -- funnels through here, so this is
     ' the one place the theme has to be stopped.
     m.themePlayer.callFunc("stopPlayback", "playback")
+    m.heroTrailer.callFunc("stopForPlayback", "playback")
 
     screen = createObject("roSGNode", "PlayerScreen")
     if screen = invalid then return
@@ -915,6 +949,7 @@ sub popScreen()
     screen = m.navStack.pop()
     exitTheme(screen)
     m.top.removeChild(screen)
+    if screen.hasField("heroOwner") then m.heroTrailer.callFunc("screenDismissed", screen.heroOwner)
     retireScreen(screen)
 
     if m.navStack.count() > 0
@@ -945,6 +980,7 @@ sub clearAllScreens()
     ' Sign-out and server switch both land here. Cached theme URLs carry the
     ' outgoing server's token, so the whole session's state goes with them.
     m.themePlayer.callFunc("resetSession", "session")
+    m.heroTrailer.callFunc("resetSession", "session")
     m.reminderBanner.active = false
     endDeepLinkWait()
     while m.navStack.count() > 0

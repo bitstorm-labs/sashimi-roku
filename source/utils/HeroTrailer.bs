@@ -1,0 +1,175 @@
+' The rules behind the detail-screen hero trailer: which title's trailer a
+' screen plays, which stretch of it, and which screen owns the one player.
+' Apple parity (sashimi HeroTrailerPolicy.swift / HeroTrailerOwners). Pure
+' functions only (no nodes, registry or network), so tests/HeroTrailerTests.brs
+' can run them off-device; HeroTrailerPlayer owns the Video node, the timers
+' and the requests.
+'
+' Owner state is a plain assocarray, mutated in place:
+'   stack   [{ owner, sourceId }] for every pushed screen, newest last
+'   played  sourceId -> true for each trailer started during this visit
+namespace HeroTrailer
+
+    ' A full trailer opens on the green rating card or a studio logo, so a
+    ' long one is played from 10 s in; a short clip has no such opening.
+    const OPENING_SKIP = 10
+    const CLIP_LENGTH = 30
+    const MINIMUM_FOR_SKIP = 45
+    ' The image shows first: flicking past a title costs no transcode.
+    const START_DELAY = 2.0
+    const CROSS_FADE = 0.6
+    ' Trailarr's files are MKV/VP9/Opus, which no Roku plays directly, so the
+    ' server always transcodes. Low-power Rokus (the 9100X soundbar) choke on
+    ' a high-bitrate start, and a 864px-wide hero gains nothing above 720p.
+    const MAX_BITRATE = 4000000
+    const MAX_WIDTH = 1280
+
+    ' The item whose local trailer plays in this screen's hero, or "" when the
+    ' screen never plays one. Seasons and episodes use their series' trailer:
+    ' episodes have none of their own, and a clip cut from the episode would
+    ' risk spoilers. A movie or series the server says has no local trailer is
+    ' skipped without a request. A title on another saved server is skipped
+    ' too: the player, like every stream here, only talks to the active one.
+    function sourceId(item as dynamic) as string
+        if item = invalid then return ""
+        if item._server <> invalid then return ""
+        itemType = ""
+        if item.Type <> invalid then itemType = item.Type
+        if itemType = "Movie" or itemType = "Series"
+            if item.LocalTrailerCount <> invalid and item.LocalTrailerCount = 0 then return ""
+            if item.Id <> invalid then return item.Id
+        else if itemType = "Season" or itemType = "Episode"
+            if item.SeriesId <> invalid then return item.SeriesId
+        end if
+        return ""
+    end function
+
+    ' The first of a title's local trailers as { id, seconds }, seconds being
+    ' invalid when the server doesn't know the length; invalid when there are
+    ' no trailers at all.
+    function source(trailers as dynamic) as dynamic
+        if trailers = invalid or GetInterface(trailers, "ifArray") = invalid then return invalid
+        if trailers.count() = 0 then return invalid
+        first = trailers[0]
+        if first = invalid or first.Id = invalid or first.Id = "" then return invalid
+        seconds = invalid
+        ' A LongInteger divisor, like every tick conversion here: CDbl() on
+        ' ticks truncates to 32 bits first.
+        if first.RunTimeTicks <> invalid and first.RunTimeTicks > 0 then seconds = first.RunTimeTicks / 10000000&
+        return { id: first.Id, seconds: seconds }
+    end function
+
+    ' The stretch of the trailer the hero plays, as { startSecs, endSecs } in seconds.
+    ' A full trailer runs about two minutes, far more than a background
+    ' preview should; like a billboard preview the hero plays 30 s and fades
+    ' back to the image. The end never runs past the trailer's own end, so the
+    ' fade always has a moment of video left to fade.
+    function clip(seconds as dynamic) as object
+        if seconds = invalid or seconds <= 0
+            return { startSecs: 0, endSecs: CLIP_LENGTH }
+        end if
+        if seconds >= MINIMUM_FOR_SKIP
+            return { startSecs: OPENING_SKIP, endSecs: OPENING_SKIP + CLIP_LENGTH }
+        end if
+        clipEnd = seconds
+        if clipEnd > CLIP_LENGTH then clipEnd = CLIP_LENGTH
+        return { startSecs: 0, endSecs: clipEnd }
+    end function
+
+    ' Where the fade back to the image begins: while the last moments still
+    ' play, not on a frozen frame.
+    function fadeAt(c as object) as float
+        at = c.endSecs - CROSS_FADE
+        if at < c.startSecs then at = c.startSecs
+        return at
+    end function
+
+    ' Silent while a theme song plays, its own sound otherwise.
+    function shouldMute(themeIsPlaying as boolean) as boolean
+        return themeIsPlaying
+    end function
+
+    ' ---------- Which screen owns the player ----------
+    ' Decisions are { kind, sourceId }, kind one of:
+    '   "start"   start the trailer for sourceId in the top screen
+    '   "handOff" keep the running trailer; it now shows in the top screen
+    '   "stop"    stop whatever is playing; the top screen shows its image
+    '   "ignore"  nothing changes
+    ' A trailer plays at most once per source per visit: drilling from a
+    ' series into one of its episodes hands the running trailer over instead
+    ' of restarting it, and one that already finished doesn't play again until
+    ' every detail screen has been dismissed.
+
+    function newOwners() as object
+        return { stack: [], played: {} }
+    end function
+
+    function topOwner(state as object) as string
+        if state.stack.count() = 0 then return ""
+        return state.stack.peek().owner
+    end function
+
+    ' A screen was pushed (or a pushed screen must be treated as newly current).
+    ' Screens without a trailer of their own -- a person page, the player --
+    ' appear with sourceId "", which stops the trailer underneath.
+    function appeared(state as object, owner as string, srcId as string, playingSourceId as string) as object
+        removeOwner(state, owner)
+        state.stack.push({ owner: owner, sourceId: srcId })
+        if srcId = "" then return decision("stop", "")
+        if srcId = playingSourceId then return decision("handOff", srcId)
+        if state.played.DoesExist(srcId) then return decision("stop", "")
+        state.played[srcId] = true
+        return decision("start", srcId)
+    end function
+
+    ' A detail screen learned its trailer source only once its item loaded
+    ' (a deep link, or a row item without LocalTrailerCount). The top screen
+    ' is treated as newly current; one further down just records it for when
+    ' it comes back to the top. An unchanged source changes nothing -- a
+    ' watched-state reload must not cancel a pending start.
+    function sourceChanged(state as object, owner as string, srcId as string, playingSourceId as string) as object
+        idx = indexOf(state, owner)
+        if idx < 0 then return decision("ignore", "")
+        if state.stack[idx].sourceId = srcId then return decision("ignore", "")
+        if idx = state.stack.count() - 1 then return appeared(state, owner, srcId, playingSourceId)
+        state.stack[idx].sourceId = srcId
+        return decision("ignore", "")
+    end function
+
+    function dismissed(state as object, owner as string, playingSourceId as string) as object
+        idx = indexOf(state, owner)
+        if idx < 0 then return decision("ignore", "")
+        wasTop = (idx = state.stack.count() - 1)
+        state.stack.delete(idx)
+        if state.stack.count() = 0
+            state.played = {}
+            return decision("stop", "")
+        end if
+        if not wasTop then return decision("ignore", "")
+        top = state.stack.peek()
+        if playingSourceId <> "" and top.sourceId = playingSourceId then return decision("handOff", playingSourceId)
+        return decision("stop", "")
+    end function
+
+    sub reset(state as object)
+        state.stack = []
+        state.played = {}
+    end sub
+
+    function decision(kind as string, srcId as string) as object
+        return { kind: kind, sourceId: srcId }
+    end function
+
+    function indexOf(state as object, owner as string) as integer
+        for i = 0 to state.stack.count() - 1
+            if state.stack[i].owner = owner then return i
+        end for
+        return -1
+    end function
+
+    sub removeOwner(state as object, owner as string)
+        idx = indexOf(state, owner)
+        if idx >= 0 then state.stack.delete(idx)
+    end sub
+
+end namespace
