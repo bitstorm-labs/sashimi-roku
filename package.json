@@ -1,6 +1,6 @@
 {
   "name": "sashimi-roku",
-  "version": "1.6.11",
+  "version": "1.6.12",
   "description": "Sashimi - Jellyfin client for Roku",
   "scripts": {
     "build": "bsc",
