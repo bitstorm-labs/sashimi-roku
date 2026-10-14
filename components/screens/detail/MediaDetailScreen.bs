@@ -1091,8 +1091,8 @@ end sub
 ' series' on a season or episode (m.seriesStatus). buildBadges clears the
 ' group when an episode's chips arrive, so it calls this again; the pill is
 ' tracked so a repeat call replaces it rather than drawing a second one.
-' Same 24px line as the chips: a capsule tinted with the status colour, a
-' dot, then the word in that colour.
+' Same 24px line as the chips: a capsule tinted with the status colour and
+' the word in that colour.
 sub renderStatusPill()
     if m.statusPill <> invalid
         m.badgesGroup.removeChild(m.statusPill)
@@ -1101,21 +1101,17 @@ sub renderStatusPill()
     b = ShowStatus.badge(m.itemType, m.seriesStatus)
     if b = invalid then return
     ' Parent the pill before measuring its label, and add the tint first so it
-    ' draws underneath the dot and the word.
+    ' draws underneath the word.
     pill = m.badgesGroup.createChild("Group")
     pill.translation = [m.badgesEndX, 0]
     m.statusPill = pill
     bg = pill.createChild("Poster")
-    bg.uri = "pkg:/images/pill64.9.png"
+    ' pill24.9.png is a capsule cut for exactly this height (12px end caps);
+    ' the 64px button pill squashed into elliptical ends at 24px.
+    bg.uri = "pkg:/images/pill24.9.png"
     bg.height = 24
     bg.blendColor = b.color
     bg.opacity = ShowStatus.TINT_OPACITY
-    dot = pill.createChild("Poster")
-    dot.uri = "pkg:/images/circle_mask.png"
-    dot.width = 8
-    dot.height = 8
-    dot.blendColor = b.color
-    dot.translation = [12, 8]
     lbl = pill.createChild("Label")
     lbl.text = b.label
     lbl.height = 24
@@ -1125,9 +1121,9 @@ sub renderStatusPill()
     f.uri = "pkg:/fonts/Inter-Bold.ttf"
     f.size = 15
     lbl.font = f
-    lbl.translation = [26, 0]
+    lbl.translation = [12, 0]
     ' Measured: a per-character estimate drifts between "Continuing" and "Ended".
-    bg.width = 26 + Int(lbl.boundingRect().width) + 12
+    bg.width = 12 + Int(lbl.boundingRect().width) + 12
 end sub
 
 ' Outlined chips: certification + up to 3 genres (tvOS tags row)
