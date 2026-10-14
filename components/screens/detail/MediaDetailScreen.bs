@@ -4,6 +4,7 @@ import "pkg:/source/utils/TimeFormat.bs"
 import "pkg:/source/utils/Filmography.bs"
 import "pkg:/source/utils/ChannelManagement.bs"
 import "pkg:/source/utils/Confirm.bs"
+import "pkg:/source/utils/HeroTrailer.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -78,6 +79,18 @@ sub init()
     m.reqQueue = []             ' serialized API requests (avoid coalescing)
     m.reqActive = false
     m.pinned = invalid          ' { id, name, url, token, userId }: see pinServer
+
+    ' Hero trailer (see HeroTrailerPlayer). The region defaults match a movie
+    ' until setBackdrop sizes it for the real item.
+    m.trailerSlot = m.top.findNode("trailerSlot")
+    m.trailerFeather = m.top.findNode("trailerFeather")
+    m.heroFade = m.top.findNode("heroFade")
+    m.heroFadeInterp = m.top.findNode("heroFadeInterp")
+    m.heroFade.duration = HeroTrailer.CROSS_FADE
+    m.trailerVideo = invalid
+    m.backdropRegionW = 864
+    m.backdropRegionH = 580
+    m.backdropRight = 1920 - 140
 
     m.top.observeField("focusedChild", "onFocusDelegate")
     ' The administrator flag arrives after launch (MainScene asks the server
@@ -240,6 +253,8 @@ sub onApiResponse()
         ' Play the local trailer
         if response.success and response.items <> invalid and response.items.count() > 0
             m.top.playItem = { item: response.items[0], action: "play" }
+        else if not response.success
+            m.global.toastMessage = { message: "Couldn't load the trailer. Check your connection." }
         end if
     end if
     pumpQueue()
@@ -446,6 +461,13 @@ sub onItemLoaded(response as object)
     end if
 
     focusZone("buttons")
+
+    ' Whose trailer the hero plays. A direct-to-play deep link goes straight to
+    ' the player, and a title on another saved server can't be streamed from
+    ' the active session, so neither has one.
+    heroSource = ""
+    if m.pinned = invalid and not m.top.autoPlay then heroSource = HeroTrailer.sourceId(item)
+    m.top.trailerSourceId = heroSource
 
     ' Deep link with a playable mediaType: start playback immediately (cert
     ' 5.2 Direct to Play). The screen was created hidden so the springboard and
@@ -744,6 +766,7 @@ sub onBackdropStatus()
     m.backdropImage.height = fh
     m.backdropMask.maskSize = [fw, fh]
     m.backdropMask.translation = [m.backdropRight - fw, 60]
+    layoutTrailer()
 end sub
 
 sub setBackdrop(item as object)
@@ -776,6 +799,76 @@ sub setBackdrop(item as object)
         uri = ImageUrl.backdrop(item.ParentBackdropItemId, 1280)
     end if
     m.backdropImage.uri = uri
+    layoutTrailer()
+end sub
+
+' ---------- Hero trailer ----------
+' HeroTrailerPlayer owns the Video node and every decision; this screen only
+' gives it a place to draw and does the cross-fade. The trailer covers exactly
+' the image's fitted rectangle, or a 16:9 box in the backdrop region when the
+' image hasn't loaded (or there is none).
+
+function heroTrailerAttach(video as object) as void
+    if video = invalid then return
+    m.trailerVideo = video
+    ' Hidden until frames flow (heroTrailerShow): a Video node that is still
+    ' buffering draws black, which would show through the image's feathered
+    ' edges, or as a black box on an item with no backdrop.
+    video.visible = false
+    m.trailerSlot.appendChild(video)
+    layoutTrailer()
+end function
+
+function heroTrailerShow(show as boolean) as void
+    if m.trailerVideo = invalid then return
+    if show
+        m.trailerVideo.visible = true
+        m.trailerFeather.visible = true
+        fadeBackdropTo(0.0)
+    else
+        fadeBackdropTo(1.0)
+    end if
+end function
+
+' The trailer is gone (ended, stopped, or handed to another screen). The image
+' comes back at full opacity immediately, whatever the fade was doing.
+function heroTrailerDetach(unused as dynamic) as void
+    m.heroFade.control = "stop"
+    m.backdropMask.opacity = 1.0
+    m.trailerFeather.visible = false
+    if m.trailerVideo <> invalid
+        m.trailerSlot.removeChild(m.trailerVideo)
+        m.trailerVideo = invalid
+    end if
+end function
+
+sub fadeBackdropTo(target as float)
+    m.heroFade.control = "stop"
+    m.heroFadeInterp.keyValue = [m.backdropMask.opacity, target]
+    m.heroFade.control = "start"
+end sub
+
+sub layoutTrailer()
+    w = m.backdropRegionW
+    h = m.backdropRegionH
+    if m.backdropImage.loadStatus = "ready"
+        w = m.backdropImage.width
+        h = m.backdropImage.height
+    else
+        h = Int(w * 9 / 16)
+        if h > m.backdropRegionH
+            h = m.backdropRegionH
+            w = Int(h * 16 / 9)
+        end if
+    end if
+    x = m.backdropRight - w
+    m.trailerFeather.translation = [x, 60]
+    m.trailerFeather.width = w
+    m.trailerFeather.height = h
+    if m.trailerVideo = invalid then return
+    m.trailerVideo.translation = [x, 60]
+    m.trailerVideo.width = w
+    m.trailerVideo.height = h
 end sub
 
 sub setHeader(item as object)

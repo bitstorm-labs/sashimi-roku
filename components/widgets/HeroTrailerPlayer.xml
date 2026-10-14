@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="HeroTrailerPlayer" extends="Group">
+    <!-- App-level service, owned by MainScene (Apple: HeroTrailerController).
+         Non-visual: it holds the timers and its own API task, and creates one
+         Video node per trailer, which it lends to the detail screen on top
+         (MediaDetailScreen.heroTrailerAttach). Every entry point is a callFunc
+         taking exactly one argument, for the same reason as ThemeSongPlayer:
+         one tick can carry several screen transitions and field writes
+         coalesce. -->
+    <interface>
+        <!-- { owner, screen, sourceId }: a screen was pushed. -->
+        <function name="screenAppeared" />
+        <!-- { owner, sourceId }: a detail screen's item loaded. -->
+        <function name="sourceChanged" />
+        <!-- owner: a pushed screen was popped. -->
+        <function name="screenDismissed" />
+        <function name="stopForPlayback" />
+        <function name="resetSession" />
+        <!-- ThemeSongPlayer: the trailer is silent while a theme plays. -->
+        <field id="themePlayer" type="node" onChange="onThemePlayerSet" />
+    </interface>
+    <children>
+        <!-- The image shows first; the trailer starts once the screen has
+             settled, so flicking past a title costs no transcode. -->
+        <Timer id="startTimer" repeat="false" duration="2.0" />
+        <!-- The cross-fade back to the image, after which the Video goes. -->
+        <Timer id="fadeTimer" repeat="false" duration="0.6" />
+        <!-- A stream that never produces a frame (a slow remote transcode)
+             gives up rather than holding a transcode open behind the image. -->
+        <Timer id="revealTimer" repeat="false" duration="15" />
+        <!-- NOT "apiTask": see ThemeSongPlayer's themeApiTask. -->
+        <JellyfinApi id="heroApiTask" />
+    </children>
+</component>

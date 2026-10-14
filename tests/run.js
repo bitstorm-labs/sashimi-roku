@@ -15,7 +15,8 @@ const suites = {
     'StreamQualityTests.brs': ['out/source/utils/StreamQuality.brs'],
     'ConfirmTests.brs': ['out/source/utils/Confirm.brs'],
     'NextEpisodeTests.brs': ['out/source/utils/NextEpisode.brs'],
-    'ContinueWatchingTests.brs': ['out/source/utils/ContinueWatching.brs']
+    'ContinueWatchingTests.brs': ['out/source/utils/ContinueWatching.brs'],
+    'HeroTrailerTests.brs': ['out/source/utils/HeroTrailer.brs']
 };
 
 // SASHIMI_TEST_MODULE swaps in another build of the module under test, to
