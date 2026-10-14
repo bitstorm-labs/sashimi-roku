@@ -48,7 +48,11 @@ sub init()
     ' Bumped by every start and stop, so an answer to an abandoned request is
     ' recognised as stale when it lands.
     m.gen = 0
-    m.pending = invalid     ' { sourceId, owner, gen } between schedule and play
+    ' { sourceId, gen } between schedule and play. Not tied to the screen that
+    ' asked: a screen for the same show pushed or uncovered meanwhile is handed
+    ' the start (it plays in whichever screen is then on top), and whatever
+    ' really ends it -- a stop, another title, the stack emptying -- bumps gen.
+    m.pending = invalid
     m.waitingForTheme = false ' the start delay passed while a theme played
     ' sourceId -> { id, seconds }, or "" for "no trailer". Misses are cached so
     ' a trailerless title isn't asked again; failed requests are not.
@@ -148,6 +152,8 @@ sub apply(decision as object)
         m.activeOwner = HeroTrailer.topOwner(m.owners)
         scheduleStart(decision.sourceId)
     else if decision.kind = "handOff"
+        ' Also covers a start still waiting out its delay or a theme song:
+        ' play() attaches to the active owner, so it lands in this screen.
         m.activeOwner = HeroTrailer.topOwner(m.owners)
         moveToActiveScreen()
     else if decision.kind = "stop"
@@ -158,15 +164,23 @@ end sub
 
 sub scheduleStart(sourceId as string)
     m.gen = m.gen + 1
-    m.pending = { sourceId: sourceId, owner: m.activeOwner, gen: m.gen }
+    m.pending = { sourceId: sourceId, gen: m.gen }
     m.startTimer.control = "stop"
     m.startTimer.control = "start"
 end sub
 
-' The pending start is still the one in force, for the screen still on top.
+' The pending start is still the one in force. Only a real stop or another
+' start bumps gen; a hand-off to a newer screen for the same show does not.
 function isCurrent(gen as integer) as boolean
-    return (m.pending <> invalid and m.pending.gen = gen and m.pending.owner = m.activeOwner)
+    return (m.pending <> invalid and m.pending.gen = gen)
 end function
+
+' The pending start played or gave up: from here the owner rules compare
+' against the playing source alone.
+sub clearPending()
+    if m.pending <> invalid then HeroTrailer.settled(m.owners, m.pending.sourceId)
+    m.pending = invalid
+end sub
 
 sub onStartTimer()
     if m.pending = invalid or not isCurrent(m.pending.gen) then return
@@ -189,7 +203,7 @@ end sub
 sub onTrailerResolved(trailer as dynamic)
     if m.pending = invalid then return
     if trailer = invalid or GetInterface(trailer, "ifAssociativeArray") = invalid
-        m.pending = invalid
+        clearPending()
         return
     end if
     c = HeroTrailer.clip(trailer.seconds)
@@ -214,9 +228,19 @@ sub play(stream as object, sourceId as string, c as object)
     host = m.screens[m.activeOwner]
     if host = invalid
         stopEncoding(stream.playSessionId)
+        clearPending()
         return
     end if
-    m.pending = invalid
+    ' A theme that started while the stream was being set up -- a hand-off
+    ' into an episode opens that show's theme visit just as the delay runs
+    ' out -- owns the one player now, and this Video would fail at once. Let
+    ' the encode go and keep the start pending until the theme ends.
+    if isThemePlaying()
+        stopEncoding(stream.playSessionId)
+        m.waitingForTheme = true
+        return
+    end if
+    clearPending()
 
     video = CreateObject("roSGNode", "Video")
     ' No trick-play bar, buffering spinner or "Retrieving..." over the hero.
@@ -332,7 +356,7 @@ end sub
 
 sub stopTrailer()
     m.gen = m.gen + 1
-    m.pending = invalid
+    clearPending()
     m.waitingForTheme = false
     m.startTimer.control = "stop"
     teardown()
@@ -404,7 +428,7 @@ sub onApiResponse()
         else if response.success and response.url <> invalid and response.url <> ""
             play(response, req.heroSource, req.heroClip)
         else
-            m.pending = invalid
+            clearPending()
         end if
     end if
 

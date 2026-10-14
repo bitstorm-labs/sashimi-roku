@@ -5,7 +5,8 @@
 # Password comes from macOS Keychain (service: sashimi-roku-signing).
 set -euo pipefail
 DEVICE="${ROKU_DEV_TARGET:-192.168.86.30}"
-DEVPW="${ROKU_DEV_PASSWORD:-1234}"
+# The dev password lives in the Keychain too; a hard-coded default went stale.
+DEVPW="${ROKU_DEV_PASSWORD:-$(security find-generic-password -s sashimi-roku-dev -a rokudev -w)}"
 VERSION=$(grep -E "^(major|minor|build)_version" manifest | cut -d= -f2 | paste -sd. -)
 SIGNPW=$(security find-generic-password -s sashimi-roku-signing -w)
 
