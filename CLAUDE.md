@@ -22,8 +22,10 @@ and `source/utils/NextEpisode.bs` (the end-of-episode Up Next screen: next
 episode across seasons, countdown/Skip/Cancel state machine, screen text)
 and `source/utils/HeroTrailer.bs` (the detail-screen hero trailer: whose
 trailer a screen plays, the 10-40 s clip rule, once-per-visit ownership)
-and `source/utils/ShowStatus.bs` (the series status pill: Jellyfin's
-`Status` to Continuing / Ended / Upcoming, nothing otherwise).
+and `source/utils/ShowStatus.bs` (the show-status pill on series, season
+and episode screens: the series' `Status` to Continuing / Ended / Upcoming,
+nothing otherwise) and `source/utils/SeriesMeta.bs` (the series meta line,
+"1 Season" vs "7 Seasons").
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that
