@@ -663,7 +663,8 @@ sub addLogoTiles(selected as string, actionType as string)
             ' The chosen one carries a checkmark and an accent ring, so it
             ' reads as chosen whether or not focus is on it.
             ring = cell.createChild("Poster")
-            ring.uri = "pkg:/images/focus_ring_r16.9.png"
+            ' White base: blendColor multiplies, so this lands on the exact accent.
+            ring.uri = "pkg:/images/ring_r16_white.9.png"
             ring.width = TILE_SIZE
             ring.height = TILE_SIZE
             ring.blendColor = "#8C5CC7"
