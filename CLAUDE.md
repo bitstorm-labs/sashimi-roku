@@ -21,7 +21,8 @@ order: `StandardMessageDialog` focuses its first button, so Cancel goes first)
 and `source/utils/NextEpisode.bs` (the end-of-episode Up Next screen: next
 episode across seasons, countdown/Skip/Cancel state machine, screen text)
 and `source/utils/HeroTrailer.bs` (the detail-screen hero trailer: whose
-trailer a screen plays, the 10-40 s clip rule, once-per-visit ownership)
+trailer a screen plays, movies to their end vs the series' 10-40 s clip,
+the fade point, once-per-visit ownership)
 and `source/utils/ShowStatus.bs` (the show-status pill on series, season
 and episode screens: the series' `Status` to Continuing / Ended / Upcoming,
 nothing otherwise) and `source/utils/SeriesMeta.bs` (the series meta line,

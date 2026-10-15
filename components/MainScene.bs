@@ -802,7 +802,7 @@ end sub
 ' heroSource: whose trailer a detail screen's hero plays, as far as the item
 ' it was opened with can tell ("" for every other screen, which stops any
 ' trailer underneath it). A detail screen corrects it once its item loads.
-sub pushScreen(screen as object, heroSource = "" as string)
+sub pushScreen(screen as object, heroSource = "" as string, heroToEnd = false as boolean)
     if m.currentScreen <> invalid
         m.currentScreen.visible = false
     end if
@@ -812,7 +812,7 @@ sub pushScreen(screen as object, heroSource = "" as string)
     liftOverlays()
     m.currentScreen = screen
     screen.setFocus(true)
-    heroAppeared(screen, heroSource)
+    heroAppeared(screen, heroSource, heroToEnd)
 end sub
 
 sub showDetailScreen(itemData as object)
@@ -833,7 +833,7 @@ sub showDetailScreen(itemData as object)
     screen.addField("themeKey", "string", false)
     screen.themeKey = key
 
-    pushScreen(screen, HeroTrailer.sourceId(itemData))
+    pushScreen(screen, HeroTrailer.sourceId(itemData), HeroTrailer.playsToEnd(itemData))
     screen.itemData = itemData
     enterTheme(key)
 end sub
@@ -842,19 +842,21 @@ end sub
 ' See HeroTrailerPlayer. Each pushed screen gets an owner id; detail screens
 ' also report their trailer source when their item loads.
 
-sub heroAppeared(screen as object, heroSource as string)
+sub heroAppeared(screen as object, heroSource as string, heroToEnd as boolean)
     m.heroOwnerSeq = m.heroOwnerSeq + 1
     owner = "o" + m.heroOwnerSeq.ToStr()
     screen.addField("heroOwner", "string", false)
     screen.heroOwner = owner
     if screen.hasField("trailerSourceId") then screen.observeFieldScoped("trailerSourceId", "onTrailerSource")
-    m.heroTrailer.callFunc("screenAppeared", { owner: owner, screen: screen, sourceId: heroSource })
+    m.heroTrailer.callFunc("screenAppeared", { owner: owner, screen: screen, sourceId: heroSource, toEnd: heroToEnd })
 end sub
 
 sub onTrailerSource(event as object)
     screen = event.getRoSGNode()
     if screen = invalid or not screen.hasField("heroOwner") then return
-    m.heroTrailer.callFunc("sourceChanged", { owner: screen.heroOwner, sourceId: event.getData() })
+    ' trailerToEnd is written before trailerSourceId, so it is current here.
+    toEnd = (screen.hasField("trailerToEnd") and screen.trailerToEnd = true)
+    m.heroTrailer.callFunc("sourceChanged", { owner: screen.heroOwner, sourceId: event.getData(), toEnd: toEnd })
 end sub
 
 ' ---------- Theme songs ----------
