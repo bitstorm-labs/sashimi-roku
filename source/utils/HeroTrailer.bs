@@ -20,6 +20,11 @@ namespace HeroTrailer
     ' The image shows first: flicking past a title costs no transcode.
     const START_DELAY = 2.0
     const CROSS_FADE = 0.6
+    ' A trailer that follows a theme asks the server for its stream this long
+    ' before the theme ends, so the transcode is running by then and the
+    ' picture comes straight in. Not earlier: an encode nobody reads from for
+    ' a minute is a waste, and Jellyfin may reap it.
+    const PREPARE_LEAD = 8
     ' Trailarr's files are MKV/VP9/Opus, which no Roku plays directly, so the
     ' server always transcodes, and re-encodes (allowVideoStreamCopy false).
     ' The hero now fills ~55% of the screen (1056px) and most local trailers
@@ -73,7 +78,7 @@ namespace HeroTrailer
     ' the trailer is the point of the hero there. A series, season or episode
     ' plays the series trailer as the 30 s clip. (Apple and Android end a
     ' series trailer together with the theme song playing under it; on Roku
-    ' the two never overlap -- the trailer waits for the theme, see
+    ' the two never overlap -- the trailer follows the theme, see
     ' HeroTrailerPlayer -- so no theme is ever playing during it and the
     ' "no theme" half of that rule, the 30 s clip, is the one that applies.)
     function playsToEnd(item as dynamic) as boolean
@@ -117,6 +122,13 @@ namespace HeroTrailer
         at = lastSecs - CROSS_FADE
         if at < c.startSecs then at = c.startSecs
         return at
+    end function
+
+    ' Whether a trailer waiting for the theme should get its stream ready now.
+    ' secondsLeft is ThemeSongPlayer's: -1 until the theme's length is known.
+    function shouldPrepare(secondsLeft as dynamic) as boolean
+        if secondsLeft = invalid or secondsLeft < 0 then return false
+        return secondsLeft <= PREPARE_LEAD
     end function
 
     ' Silent while a theme song plays, its own sound otherwise.

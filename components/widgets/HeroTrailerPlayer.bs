@@ -18,9 +18,13 @@ import "pkg:/source/utils/HeroTrailer.bs"
 ' THEME FIRST, THEN TRAILER. Apple plays the trailer muted under the theme
 ' song. Roku can't: a Video started while ThemeSongPlayer's Audio plays fails
 ' at once with "player: only one playing instance supported" (verified on the
-' 9100X soundbar). So a trailer whose start falls inside a theme waits for the
-' theme to end (they run about 30 s) and then plays with its own sound -- the
-' "audible when no theme is playing" half of the Apple rule.
+' 9100X soundbar). So a trailer whose start falls inside a theme follows it
+' and plays with its own sound -- the "audible when no theme is playing" half
+' of the Apple rule. Waiting for the theme's end before asking for the stream
+' left seconds of dead air while the server started the transcode, which read
+' as the two being out of sync; so the stream is requested PREPARE_LEAD
+' seconds before the theme ends and held ready (m.ready), and the picture
+' starts the moment the theme stops.
 '
 ' NO VOLUME RAMP. The Video node's only audio control is the boolean `mute`
 ' (see ThemeSongPlayer), so the sound runs through the picture's fade and stops
@@ -55,6 +59,10 @@ sub init()
     ' really ends it -- a stop, another title, the stack emptying -- bumps gen.
     m.pending = invalid
     m.waitingForTheme = false ' the start delay passed while a theme played
+    m.preparing = false       ' a waiting trailer's lookup/stream is under way
+    ' { stream, sourceId, clip }: a stream fetched while the theme still played,
+    ' started the moment it ends.
+    m.ready = invalid
     ' sourceId -> { id, seconds }, or "" for "no trailer". Misses are cached so
     ' a trailerless title isn't asked again; failed requests are not.
     m.cache = {}
@@ -77,7 +85,18 @@ sub init()
 end sub
 
 sub onThemePlayerSet()
-    if m.top.themePlayer <> invalid then m.top.themePlayer.observeFieldScoped("isPlaying", "onThemePlaying")
+    if m.top.themePlayer = invalid then return
+    m.top.themePlayer.observeFieldScoped("isPlaying", "onThemePlaying")
+    m.top.themePlayer.observeFieldScoped("secondsLeft", "onThemeSecondsLeft")
+end sub
+
+' Close to the theme's end: get the waiting trailer's stream going now.
+sub onThemeSecondsLeft()
+    if not m.waitingForTheme or m.preparing then return
+    if m.pending = invalid or not isCurrent(m.pending.gen) then return
+    if not HeroTrailer.shouldPrepare(m.top.themePlayer.secondsLeft) then return
+    m.preparing = true
+    resolveTrailer()
 end sub
 
 ' A trailer held back for the theme starts once it ends. And, for parity, a
@@ -85,8 +104,18 @@ end sub
 ' theme can't actually play (see above), so in practice this never mutes.
 sub onThemePlaying()
     themeOn = (m.top.themePlayer.isPlaying = true)
+    if not themeOn and m.ready <> invalid
+        r = m.ready
+        m.ready = invalid
+        m.waitingForTheme = false
+        m.preparing = false
+        play(r.stream, r.sourceId, r.clip)
+        return
+    end if
     if not themeOn and m.waitingForTheme
         m.waitingForTheme = false
+        ' Already on its way (prepared early): its answer plays on arrival.
+        if m.preparing then return
         if m.pending <> invalid and isCurrent(m.pending.gen) then resolveTrailer()
         return
     end if
@@ -198,6 +227,8 @@ sub onStartTimer()
     if m.pending = invalid or not isCurrent(m.pending.gen) then return
     if isThemePlaying()
         m.waitingForTheme = true
+        ' A short theme may already be inside the lead.
+        onThemeSecondsLeft()
         return
     end if
     resolveTrailer()
@@ -244,12 +275,14 @@ sub play(stream as object, sourceId as string, c as object)
         clearPending()
         return
     end if
-    ' A theme that started while the stream was being set up -- a hand-off
-    ' into an episode opens that show's theme visit just as the delay runs
-    ' out -- owns the one player now, and this Video would fail at once. Let
-    ' the encode go and keep the start pending until the theme ends.
+    ' The theme still plays (the stream was readied before its end, or a
+    ' theme started while the stream was being set up -- a hand-off into an
+    ' episode opens that show's theme visit just as the delay runs out). It
+    ' owns the one player and this Video would fail at once, so the stream is
+    ' held, encoding, and starts the moment the theme ends.
     if isThemePlaying()
-        stopEncoding(stream.playSessionId)
+        dropReady()
+        m.ready = { stream: stream, sourceId: sourceId, clip: c }
         m.waitingForTheme = true
         return
     end if
@@ -370,10 +403,19 @@ sub onFadeTimer()
     if m.finishing then teardown()
 end sub
 
+' A held stream nobody will play: end its encode.
+sub dropReady()
+    if m.ready = invalid then return
+    stopEncoding(m.ready.stream.playSessionId)
+    m.ready = invalid
+end sub
+
 sub stopTrailer()
     m.gen = m.gen + 1
     clearPending()
+    dropReady()
     m.waitingForTheme = false
+    m.preparing = false
     m.startTimer.control = "stop"
     teardown()
 end sub

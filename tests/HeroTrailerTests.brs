@@ -20,6 +20,7 @@ sub main()
     testSourceChanged(t)
     testPendingStartHandsOff(t)
     testStreamCaps(t)
+    testShouldPrepare(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -298,4 +299,15 @@ sub testStreamCaps(t as object)
     c = HeroTrailer_streamCaps()
     eq(t, "trailer width cap", c.maxWidth, 1920)
     eq(t, "trailer bitrate cap", c.maxBitrate, 8000000)
+end sub
+
+sub testShouldPrepare(t as object)
+    ' A trailer following the theme readies its stream 8 s before the end.
+    eq(t, "theme length unknown: wait", HeroTrailer_shouldPrepare(-1), false)
+    eq(t, "no theme figure at all: wait", HeroTrailer_shouldPrepare(invalid), false)
+    eq(t, "well before the end: wait", HeroTrailer_shouldPrepare(25.0), false)
+    eq(t, "just outside the lead: wait", HeroTrailer_shouldPrepare(8.5), false)
+    eq(t, "at the lead: prepare", HeroTrailer_shouldPrepare(8.0), true)
+    eq(t, "inside the lead: prepare", HeroTrailer_shouldPrepare(3.2), true)
+    eq(t, "at the very end: prepare", HeroTrailer_shouldPrepare(0), true)
 end sub

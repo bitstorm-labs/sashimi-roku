@@ -15,6 +15,9 @@
         <!-- True while the theme is audible (or about to be). The hero trailer
              mutes itself under it. -->
         <field id="isPlaying" type="boolean" value="false" />
+        <!-- Seconds until the theme ends, -1 while unknown or silent. The hero
+             trailer readies its stream shortly before the end. -->
+        <field id="secondsLeft" type="float" value="-1" />
     </interface>
     <children>
         <Audio id="audio" />

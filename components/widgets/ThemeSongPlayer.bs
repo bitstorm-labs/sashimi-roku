@@ -36,6 +36,10 @@ sub init()
 
     m.startTimer.observeFieldScoped("fire", "onStartTimer")
     m.audio.observeFieldScoped("state", "onAudioState")
+    ' The hero trailer follows the theme and gets its stream ready shortly
+    ' before the end (secondsLeft).
+    m.audio.notificationInterval = 0.5
+    m.audio.observeFieldScoped("position", "onAudioPosition")
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
 
@@ -152,6 +156,15 @@ end sub
 sub onAudioState()
     state = m.audio.state
     m.top.isPlaying = (state = "playing" or state = "buffering")
+    if not m.top.isPlaying then m.top.secondsLeft = -1
+end sub
+
+' -1 until the length is known (and once the theme stops).
+sub onAudioPosition()
+    if m.top.isPlaying <> true then return
+    duration = m.audio.duration
+    if duration = invalid or duration <= 0 then return
+    m.top.secondsLeft = duration - m.audio.position
 end sub
 
 sub stopAndDisarm()
