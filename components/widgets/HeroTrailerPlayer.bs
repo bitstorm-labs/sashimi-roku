@@ -2,7 +2,8 @@ import "pkg:/source/utils/HeroTrailer.bs"
 
 ' The detail-screen hero trailer (Apple parity, sashimi #658): the backdrop
 ' shows first, then after 2 s cross-fades to the title's LOCAL trailer playing
-' in its place, and fades back to the image when the clip ends.
+' in its place, and fades back to the image when the clip ends: a movie's
+' trailer at its own end, a series' after 30 s (HeroTrailer.clip).
 '
 ' OWNERSHIP. MainScene reports every pushed and popped screen; HeroTrailer's
 ' owner rules decide start / hand off / stop, so a trailer plays at most once
@@ -57,6 +58,10 @@ sub init()
     ' sourceId -> { id, seconds }, or "" for "no trailer". Misses are cached so
     ' a trailerless title isn't asked again; failed requests are not.
     m.cache = {}
+    ' sourceId -> true for a source whose trailer plays to its end (a movie;
+    ' HeroTrailer.playsToEnd). Ids are unique across types, so one map serves
+    ' every screen that reports the source.
+    m.toEnd = {}
 
     m.video = invalid
     m.host = invalid        ' the screen the Video is attached to
@@ -98,11 +103,13 @@ end function
 function screenAppeared(args as object) as void
     if args = invalid or args.owner = invalid then return
     m.screens[args.owner] = args.screen
+    noteToEnd(args)
     apply(HeroTrailer.appeared(m.owners, args.owner, eligibleSource(args.sourceId), m.playingSourceId))
 end function
 
 function sourceChanged(args as object) as void
     if args = invalid or args.owner = invalid then return
+    noteToEnd(args)
     apply(HeroTrailer.sourceChanged(m.owners, args.owner, eligibleSource(args.sourceId), m.playingSourceId))
 end function
 
@@ -132,8 +139,13 @@ function resetSession(reason as string) as void
     HeroTrailer.reset(m.owners)
     m.screens = {}
     m.cache = {}
+    m.toEnd = {}
     m.activeOwner = ""
 end function
+
+sub noteToEnd(args as object)
+    if args.toEnd = true and args.sourceId <> invalid and args.sourceId <> "" then m.toEnd[args.sourceId] = true
+end sub
 
 function eligibleSource(sourceId as dynamic) as string
     if sourceId = invalid then return ""
@@ -206,7 +218,7 @@ sub onTrailerResolved(trailer as dynamic)
         clearPending()
         return
     end if
-    c = HeroTrailer.clip(trailer.seconds)
+    c = HeroTrailer.clip(trailer.seconds, m.toEnd.DoesExist(m.pending.sourceId))
     caps = HeroTrailer.streamCaps()
     enqueue({
         action: "getPlaybackStream"
@@ -326,7 +338,10 @@ sub onVideoPosition()
             print "[HeroTrailer] revealed at "; secs
         #end if
     end if
-    if secs >= HeroTrailer.fadeAt(m.clip) then finish()
+    ' A trailer of unknown length has no fade point until the Video learns
+    ' its duration; failing that, its "finished" state ends it.
+    at = HeroTrailer.fadeAt(m.clip, m.video.duration)
+    if at <> invalid and secs >= at then finish()
 end sub
 
 sub onRevealTimeout()
