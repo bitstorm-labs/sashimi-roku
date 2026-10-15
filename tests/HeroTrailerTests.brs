@@ -9,7 +9,10 @@ sub main()
     testSourceId(t)
     testSource(t)
     testClip(t)
+    testPlaysToEnd(t)
+    testClipToEnd(t)
     testFadeAt(t)
+    testFadeAtStreamEnd(t)
     testMute(t)
     testAppeared(t)
     testHandOffAndOncePerVisit(t)
@@ -91,6 +94,45 @@ sub testClip(t as object)
     c = HeroTrailer_clip(invalid)
     eq(t, "unknown length from 0", c.startSecs, 0)
     eq(t, "unknown length plays 30", c.endSecs, 30)
+end sub
+
+sub testPlaysToEnd(t as object)
+    eq(t, "a movie plays its whole trailer", HeroTrailer_playsToEnd({ Id: "m1", Type: "Movie" }), true)
+    ' Seasons and episodes play the series trailer, under the series rule.
+    eq(t, "a series plays the clip", HeroTrailer_playsToEnd({ Id: "s1", Type: "Series" }), false)
+    eq(t, "a season plays the clip", HeroTrailer_playsToEnd({ Id: "se1", Type: "Season", SeriesId: "s1" }), false)
+    eq(t, "an episode plays the clip", HeroTrailer_playsToEnd({ Id: "e1", Type: "Episode", SeriesId: "s1" }), false)
+    eq(t, "a bare deep-link id plays the clip", HeroTrailer_playsToEnd({ Id: "x" }), false)
+    eq(t, "invalid item plays the clip", HeroTrailer_playsToEnd(invalid), false)
+end sub
+
+' Movies: the same start (the opening skip on a full trailer), but no 30 s cap.
+sub testClipToEnd(t as object)
+    c = HeroTrailer_clip(121, true)
+    eq(t, "movie trailer still skips the opening", c.startSecs, 10)
+    eq(t, "movie trailer plays to its own end", c.endSecs, 121)
+    c = HeroTrailer_clip(44.9, true)
+    eq(t, "short movie trailer from the start", c.startSecs, 0)
+    eq(t, "short movie trailer past 30s", c.endSecs, 44.9)
+    c = HeroTrailer_clip(20, true)
+    eq(t, "very short movie trailer ends at its end", c.endSecs, 20)
+    ' Unknown length: until the stream itself ends (see fadeAt).
+    c = HeroTrailer_clip(invalid, true)
+    eq(t, "unknown movie length from 0", c.startSecs, 0)
+    eq(t, "unknown movie length has no fixed end", c.endSecs, invalid)
+    ' The series rule is untouched by the flag being off.
+    c = HeroTrailer_clip(121, false)
+    eq(t, "series full trailer still ends at 40", c.endSecs, 40)
+end sub
+
+' The stream's own duration (Video.duration, 0 until known) can only bring
+' the fade earlier, and is what an unknown-length movie trailer fades on.
+sub testFadeAtStreamEnd(t as object)
+    eq(t, "unknown length, duration not known yet", HeroTrailer_fadeAt({ startSecs: 0, endSecs: invalid }, 0), invalid)
+    eq(t, "unknown length fades before the stream ends", HeroTrailer_fadeAt({ startSecs: 0, endSecs: invalid }, 95), 94.4)
+    eq(t, "movie fades before the trailer ends", HeroTrailer_fadeAt({ startSecs: 10, endSecs: 121 }, 0), 120.4)
+    eq(t, "a shorter stream wins", HeroTrailer_fadeAt({ startSecs: 10, endSecs: 121 }, 119), 118.4)
+    eq(t, "a longer stream changes nothing", HeroTrailer_fadeAt({ startSecs: 10, endSecs: 40 }, 121), 39.4)
 end sub
 
 sub testFadeAt(t as object)

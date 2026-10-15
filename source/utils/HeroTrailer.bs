@@ -69,27 +69,52 @@ namespace HeroTrailer
         return { id: first.Id, seconds: seconds }
     end function
 
-    ' The stretch of the trailer the hero plays, as { startSecs, endSecs } in seconds.
-    ' A full trailer runs about two minutes, far more than a background
-    ' preview should; like a billboard preview the hero plays 30 s and fades
-    ' back to the image. The end never runs past the trailer's own end, so the
-    ' fade always has a moment of video left to fade.
-    function clip(seconds as dynamic) as object
-        if seconds = invalid or seconds <= 0
-            return { startSecs: 0, endSecs: CLIP_LENGTH }
+    ' Whether this screen's trailer plays to its natural end. A movie's does:
+    ' the trailer is the point of the hero there. A series, season or episode
+    ' plays the series trailer as the 30 s clip. (Apple and Android end a
+    ' series trailer together with the theme song playing under it; on Roku
+    ' the two never overlap -- the trailer waits for the theme, see
+    ' HeroTrailerPlayer -- so no theme is ever playing during it and the
+    ' "no theme" half of that rule, the 30 s clip, is the one that applies.)
+    function playsToEnd(item as dynamic) as boolean
+        if item = invalid or item.Type = invalid then return false
+        return (item.Type = "Movie")
+    end function
+
+    ' The stretch of the trailer the hero plays, as { startSecs, endSecs } in
+    ' seconds. A full trailer runs about two minutes; outside a movie that is
+    ' far more than a background preview should, so like a billboard preview
+    ' the hero plays 30 s and fades back to the image. toEnd (a movie, see
+    ' playsToEnd) keeps the same start but lifts the cap: the trailer plays to
+    ' its own end, and with an unknown length endSecs is invalid and the
+    ' stream's own end decides (fadeAt). The end never runs past the trailer's
+    ' own end, so the fade always has a moment of video left to fade.
+    function clip(seconds as dynamic, toEnd = false as boolean) as object
+        known = (seconds <> invalid and seconds > 0)
+        startSecs = 0
+        if known and seconds >= MINIMUM_FOR_SKIP then startSecs = OPENING_SKIP
+        if toEnd
+            if known then return { startSecs: startSecs, endSecs: seconds }
+            return { startSecs: 0, endSecs: invalid }
         end if
-        if seconds >= MINIMUM_FOR_SKIP
-            return { startSecs: OPENING_SKIP, endSecs: OPENING_SKIP + CLIP_LENGTH }
-        end if
-        clipEnd = seconds
-        if clipEnd > CLIP_LENGTH then clipEnd = CLIP_LENGTH
-        return { startSecs: 0, endSecs: clipEnd }
+        if not known then return { startSecs: 0, endSecs: CLIP_LENGTH }
+        clipEnd = startSecs + CLIP_LENGTH
+        if clipEnd > seconds then clipEnd = seconds
+        return { startSecs: startSecs, endSecs: clipEnd }
     end function
 
     ' Where the fade back to the image begins: while the last moments still
-    ' play, not on a frozen frame.
-    function fadeAt(c as object) as float
-        at = c.endSecs - CROSS_FADE
+    ' play, not on a frozen frame. streamSecs is the Video node's duration (0
+    ' until known); a stream shorter than the server's figure brings the fade
+    ' forward, and it is the only end an unknown-length trailer has. Invalid
+    ' while there is no end yet: the stream's "finished" state ends it then.
+    function fadeAt(c as object, streamSecs = 0 as dynamic) as dynamic
+        lastSecs = c.endSecs
+        if streamSecs <> invalid and streamSecs > 0
+            if lastSecs = invalid or streamSecs < lastSecs then lastSecs = streamSecs
+        end if
+        if lastSecs = invalid then return invalid
+        at = lastSecs - CROSS_FADE
         if at < c.startSecs then at = c.startSecs
         return at
     end function
