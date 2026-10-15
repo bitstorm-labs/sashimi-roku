@@ -1940,7 +1940,7 @@ sub buildChips(chips as object)
         lbl.height = 34
         lbl.horizAlign = "center"
         lbl.vertAlign = "center"
-        lbl.color = "#E6FFFFFF"
+        lbl.color = "#FFFFFFE6"
         f = CreateObject("roSGNode", "Font")
         f.uri = "pkg:/fonts/Inter-Medium.ttf"
         f.size = 20

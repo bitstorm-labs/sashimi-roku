@@ -141,6 +141,12 @@ the focused screen never takes focus as long as nothing calls `setFocus` on it
 and `enableUI` is false; it can be re-parented between screens while playing
 (the hero trailer's series -> episode hand-off relies on this).
 
+**SceneGraph colours are `#RRGGBBAA` — alpha LAST.** `#40FFFFFF` (Android's
+"white at 25%") is opaque cyan here; write `#FFFFFF40`. The player's scrubber
+track, "Finishes at" and subtitle lines rendered cyan for months this way.
+`tests/colors.js` (part of `npm test`) fails on any 8-digit colour that only
+makes sense alpha-first.
+
 **A fully opaque Rectangle inside a MaskGroup draws unmasked** (seen on the
 9100X soundbar: the skip pill's purple fill poked out square past its capsule
 at opacity 1.0, and was clipped at 0.99 and 0.55). Keep masked fills below
