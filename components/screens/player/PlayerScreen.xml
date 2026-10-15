@@ -106,20 +106,20 @@
             <Poster id="osdLogo" width="360" height="72" loadDisplayMode="scaleToFit"
                     translation="[80,30]" visible="false" />
             <Poster id="osdChannelCircle" width="80" height="80" translation="[80,30]" visible="false" />
-            <Label id="osdChannelName" text="" color="#E6FFFFFF" width="1400" maxLines="1" translation="[180,52]" visible="false">
+            <Label id="osdChannelName" text="" color="#FFFFFFE6" width="1400" maxLines="1" translation="[180,52]" visible="false">
                 <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="30" />
             </Label>
             <Label id="osdTitle" text="" color="#FFFFFF" width="1500" maxLines="1" translation="[80,44]">
                 <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="42" />
             </Label>
-            <Label id="osdSubtitle" text="" color="#99FFFFFF" width="1500" maxLines="1" translation="[80,104]">
+            <Label id="osdSubtitle" text="" color="#FFFFFF99" width="1500" maxLines="1" translation="[80,104]">
                 <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
             </Label>
             <Label id="osdClock" text="" color="#FFFFFF" width="240" horizAlign="right"
                    translation="[1600,44]">
                 <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="34" />
             </Label>
-            <Label id="osdFinishes" text="" color="#80FFFFFF" width="400" horizAlign="right"
+            <Label id="osdFinishes" text="" color="#FFFFFF80" width="400" horizAlign="right"
                    translation="[1440,96]">
                 <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
             </Label>
@@ -132,7 +132,7 @@
             <Group id="osdBtnRow" translation="[80, 876]" />
 
             <!-- Scrubber -->
-            <Rectangle id="osdScrubTrack" width="1760" height="6" color="#40FFFFFF" translation="[80,1000]" />
+            <Rectangle id="osdScrubTrack" width="1760" height="6" color="#FFFFFF40" translation="[80,1000]" />
             <Rectangle id="osdScrubFill" width="0" height="6" color="#8C5CC7" translation="[80,1000]" />
             <Group id="osdChapterTicks" translation="[80,997]" />
             <Rectangle id="osdScrubKnob" width="8" height="22" color="#8C5CC7" translation="[76,992]" />
