@@ -485,6 +485,8 @@ sub onItemLoaded(response as object)
     ' the active session, so neither has one.
     heroSource = ""
     if m.pinned = invalid and not m.top.autoPlay then heroSource = HeroTrailer.sourceId(item)
+    ' Before trailerSourceId: MainScene reads it from that field's observer.
+    m.top.trailerToEnd = HeroTrailer.playsToEnd(item)
     m.top.trailerSourceId = heroSource
 
     ' Deep link with a playable mediaType: start playback immediately (cert

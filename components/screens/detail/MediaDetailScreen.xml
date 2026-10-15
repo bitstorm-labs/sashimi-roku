@@ -25,6 +25,9 @@
              loads. MainScene forwards it to HeroTrailerPlayer, which ignores an
              unchanged value, so alwaysNotify only matters for "" after "". -->
         <field id="trailerSourceId" type="string" value="" alwaysNotify="true" />
+        <!-- Whether that trailer plays to its end (a movie) rather than the
+             30 s clip. Written just before trailerSourceId. -->
+        <field id="trailerToEnd" type="boolean" value="false" />
         <!-- HeroTrailerPlayer lends this screen its Video node while it owns the
              trailer. -->
         <function name="heroTrailerAttach" />
