@@ -197,4 +197,36 @@ namespace StreamQuality
         return conditions
     end function
 
+    ' The audio half of the profile, from rokuCapabilities: codecs to direct
+    ' play, codecs to stream (the server encodes to the FIRST one it can't
+    ' copy), the channel cap, and the AAC CodecProfile.
+    ' Surround goes out as Dolby when the device takes it. Offering "aac,ac3"
+    ' let the server turn E-AC3 5.1 into 5.1 AAC, which a Roku that can't
+    ' decode it plays for two seconds and then freezes on, with no error to
+    ' retry from (Oct 2026, a remote viewer's every episode). AAC is held to
+    ' stereo unless the device says it decodes six channels.
+    function audioProfile(caps as object) as object
+        dolby = []
+        if caps.ac3 then dolby.push("ac3")
+        if caps.eac3 then dolby.push("eac3")
+        surroundAac = caps.surround and caps.aac6
+        channels = "2"
+        if caps.surround and (surroundAac or dolby.Count() > 0) then channels = "6"
+        stream = "aac"
+        if dolby.Count() > 0
+            if channels = "6"
+                stream = dolby.Join(",") + ",aac"
+            else
+                stream = "aac," + dolby.Join(",")
+            end if
+        end if
+        direct = "aac,mp3"
+        if dolby.Count() > 0 then direct += "," + dolby.Join(",")
+        profiles = []
+        if not surroundAac
+            profiles.push({ Type: "VideoAudio", Codec: "aac", Conditions: [{ Condition: "LessThanEqual", Property: "AudioChannels", Value: "2", IsRequired: true }] })
+        end if
+        return { direct: direct, stream: stream, channels: channels, profiles: profiles }
+    end function
+
 end namespace

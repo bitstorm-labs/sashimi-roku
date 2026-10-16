@@ -16,7 +16,7 @@ npm run dev       # package + sideload (needs ROKU_DEV_TARGET / ROKU_DEV_PASSWOR
 `npm test` transpiles and then runs `tests/*Tests.brs` off-device with the
 `@rokucommunity/brs` interpreter (`tests/run.js`). It covers **pure logic only**
 — today `source/utils/StreamQuality.bs` (quality tiers, step-down ladder, probe
-arithmetic) and `source/utils/Confirm.bs` (destructive-confirmation button
+arithmetic, the device profile's audio codecs and channel cap) and `source/utils/Confirm.bs` (destructive-confirmation button
 order: `StandardMessageDialog` focuses its first button, so Cancel goes first)
 and `source/utils/NextEpisode.bs` (the end-of-episode Up Next screen: next
 episode across seasons, countdown/Skip/Cancel state machine, screen text)
