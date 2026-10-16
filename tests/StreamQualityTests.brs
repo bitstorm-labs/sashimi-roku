@@ -15,6 +15,7 @@ sub main()
     testLocalServer(t)
     testProbe(t)
     testVideoConditions(t)
+    testAudioProfile(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -204,4 +205,46 @@ sub testVideoConditions(t as object)
     ' A width wider than the output limit does not loosen it.
     wide = StreamQuality_videoConditions(false, 3840)
     if wide.Count() > 0 then eq(t, "hd wide width", wide[0].Value, "1920")
+end sub
+
+function audioCaps(ac3 as boolean, eac3 as boolean, aac6 as boolean, surround as boolean) as object
+    return { ac3: ac3, eac3: eac3, aac6: aac6, hevc: false, surround: surround, uhd: false }
+end function
+
+sub testAudioProfile(t as object)
+    ' The remote viewer whose every episode froze at 2 s: a 5.1 output that
+    ' takes AC3 but not E-AC3 or six-channel AAC. E-AC3 5.1 sources must be
+    ' streamed as AC3, never 5.1 AAC, and AAC is held to stereo.
+    a = StreamQuality_audioProfile(audioCaps(true, false, false, true))
+    eq(t, "ac3 5.1 stream", a.stream, "ac3,aac")
+    eq(t, "ac3 5.1 channels", a.channels, "6")
+    eq(t, "ac3 5.1 direct", a.direct, "aac,mp3,ac3")
+    eq(t, "ac3 5.1 aac profile", a.profiles.Count(), 1)
+    if a.profiles.Count() = 1
+        p = a.profiles[0]
+        eq(t, "aac profile type", p.Type, "VideoAudio")
+        eq(t, "aac profile codec", p.Codec, "aac")
+        eq(t, "aac profile prop", p.Conditions[0].Property, "AudioChannels")
+        eq(t, "aac profile cond", p.Conditions[0].Condition, "LessThanEqual")
+        eq(t, "aac profile value", p.Conditions[0].Value, "2")
+    end if
+    ' Both Dolby codecs: both ahead of AAC.
+    both = StreamQuality_audioProfile(audioCaps(true, true, false, true))
+    eq(t, "dolby stream", both.stream, "ac3,eac3,aac")
+    eq(t, "dolby direct", both.direct, "aac,mp3,ac3,eac3")
+    ' A device that decodes six-channel AAC keeps it, with no stereo cap.
+    aac = StreamQuality_audioProfile(audioCaps(false, false, true, true))
+    eq(t, "aac6 stream", aac.stream, "aac")
+    eq(t, "aac6 channels", aac.channels, "6")
+    eq(t, "aac6 no profile", aac.profiles.Count(), 0)
+    ' Surround output but nothing that carries it: stereo AAC.
+    none = StreamQuality_audioProfile(audioCaps(false, false, false, true))
+    eq(t, "no surround codec channels", none.channels, "2")
+    eq(t, "no surround codec stream", none.stream, "aac")
+    eq(t, "no surround codec profile", none.profiles.Count(), 1)
+    ' Stereo output: stereo whatever the device decodes, AAC first.
+    tv = StreamQuality_audioProfile(audioCaps(true, false, true, false))
+    eq(t, "stereo channels", tv.channels, "2")
+    eq(t, "stereo stream", tv.stream, "aac,ac3")
+    eq(t, "stereo aac profile", tv.profiles.Count(), 1)
 end sub

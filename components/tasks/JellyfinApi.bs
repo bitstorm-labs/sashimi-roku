@@ -1952,10 +1952,11 @@ end function
 ' re-encode alike, since the audio was copied each time).
 function rokuCapabilities() as object
     di = CreateObject("roDeviceInfo")
-    caps = { ac3: false, eac3: false, hevc: false, surround: false, uhd: false }
+    caps = { ac3: false, eac3: false, aac6: false, hevc: false, surround: false, uhd: false }
     if di = invalid then return caps
     caps.ac3 = canDecode(di.CanDecodeAudio({ Codec: "ac3" }))
     caps.eac3 = canDecode(di.CanDecodeAudio({ Codec: "eac3" }))
+    caps.aac6 = canDecode(di.CanDecodeAudio({ Codec: "aac", ChCnt: 6 }))
     caps.hevc = canDecode(di.CanDecodeVideo({ Codec: "hevc" }))
     channels = LCase(di.GetAudioOutputChannel())
     caps.surround = Instr(1, channels, "5.1") > 0 or Instr(1, channels, "7.1") > 0
@@ -1970,27 +1971,16 @@ end function
 ' Roku DeviceProfile built from the capabilities above: direct-play mp4/mov/mkv
 ' (h264, hevc when decodable), everything else transcodes to HLS ts/h264.
 ' Dolby codecs are offered only when the device says it can play them, so the
-' server converts them to AAC otherwise.
+' server converts them to AAC otherwise (StreamQuality.audioProfile).
 function rokuDeviceProfile(streamingBitrate as integer, caps = invalid as object, maxWidth = 0 as integer) as object
     if caps = invalid then caps = rokuCapabilities()
-    audio = "aac,mp3"
-    streamAudio = "aac"
-    if caps.ac3
-        audio += ",ac3"
-        streamAudio += ",ac3"
-    end if
-    if caps.eac3
-        audio += ",eac3"
-        streamAudio += ",eac3"
-    end if
+    sound = StreamQuality.audioProfile(caps)
     video = "h264"
     if caps.hevc then video += ",hevc"
-    channels = "2"
-    if caps.surround then channels = "6"
 
     ' Width/height limits: the HD-output cap, and a quality tier's width (a
     ' bitrate cap alone leaves the server encoding at the source resolution).
-    codecProfiles = []
+    codecProfiles = sound.profiles
     conditions = StreamQuality.videoConditions(caps.uhd, maxWidth)
     if conditions.count() > 0
         for each codec in ["h264", "hevc"]
@@ -2003,10 +1993,10 @@ function rokuDeviceProfile(streamingBitrate as integer, caps = invalid as object
         MaxStaticBitrate: 100000000
         MusicStreamingTranscodingBitrate: 384000
         DirectPlayProfiles: [
-            { Container: "mp4,m4v,mov,mkv", Type: "Video", VideoCodec: video, AudioCodec: audio }
+            { Container: "mp4,m4v,mov,mkv", Type: "Video", VideoCodec: video, AudioCodec: sound.direct }
         ]
         TranscodingProfiles: [
-            { Container: "ts", Type: "Video", VideoCodec: "h264", AudioCodec: streamAudio, Protocol: "hls", Context: "Streaming", MaxAudioChannels: channels, MinSegments: "2", BreakOnNonKeyFrames: true }
+            { Container: "ts", Type: "Video", VideoCodec: "h264", AudioCodec: sound.stream, Protocol: "hls", Context: "Streaming", MaxAudioChannels: sound.channels, MinSegments: "2", BreakOnNonKeyFrames: true }
         ]
         ContainerProfiles: []
         CodecProfiles: codecProfiles
