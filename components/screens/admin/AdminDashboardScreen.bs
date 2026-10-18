@@ -1,0 +1,649 @@
+import "pkg:/source/utils/AdminDash.bs"
+import "pkg:/source/utils/Confirm.bs"
+import "pkg:/source/utils/ImageUrl.bs"
+
+' Server dashboard (sashimi design 2026-10-18, layout A).
+'
+' Focus is virtual, as in the player, Settings and the channel manager: the
+' screen keeps real focus and m.cardIdx names the highlighted stream. Cards
+' are PAGED three at a time rather than slid in a clipped rail. OK on a card
+' opens its actions; Stop and Message exist only for sessions that report
+' SupportsRemoteControl, and Stop is confirmed Cancel-first.
+'
+' Polling: sessions every 8 s, everything else every 30 s, only while the
+' screen is on screen. Back stops both timers before MainScene pops the
+' screen, and each tick re-checks that the screen is still showing.
+
+const CARDS_PER_PAGE = 3
+const CARD_W = 560
+const CARD_H = 300
+const CARD_GAP = 30
+const ROWS_MAX = 8
+const ROW_PITCH = 40
+const ACCENT = "#BD3EEDFF"
+
+sub init()
+    m.serverLabel = m.top.findNode("serverLabel")
+    m.chips = m.top.findNode("chips")
+    m.pageLabel = m.top.findNode("pageLabel")
+    m.cards = m.top.findNode("cards")
+    m.emptyLabel = m.top.findNode("emptyLabel")
+    m.hintLabel = m.top.findNode("hintLabel")
+    m.activityRows = m.top.findNode("activityRows")
+    m.healthRows = m.top.findNode("healthRows")
+
+    m.apiTask = m.top.findNode("apiTask")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.sessionsTimer = m.top.findNode("sessionsTimer")
+    m.sessionsTimer.observeFieldScoped("fire", "onSessionsTick")
+    m.overviewTimer = m.top.findNode("overviewTimer")
+    m.overviewTimer.observeFieldScoped("fire", "onOverviewTick")
+    m.top.observeFieldScoped("visible", "onVisibleChanged")
+    m.top.observeField("focusedChild", "onFocusChanged")
+
+    m.fonts = {}
+    m.sessions = []          ' playing sessions, in server order
+    m.allSessions = []       ' every session (hardware-in-use counts need them)
+    m.overview = {}          ' info / activity / tasks / storage / encoding
+    m.loaded = false
+    m.unreachable = false
+    m.cardIdx = 0
+    m.pendingId = ""         ' the session a dialog is about
+    m.closed = false
+
+    m.reqQueue = []
+    m.reqActive = false
+
+    buildCards()
+    render()
+    m.emptyLabel.text = "Loading..."
+    m.emptyLabel.visible = true
+
+    refreshSessions()
+    refreshOverview()
+    startPolling()
+end sub
+
+' ---------- Lifetime ----------
+
+sub startPolling()
+    if m.closed then return
+    m.sessionsTimer.control = "start"
+    m.overviewTimer.control = "start"
+end sub
+
+sub stopPolling()
+    m.sessionsTimer.control = "stop"
+    m.overviewTimer.control = "stop"
+end sub
+
+function isShowing() as boolean
+    return not m.closed and m.top.visible and m.top.getParent() <> invalid
+end function
+
+sub onVisibleChanged()
+    if m.top.visible and not m.closed
+        refreshSessions()
+        startPolling()
+    else
+        stopPolling()
+    end if
+end sub
+
+sub onFocusChanged()
+    if m.top.hasFocus() then render()
+end sub
+
+sub close()
+    if m.closed then return
+    m.closed = true
+    stopPolling()
+    m.reqQueue = []
+    m.top.done = true
+end sub
+
+sub onSessionsTick()
+    if not isShowing()
+        stopPolling()
+        return
+    end if
+    refreshSessions()
+end sub
+
+sub onOverviewTick()
+    if not isShowing()
+        stopPolling()
+        return
+    end if
+    refreshOverview()
+end sub
+
+' ---------- Requests (one in flight: Task fields coalesce same-tick writes) ----------
+
+sub refreshSessions()
+    #if DEBUG
+        print "[Admin] poll sessions"
+    #end if
+    enqueue({ action: "adminSessions" })
+end sub
+
+sub refreshOverview()
+    #if DEBUG
+        print "[Admin] poll overview"
+    #end if
+    enqueue({ action: "adminOverview" })
+end sub
+
+' A poll already waiting is not queued twice, so a slow server cannot build
+' a backlog of identical requests.
+sub enqueue(req as object)
+    if m.closed then return
+    if req.action = "adminSessions" or req.action = "adminOverview"
+        for each q in m.reqQueue
+            if q.action = req.action then return
+        end for
+    end if
+    m.reqQueue.push(req)
+    pumpQueue()
+end sub
+
+sub pumpQueue()
+    if m.reqActive or m.reqQueue.count() = 0 then return
+    m.reqActive = true
+    m.apiTask.request = m.reqQueue.shift()
+end sub
+
+sub onApiResponse()
+    r = m.apiTask.response
+    m.reqActive = false
+    if r = invalid or m.closed then return
+    if AdminDash.isDenied(r.statusCode)
+        ' The server is the real gate: no longer an administrator, so nothing
+        ' more is shown and the entry point goes away.
+        m.global.isAdministrator = false
+        m.sessions = []
+        m.overview = {}
+        close()
+        return
+    end if
+
+    if r.action = "adminSessions"
+        if r.success = true
+            ' Keep the highlight on the same stream across polls.
+            focusedId = ""
+            if m.cardIdx < m.sessions.count() then focusedId = m.sessions[m.cardIdx].Id
+            m.allSessions = r.sessions
+            m.sessions = AdminDash.playing(r.sessions)
+            if AdminDash.isText(focusedId)
+                i = AdminDash.indexOfId(m.sessions, focusedId)
+                if i >= 0 then m.cardIdx = i
+            end if
+            m.unreachable = false
+            m.loaded = true
+        else
+            ' Keep the last picture and say it's stale.
+            m.unreachable = true
+        end if
+        render()
+    else if r.action = "adminOverview"
+        if r.success = true
+            for each key in ["info", "activity", "tasks", "storage", "encoding"]
+                if r[key] <> invalid then m.overview[key] = r[key]
+            end for
+        end if
+        renderPanels()
+        renderHeader()
+    else if r.action = "adminStopSession"
+        if r.success = true
+            m.global.toastMessage = { message: "Playback stopped" }
+        else
+            m.global.toastMessage = { message: "Couldn't stop that stream." }
+        end if
+        refreshSessions()
+    else if r.action = "adminMessageSession"
+        if r.success = true
+            m.global.toastMessage = { message: "Message sent" }
+        else
+            m.global.toastMessage = { message: "Couldn't send the message." }
+        end if
+    end if
+    pumpQueue()
+end sub
+
+' ---------- Drawing ----------
+
+function font(name as string, size as integer) as object
+    key = name + size.ToStr()
+    if m.fonts.DoesExist(key) then return m.fonts[key]
+    f = CreateObject("roSGNode", "Font")
+    f.uri = "pkg:/fonts/" + name + ".ttf"
+    f.size = size
+    m.fonts[key] = f
+    return f
+end function
+
+function addLabel(parent as object, x as integer, y as integer, w as integer, fontName as string, size as integer, color as string) as object
+    l = CreateObject("roSGNode", "Label")
+    l.translation = [x, y]
+    l.width = w
+    l.maxLines = 1
+    l.ellipsizeOnBoundary = true
+    l.color = color
+    l.font = font(fontName, size)
+    parent.appendChild(l)
+    return l
+end function
+
+' Three card slots, refilled for whichever page is showing. Every field is
+' reset on every fill, so a slot never keeps the previous stream's art.
+sub buildCards()
+    m.slots = []
+    for i = 0 to CARDS_PER_PAGE - 1
+        g = CreateObject("roSGNode", "Group")
+        g.translation = [i * (CARD_W + CARD_GAP), 0]
+        g.scaleRotateCenter = [CARD_W / 2, CARD_H / 2]
+        m.cards.appendChild(g)
+
+        bg = CreateObject("roSGNode", "Poster")
+        bg.uri = "pkg:/images/card_r16.9.png"
+        bg.width = CARD_W
+        bg.height = CARD_H
+        g.appendChild(bg)
+
+        mask = CreateObject("roSGNode", "MaskGroup")
+        mask.maskUri = "pkg:/images/poster_mask_r12.png"
+        mask.maskSize = [120, 180]
+        mask.translation = [24, 24]
+        g.appendChild(mask)
+        art = CreateObject("roSGNode", "Rectangle")
+        art.width = 120
+        art.height = 180
+        art.color = "#2A313CFF"
+        art.opacity = 0.99
+        mask.appendChild(art)
+        poster = CreateObject("roSGNode", "Poster")
+        poster.width = 120
+        poster.height = 180
+        poster.loadDisplayMode = "scaleToZoom"
+        mask.appendChild(poster)
+
+        title = addLabel(g, 164, 22, 372, "Inter-Bold", 28, "#FFFFFF")
+        subtitle = addLabel(g, 164, 60, 372, "Inter-Medium", 20, "#A3ADBAFF")
+        who = addLabel(g, 164, 88, 372, "Inter-Medium", 20, "#A3ADBAFF")
+
+        badgeMask = CreateObject("roSGNode", "MaskGroup")
+        badgeMask.maskUri = "pkg:/images/badge_mask_r6.png"
+        badgeMask.translation = [164, 122]
+        g.appendChild(badgeMask)
+        badgeBg = CreateObject("roSGNode", "Rectangle")
+        badgeBg.height = 36
+        badgeBg.opacity = 0.99
+        badgeMask.appendChild(badgeBg)
+        badgeText = addLabel(g, 164, 122, 300, "Inter-Bold", 18, "#FFFFFF")
+        badgeText.height = 36
+        badgeText.vertAlign = "center"
+        badgeText.horizAlign = "center"
+
+        detail = addLabel(g, 164, 168, 372, "Inter-Medium", 18, "#A3ADBAFF")
+        detail.maxLines = 2
+        detail.wrap = true
+
+        track = CreateObject("roSGNode", "Rectangle")
+        track.translation = [24, 230]
+        track.width = CARD_W - 48
+        track.height = 8
+        track.color = "#2A313CFF"
+        g.appendChild(track)
+        fill = CreateObject("roSGNode", "Rectangle")
+        fill.translation = [24, 230]
+        fill.height = 8
+        fill.color = ACCENT
+        g.appendChild(fill)
+
+        clockLabel = addLabel(g, 24, 252, 260, "Inter-Medium", 20, "#A3ADBAFF")
+        rate = addLabel(g, 276, 252, 260, "Inter-Medium", 20, "#A3ADBAFF")
+        rate.horizAlign = "right"
+
+        ring = CreateObject("roSGNode", "Poster")
+        ring.uri = "pkg:/images/ring_r16_white.9.png"
+        ring.width = CARD_W
+        ring.height = CARD_H
+        ring.opacity = 0
+        g.appendChild(ring)
+
+        m.slots.push({ group: g, bg: bg, poster: poster, title: title, subtitle: subtitle, who: who, badgeMask: badgeMask, badgeBg: badgeBg, badgeText: badgeText, detail: detail, fill: fill, clock: clockLabel, rate: rate, ring: ring })
+    end for
+end sub
+
+sub render()
+    renderHeader()
+    renderCards()
+end sub
+
+sub renderHeader()
+    info = m.overview.info
+    text = ""
+    if type(info) = "roAssociativeArray"
+        if AdminDash.isText(info.ServerName) then text = info.ServerName
+        if AdminDash.isText(info.Version)
+            if text <> "" then text += " · "
+            text += "Jellyfin " + info.Version
+        end if
+    end if
+    if m.unreachable
+        m.serverLabel.text = "Can't reach the server. Retrying..."
+        m.serverLabel.color = "#F2B84BFF"
+    else
+        m.serverLabel.text = text
+        m.serverLabel.color = "#A3ADBAFF"
+    end if
+
+    while m.chips.getChildCount() > 0
+        m.chips.removeChildIndex(0)
+    end while
+    if not m.loaded then return
+    c = AdminDash.counts(m.sessions)
+    chips = [c.streaming.ToStr() + " streaming", c.converting.ToStr() + " converting"]
+    rate = AdminDash.formatBitrate(AdminDash.totalBitrate(m.sessions))
+    if rate <> "" then chips.push(rate + " out")
+    x = 1830
+    for i = chips.count() - 1 to 0 step -1
+        w = Len(chips[i]) * 13 + 48
+        x -= w
+        g = CreateObject("roSGNode", "Group")
+        g.translation = [x, 64]
+        bg = CreateObject("roSGNode", "Poster")
+        bg.uri = "pkg:/images/card_r16.9.png"
+        bg.width = w
+        bg.height = 56
+        g.appendChild(bg)
+        l = addLabel(g, 0, 0, w, "Inter-Bold", 24, "#FFFFFF")
+        l.height = 56
+        l.horizAlign = "center"
+        l.vertAlign = "center"
+        l.text = chips[i]
+        if i = 1 and c.converting > 0 then l.color = "#F2B84BFF"
+        m.chips.appendChild(g)
+        x -= 20
+    end for
+end sub
+
+sub renderCards()
+    n = m.sessions.count()
+    if m.cardIdx >= n then m.cardIdx = n - 1
+    if m.cardIdx < 0 then m.cardIdx = 0
+    page = m.cardIdx \ CARDS_PER_PAGE
+    first = page * CARDS_PER_PAGE
+    focused = m.top.isInFocusChain()
+
+    for i = 0 to CARDS_PER_PAGE - 1
+        slot = m.slots[i]
+        idx = first + i
+        if idx < n
+            fillCard(slot, m.sessions[idx])
+            slot.group.visible = true
+            isFocus = focused and idx = m.cardIdx
+            if isFocus
+                slot.ring.opacity = 1
+                slot.group.scale = [1.03, 1.03]
+                slot.bg.uri = "pkg:/images/card_r16_focus.9.png"
+            else
+                slot.ring.opacity = 0
+                slot.group.scale = [1, 1]
+                slot.bg.uri = "pkg:/images/card_r16.9.png"
+            end if
+        else
+            slot.group.visible = false
+            slot.poster.uri = ""
+        end if
+    end for
+
+    if n > CARDS_PER_PAGE
+        last = first + CARDS_PER_PAGE
+        if last > n then last = n
+        m.pageLabel.text = (first + 1).ToStr() + "–" + last.ToStr() + " of " + n.ToStr()
+    else
+        m.pageLabel.text = ""
+    end if
+
+    if n = 0
+        m.emptyLabel.visible = true
+        if m.loaded then m.emptyLabel.text = "Nobody's watching right now."
+        m.hintLabel.text = ""
+    else
+        m.emptyLabel.visible = false
+        s = m.sessions[m.cardIdx]
+        if s.SupportsRemoteControl = true
+            m.hintLabel.text = "OK: Stop it · Send a message · Details"
+        else
+            m.hintLabel.text = "OK: Details (this app can't be stopped or messaged remotely)"
+        end if
+    end if
+end sub
+
+sub fillCard(slot as object, s as object)
+    item = s.NowPlayingItem
+    lines = AdminDash.titleLines(item)
+    slot.title.text = lines.title
+    slot.subtitle.text = lines.subtitle
+    slot.who.text = AdminDash.whoLine(s)
+    slot.poster.uri = posterUrl(item)
+
+    b = AdminDash.badge(AdminDash.playMode(s))
+    w = Len(b.label) * 11 + 32
+    slot.badgeMask.maskSize = [w, 36]
+    slot.badgeBg.width = w
+    slot.badgeBg.color = b.bg
+    slot.badgeText.width = w
+    slot.badgeText.text = b.label
+    slot.badgeText.color = b.fg
+
+    slot.detail.text = AdminDash.detailLine(s)
+    slot.fill.width = Int((CARD_W - 48) * AdminDash.progress(s))
+    slot.fill.visible = slot.fill.width > 0
+    slot.clock.text = AdminDash.clockLine(s)
+    rate = AdminDash.formatBitrate(AdminDash.sessionBitrate(s))
+    paused = (type(s.PlayState) = "roAssociativeArray" and s.PlayState.IsPaused = true)
+    if paused
+        if rate <> "" then rate = "Paused · " + rate else rate = "Paused"
+    end if
+    slot.rate.text = rate
+end sub
+
+' An episode shows its series' poster, as everywhere else in the app.
+function posterUrl(item as dynamic) as string
+    if type(item) <> "roAssociativeArray" then return ""
+    if item.Type = "Episode" and AdminDash.isText(item.SeriesId) and item.SeriesId <> ""
+        return ImageUrl.primary(item.SeriesId, 240, ImageUrl.seriesPrimaryTag(item))
+    end if
+    if AdminDash.isText(item.Id) then return ImageUrl.primary(item.Id, 240, ImageUrl.primaryTag(item))
+    return ""
+end function
+
+sub renderPanels()
+    nowSecs = CreateObject("roDateTime").AsSeconds()
+
+    rows = []
+    if type(m.overview.activity) = "roAssociativeArray" and type(m.overview.activity.Items) = "roArray"
+        for each e in m.overview.activity.Items
+            a = AdminDash.activityLine(e)
+            if a.text <> ""
+                rows.push({ text: a.text, value: AdminDash.relativeTime(nowSecs - AdminDash.isoSeconds(e.Date)), color: a.color })
+            end if
+            if rows.count() >= ROWS_MAX then exit for
+        end for
+    end if
+    if rows.count() = 0 then rows.push({ text: "No recent activity", value: "", color: "#6B7684FF" })
+    drawRows(m.activityRows, rows, 640, 140)
+
+    health = AdminDash.healthRows(m.overview.tasks, m.overview.encoding, m.overview.info, m.allSessions, nowSecs)
+    health.append(AdminDash.storageRows(m.overview.storage))
+    if health.count() > ROWS_MAX
+        more = health.count() - ROWS_MAX + 1
+        health = health.slice(0, ROWS_MAX - 1)
+        health.push({ text: "+" + more.ToStr() + " more", value: "", color: "#6B7684FF" })
+    end if
+    if health.count() = 0 then health.push({ text: "Waiting for the server", value: "", color: "#6B7684FF" })
+    drawRows(m.healthRows, health, 420, 360)
+end sub
+
+sub drawRows(parent as object, rows as object, textW as integer, valueW as integer)
+    while parent.getChildCount() > 0
+        parent.removeChildIndex(0)
+    end while
+    y = 0
+    for each r in rows
+        dot = CreateObject("roSGNode", "Rectangle")
+        dot.width = 12
+        dot.height = 12
+        dot.translation = [0, y + 9]
+        dot.color = r.color
+        parent.appendChild(dot)
+        t = addLabel(parent, 28, y, textW, "Inter-Medium", 22, "#EEF1F5FF")
+        t.text = r.text
+        if r.value <> ""
+            v = addLabel(parent, 799 - valueW, y, valueW, "Inter-Medium", 22, "#A3ADBAFF")
+            v.horizAlign = "right"
+            v.text = r.value
+        end if
+        y += ROW_PITCH
+    end for
+end sub
+
+' ---------- Keys ----------
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "back"
+        ' Stop polling now; MainScene pops the screen.
+        close()
+        return true
+    end if
+    n = m.sessions.count()
+    if key = "right"
+        if m.cardIdx < n - 1
+            m.cardIdx++
+            renderCards()
+        end if
+        return true
+    else if key = "left"
+        if m.cardIdx > 0
+            m.cardIdx--
+            renderCards()
+        end if
+        return true
+    else if key = "OK"
+        if n > 0 then openActions(m.sessions[m.cardIdx])
+        return true
+    else if key = "up" or key = "down"
+        return true
+    end if
+    return false
+end function
+
+' ---------- Actions ----------
+
+function sessionById(id as string) as dynamic
+    for each s in m.sessions
+        if s.Id = id then return s
+    end for
+    return invalid
+end function
+
+function titleOf(s as object) as string
+    lines = AdminDash.titleLines(s.NowPlayingItem)
+    if lines.title = "" then return "this stream"
+    return lines.title
+end function
+
+sub openActions(s as object)
+    if not AdminDash.isText(s.Id) then return
+    m.pendingId = s.Id
+    if s.SupportsRemoteControl <> true
+        showDetails()
+        return
+    end if
+    dialog = CreateObject("roSGNode", "StandardMessageDialog")
+    dialog.title = titleOf(s)
+    dialog.message = [AdminDash.whoLine(s)]
+    dialog.buttons = ["Details", "Send Message", "Stop Playback"]
+    dialog.observeFieldScoped("buttonSelected", "onActionButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onActionButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    choice = dialog.buttonSelected
+    dialog.close = true
+    m.top.setFocus(true)
+    if choice = 0
+        showDetails()
+    else if choice = 1
+        showMessageKeyboard()
+    else if choice = 2
+        confirmStop()
+    end if
+end sub
+
+sub showDetails()
+    s = sessionById(m.pendingId)
+    if s = invalid then return
+    dialog = CreateObject("roSGNode", "StandardMessageDialog")
+    dialog.title = titleOf(s)
+    dialog.message = AdminDash.detailsText(s).Split(Chr(10))
+    dialog.buttons = ["Close"]
+    dialog.observeFieldScoped("buttonSelected", "onCloseDialog")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onCloseDialog()
+    dialog = m.top.getScene().dialog
+    if dialog <> invalid then dialog.close = true
+    m.top.setFocus(true)
+end sub
+
+sub confirmStop()
+    s = sessionById(m.pendingId)
+    if s = invalid then return
+    dialog = CreateObject("roSGNode", "StandardMessageDialog")
+    dialog.title = "Stop playback?"
+    dialog.message = [AdminDash.stopMessage(s)]
+    dialog.buttons = Confirm.buttons("Stop")
+    dialog.observeFieldScoped("buttonSelected", "onStopButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onStopButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
+    dialog.close = true
+    m.top.setFocus(true)
+    if confirmed and m.pendingId <> "" then enqueue({ action: "adminStopSession", sessionId: m.pendingId })
+end sub
+
+sub showMessageKeyboard()
+    s = sessionById(m.pendingId)
+    if s = invalid then return
+    dialog = CreateObject("roSGNode", "StandardKeyboardDialog")
+    who = "viewer"
+    if AdminDash.isText(s.UserName) and s.UserName <> "" then who = s.UserName
+    dialog.title = "Message to " + who
+    dialog.buttons = ["Send", "Cancel"]
+    dialog.textEditBox.hintText = "Shown on their screen for 10 seconds"
+    dialog.textEditBox.maxTextLength = 120
+    dialog.observeFieldScoped("buttonSelected", "onMessageButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onMessageButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    send = (dialog.buttonSelected = 0)
+    text = dialog.text.Trim()
+    dialog.close = true
+    m.top.setFocus(true)
+    if send and text <> "" and m.pendingId <> "" then enqueue({ action: "adminMessageSession", sessionId: m.pendingId, text: text })
+end sub

@@ -77,8 +77,9 @@ sub init()
     appInfo = CreateObject("roAppInfo")
     m.versionText = "v" + appInfo.GetVersion()
 
-    m.items = [
+    m.allItems = [
         { key: "", title: "Servers", kind: "servers" },
+        { key: "", title: "Server Dashboard", kind: "dashboard" },
         { key: "", title: "Home Screen Rows", kind: "homerows" },
         { key: "maxBitrateMbps", title: "Maximum Bitrate", kind: "picker", options: m.bitrateOptions },
         { key: "forceDirectPlay", title: "Always Play Original", kind: "toggle", default: "false" },
@@ -101,8 +102,32 @@ sub init()
         { key: "", title: "Sign Out", kind: "signout" }
     ]
 
+    m.items = visibleItems()
     buildRows()
     m.top.observeField("focusedChild", "onFocusGained")
+    ' The admin flag can land after this screen is built (the server's answer
+    ' replaces the cached value), and can change with a server switch.
+    m.global.observeFieldScoped("isAdministrator", "onAdministratorChanged")
+end sub
+
+' The Server Dashboard row exists only for administrators.
+function visibleItems() as object
+    out = []
+    for each item in m.allItems
+        if item.kind <> "dashboard" or m.global.isAdministrator = true then out.push(item)
+    end for
+    return out
+end function
+
+sub onAdministratorChanged()
+    focusedKind = ""
+    if m.focusIndex < m.items.count() then focusedKind = m.items[m.focusIndex].kind + m.items[m.focusIndex].title
+    m.items = visibleItems()
+    m.focusIndex = 0
+    for i = 0 to m.items.count() - 1
+        if m.items[i].kind + m.items[i].title = focusedKind then m.focusIndex = i
+    end for
+    buildRows()
 end sub
 
 function currentValueLabel(item as object) as string
@@ -253,6 +278,8 @@ sub activateRow(index as integer)
         openServersManager()
     else if item.kind = "homerows"
         openHomeRowsEditor()
+    else if item.kind = "dashboard"
+        if m.global.isAdministrator = true then m.top.openDashboard = true
     else if item.kind = "signout"
         showSignOutDialog()
     else if item.kind = "info"
