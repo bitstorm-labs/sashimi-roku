@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Holds Jellyfin's /socket open so the dashboard can Stop playback and send
+     messages to this device. See RemoteControlTask.bs. -->
+<component name="RemoteControlTask" extends="Task">
+    <interface>
+        <!-- { url, token } of the active login; {} disconnects. -->
+        <field id="session" type="assocarray" />
+        <!-- RemoteControl.parse's action for a Stop or a DisplayMessage. -->
+        <field id="command" type="assocarray" alwaysNotify="true" />
+        <!-- "idle" | "connecting" | "open" | "retrying" | "unsupported" -->
+        <field id="status" type="string" value="idle" />
+    </interface>
+</component>

@@ -1,0 +1,251 @@
+import "pkg:/source/utils/Http.bs"
+import "pkg:/source/utils/RemoteControl.bs"
+
+' Jellyfin's remote-control channel for this device: one /socket WebSocket,
+' kept open for the life of the login, plus the capabilities report that
+' makes the dashboard offer Stop and Message for this session. Server
+' messages are reduced by RemoteControl.parse; only Stop and DisplayMessage
+' reach MainScene (m.top.command), everything else is dropped here.
+'
+' One loop, one port: the session field, the socket's events and a wait
+' timeout that drives keep-alives, the stale-socket check and reconnects.
+' roWebSocket is used rather than a hand-rolled client on roStreamSocket
+' because only it can do TLS, and the remote viewers this is for reach the
+' server over https.
+
+const HANDSHAKE_TIMEOUT_MS = 20000
+' Upper bound on one wait() while connected, so keep-alives and the stale
+' check run on time even when the server is quiet.
+const TICK_MS = 5000
+
+sub init()
+    m.top.functionName = "taskLoop"
+end sub
+
+sub taskLoop()
+    m.port = CreateObject("roMessagePort")
+    m.top.observeFieldScoped("session", m.port)
+    m.clock = CreateObject("roTimespan")
+    m.clock.Mark()
+    m.ws = invalid
+    m.opened = false
+    m.attempt = 0
+    m.retryAt = -1
+    m.windowSecs = RemoteControl.DEFAULT_KEEPALIVE_SECS
+    m.unsupported = false
+    applySession()
+
+    while true
+        msg = wait(nextWaitMs(), m.port)
+        kind = type(msg)
+        if kind = "roSGNodeEvent"
+            applySession()
+        else if kind = "roWebSocketEvent"
+            onSocketEvent(msg)
+        end if
+        tick()
+    end while
+end sub
+
+function now() as integer
+    return m.clock.TotalMilliseconds()
+end function
+
+function hasSession() as boolean
+    s = m.top.session
+    return s <> invalid and RemoteControl.isText(s.url) and s.url <> "" and RemoteControl.isText(s.token) and s.token <> ""
+end function
+
+' A new login (sign-in, server switch) or none at all (sign-out, expiry):
+' drop whatever socket belongs to the old one and start over at once.
+sub applySession()
+    closeSocket()
+    m.attempt = 0
+    m.retryAt = -1
+    m.httpServer = invalid
+    if not hasSession()
+        setStatus("idle")
+        return
+    end if
+    ' Http.authHeader / apiUrl read the request's server from m.httpServer
+    ' (see Http.baseUrl), so the socket and the capabilities POST always carry
+    ' THIS login's token, whatever m.global holds by the time they run.
+    s = m.top.session
+    m.httpServer = { url: s.url, token: s.token }
+    connect()
+end sub
+
+sub connect()
+    if m.unsupported or not hasSession() then return
+    if not RemoteControl.osSupported(CreateObject("roDeviceInfo").GetOSVersion())
+        markUnsupported("Roku OS before 16.0")
+        return
+    end if
+    ' brighterscript (0.73.7, the latest) predates roWebSocket's docs.
+    ' bs:disable-next-line: 1129
+    ws = CreateObject("roWebSocket")
+    if ws = invalid
+        markUnsupported("no roWebSocket")
+        return
+    end if
+    url = RemoteControl.socketUrl(m.httpServer.url, m.global.deviceId)
+    if url = ""
+        ' Not an http(s) server url; a new session may bring a usable one.
+        setStatus("idle")
+        return
+    end if
+    ws.SetMessagePort(m.port)
+    ws.SetUrl(url)
+    ws.SetCertificatesFile("common:/certs/ca-bundle.crt")
+    ws.InitClientCertificates()
+    ws.AddHeader("Authorization", Http.authHeader())
+    m.ws = ws
+    m.socketId = ws.GetSocketId()
+    m.opened = false
+    m.connectStartedAt = now()
+    m.retryAt = -1
+    setStatus("connecting")
+    #if DEBUG
+        print "[Remote] connecting (attempt "; m.attempt + 1; ")"
+    #end if
+    ' Open() with no wait answers false straight away -- the handshake has
+    ' not finished yet -- so its result says nothing; the Opened / Closed /
+    ' Error event and the handshake timeout in tick() decide.
+    opened = ws.Open()
+    #if DEBUG
+        print "[Remote] "; url; " Open() -> "; opened
+    #end if
+end sub
+
+sub onSocketEvent(ev as object)
+    ' Events from a socket already replaced (a session change, a reconnect)
+    ' are stale and must not touch the current one.
+    if m.ws = invalid or ev.GetSocketId() <> m.socketId then return
+    evType = ev.GetType()
+    info = ev.GetInfo()
+    if evType = 1
+        onOpened()
+    else if evType = 5
+        m.lastRxAt = now()
+        if info <> invalid then onText(info.Text)
+    else if evType = 7 or evType = 8
+        ' Ping / Pong: roWebSocket answers pings itself; either proves the
+        ' link is alive.
+        m.lastRxAt = now()
+    else if (evType = 2 or evType = 3) and RemoteControl.isNotAllowed(info)
+        closeSocket()
+        markUnsupported("firmware refuses WebSockets")
+    else if evType = 2
+        reason = "closed"
+        #if DEBUG
+            if info <> invalid then reason = "closed code " + Str(info.Code).Trim() + " err " + Str(info.Error).Trim() + " " + info.ErrorMsg
+        #end if
+        failSocket(reason)
+    else if evType = 3
+        reason = "error"
+        #if DEBUG
+            if info <> invalid then reason = "error " + Str(info.Error).Trim() + " " + info.ErrorMsg
+        #end if
+        failSocket(reason)
+    end if
+end sub
+
+sub onOpened()
+    m.opened = true
+    m.attempt = 0
+    m.lastRxAt = now()
+    m.lastKeepAliveAt = now()
+    m.windowSecs = RemoteControl.DEFAULT_KEEPALIVE_SECS
+    setStatus("open")
+    #if DEBUG
+        print "[Remote] socket open"
+    #end if
+    ' Every (re)connect: a server restart or an expired session forgets what
+    ' was reported, and the report is what lets the dashboard show Stop.
+    reportCapabilities()
+end sub
+
+sub reportCapabilities()
+    meta = {}
+    Http.postJson(Http.apiUrl("/Sessions/Capabilities/Full"), RemoteControl.capabilities(), meta, 10000)
+    #if DEBUG
+        print "[Remote] capabilities -> "; meta.statusCode
+    #end if
+end sub
+
+sub onText(text as dynamic)
+    action = RemoteControl.parse(text)
+    #if DEBUG
+        print "[Remote] message -> "; action.kind
+    #end if
+    if action.kind = "keepalive"
+        m.windowSecs = action.secs
+        sendKeepAlive()
+    else if action.kind = "stop" or action.kind = "message"
+        m.top.command = action
+    end if
+end sub
+
+sub sendKeepAlive()
+    if m.ws = invalid or not m.opened then return
+    m.ws.Send(RemoteControl.keepAliveMessage())
+    m.lastKeepAliveAt = now()
+end sub
+
+' Keep-alives, a handshake that never answers, a socket gone silent, and the
+' reconnect once its backoff has passed.
+sub tick()
+    t = now()
+    if m.ws <> invalid
+        if m.opened
+            if t - m.lastKeepAliveAt >= RemoteControl.keepAliveIntervalMs(m.windowSecs) then sendKeepAlive()
+            if RemoteControl.isStale(t - m.lastRxAt, m.windowSecs) then failSocket("stale")
+        else if t - m.connectStartedAt >= HANDSHAKE_TIMEOUT_MS
+            failSocket("handshake timeout")
+        end if
+    else if m.retryAt >= 0 and t >= m.retryAt
+        connect()
+    end if
+end sub
+
+function nextWaitMs() as integer
+    if m.ws <> invalid then return TICK_MS
+    if m.retryAt < 0 then return 0
+    left = m.retryAt - now()
+    if left < 1 then return 1
+    return left
+end function
+
+sub failSocket(reason as string)
+    closeSocket()
+    if not hasSession() then return
+    m.attempt = m.attempt + 1
+    delay = RemoteControl.backoffMs(m.attempt)
+    m.retryAt = now() + delay
+    setStatus("retrying")
+    #if DEBUG
+        print "[Remote] "; reason; " -- retry in "; delay; " ms"
+    #end if
+end sub
+
+sub closeSocket()
+    if m.ws = invalid then return
+    ws = m.ws
+    m.ws = invalid
+    m.opened = false
+    ws.Close()
+end sub
+
+' Remote control is simply unavailable on this device, and the app works as
+' it always has. Nothing to retry for the life of the channel.
+sub markUnsupported(reason as string)
+    m.unsupported = true
+    setStatus("unsupported")
+    #if DEBUG
+        print "[Remote] unsupported: "; reason
+    #end if
+end sub
+
+sub setStatus(s as string)
+    if m.top.status <> s then m.top.status = s
+end sub

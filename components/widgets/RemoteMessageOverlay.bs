@@ -1,0 +1,47 @@
+sub init()
+    m.card = m.top.findNode("card")
+    m.cardBg = m.top.findNode("cardBg")
+    m.accent = m.top.findNode("accent")
+    m.headerLabel = m.top.findNode("headerLabel")
+    m.bodyLabel = m.top.findNode("bodyLabel")
+    m.hideTimer = m.top.findNode("hideTimer")
+    m.hideTimer.observeField("fire", "onHide")
+end sub
+
+' A second message replaces the first and restarts the clock, as Jellyfin
+' web's toast does.
+sub onShow()
+    info = m.top.show
+    if info = invalid then return
+    header = ""
+    body = ""
+    if info.header <> invalid then header = info.header
+    if info.text <> invalid then body = info.text
+    if header = "" and body = "" then return
+    ' Only a body: it takes the header's place in the larger type.
+    if header = ""
+        header = body
+        body = ""
+    end if
+    m.headerLabel.text = header
+    m.bodyLabel.text = body
+    m.bodyLabel.visible = (body <> "")
+
+    height = 28 + m.headerLabel.boundingRect().height + 28
+    if body <> ""
+        height = 84 + m.bodyLabel.boundingRect().height + 28
+    end if
+    m.cardBg.height = height
+    m.accent.height = height
+
+    secs = 10
+    if info.secs <> invalid and info.secs > 0 then secs = info.secs
+    m.hideTimer.control = "stop"
+    m.hideTimer.duration = secs
+    m.card.visible = true
+    m.hideTimer.control = "start"
+end sub
+
+sub onHide()
+    m.card.visible = false
+end sub
