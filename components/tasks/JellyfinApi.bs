@@ -4,6 +4,7 @@ import "pkg:/source/utils/SignInError.bs"
 import "pkg:/source/utils/Filmography.bs"
 import "pkg:/source/utils/ChannelManagement.bs"
 import "pkg:/source/utils/StreamQuality.bs"
+import "pkg:/source/utils/Throughput.bs"
 import "pkg:/source/utils/ContinueWatching.bs"
 
 sub init()
@@ -1711,8 +1712,11 @@ sub doGetPlaybackStream(request as object)
     maxBitrate = 0
     if request.maxBitrate <> invalid then maxBitrate = request.maxBitrate
     ' Auto uses the measured connection bandwidth (see measureBandwidth) so we
-    ' don't request more than the link can carry; explicit picks win.
-    streamingBitrate = autoBitrateCapBps()
+    ' don't request more than the link can carry; explicit picks win. Over
+    ' Wi-Fi it is also held to what playback has sustained there before
+    ' (StreamQuality.linkCapBps): the burst probe reads Wi-Fi's peak.
+    wired = Throughput.isWired()
+    streamingBitrate = StreamQuality.linkCapBps(autoBitrateCapBps(), wired, Throughput.sustainedBps(Http.baseUrl(), wired))
     maxWidth = StreamQuality.autoMaxWidth(streamingBitrate)
     if maxBitrate > 0
         streamingBitrate = maxBitrate
@@ -1807,6 +1811,7 @@ sub doGetPlaybackStream(request as object)
     ' Source total bitrate (bps) for the stream-info chip
     msBitrate = 0
     if ms.Bitrate <> invalid then msBitrate = ms.Bitrate
+    sourceBitrate = msBitrate
 
     ' The audio track the server plays when no AudioStreamIndex is sent, so
     ' the player can skip a renegotiation when the preference already matches.
@@ -1876,6 +1881,14 @@ sub doGetPlaybackStream(request as object)
     ' the source rate) and a real re-encode (video capped at the lower target,
     ' e.g. burn-in subtitles) — plus the transcoded audio target. Parsed from
     ' the TranscodingUrl's VideoBitrate/AudioBitrate params (no extra request).
+    ' Whether the video reaches the Roku as the file has it (direct play, or a
+    ' remux): only then do segment download times measure the link.
+    videoCopied = true
+    if playMethod = "Transcode"
+        burnIn = (request.subtitleStreamIndex <> invalid and request.subtitleStreamIndex >= 0)
+        noCopy = (request.allowVideoStreamCopy <> invalid and request.allowVideoStreamCopy = false)
+        videoCopied = not burnIn and not noCopy and not StreamQuality.reencodesVideo(urlStringParam(streamUrl, "TranscodeReasons"))
+    end if
     if playMethod = "Transcode"
         tVid = urlIntParam(streamUrl, "VideoBitrate")
         tAud = urlIntParam(streamUrl, "AudioBitrate")
@@ -1919,6 +1932,11 @@ sub doGetPlaybackStream(request as object)
         ' The cap this stream was negotiated under (Auto resolved to a
         ' number), so the player can label it and step down from it.
         capBps: streamingBitrate
+        ' What Auto's step-back-up compares against: the file's own rate,
+        ' and the link kind its readings are remembered under.
+        sourceBitrate: sourceBitrate
+        isWired: wired
+        videoCopied: videoCopied
     }
 end sub
 
@@ -1932,6 +1950,18 @@ function urlIntParam(url as string, key as string) as integer
     amp = Instr(1, rest, "&")
     if amp > 0 then rest = Left(rest, amp - 1)
     return Int(Val(rest))
+end function
+
+' A query-string parameter's raw value, "" when absent.
+function urlStringParam(url as string, key as string) as string
+    marker = key + "="
+    p = Instr(1, url, "?" + marker)
+    if p = 0 then p = Instr(1, url, "&" + marker)
+    if p = 0 then return ""
+    rest = Mid(url, p + 1 + Len(marker))
+    amp = Instr(1, rest, "&")
+    if amp > 0 then rest = Left(rest, amp - 1)
+    return rest
 end function
 
 ' Resolve a server-relative path (TranscodingUrl/DirectStreamUrl already carry
@@ -1952,7 +1982,7 @@ end function
 ' re-encode alike, since the audio was copied each time).
 function rokuCapabilities() as object
     di = CreateObject("roDeviceInfo")
-    caps = { ac3: false, eac3: false, aac6: false, hevc: false, surround: false, uhd: false }
+    caps = { ac3: false, eac3: false, aac6: false, hevc: false, surround: false, uhd: false, dolbyVision: false }
     if di = invalid then return caps
     caps.ac3 = canDecode(di.CanDecodeAudio({ Codec: "ac3" }))
     caps.eac3 = canDecode(di.CanDecodeAudio({ Codec: "eac3" }))
@@ -1961,6 +1991,12 @@ function rokuCapabilities() as object
     channels = LCase(di.GetAudioOutputChannel())
     caps.surround = Instr(1, channels, "5.1") > 0 or Instr(1, channels, "7.1") > 0
     caps.uhd = Instr(1, di.GetVideoMode(), "2160") > 0
+    ' The attached display, read over HDMI on a stick or soundbar.
+    display = di.GetDisplayProperties()
+    caps.dolbyVision = (display <> invalid and display.DolbyVision <> invalid and display.DolbyVision = true)
+    #if DEBUG
+        if display <> invalid then print "[Caps] display hdr10="; display.Hdr10; " hlg="; display.HLG; " dv="; display.DolbyVision; " conn="; di.GetConnectionType()
+    #end if
     return caps
 end function
 
@@ -1969,7 +2005,8 @@ function canDecode(answer as dynamic) as boolean
 end function
 
 ' Roku DeviceProfile built from the capabilities above: direct-play mp4/mov/mkv
-' (h264, hevc when decodable), everything else transcodes to HLS ts/h264.
+' (h264, hevc when decodable), everything else transcodes to HLS ts: h264, or
+' an HEVC source's video copied as-is when only its audio/container changes.
 ' Dolby codecs are offered only when the device says it can play them, so the
 ' server converts them to AAC otherwise (StreamQuality.audioProfile).
 function rokuDeviceProfile(streamingBitrate as integer, caps = invalid as object, maxWidth = 0 as integer) as object
@@ -1987,6 +2024,8 @@ function rokuDeviceProfile(streamingBitrate as integer, caps = invalid as object
             codecProfiles.push({ Type: "Video", Codec: codec, Conditions: conditions })
         end for
     end if
+    ' Dolby Vision with an HDR10/HLG/SDR base layer is copied, not re-encoded.
+    if caps.hevc then codecProfiles.push(StreamQuality.videoRangeProfile(caps.dolbyVision = true))
 
     return {
         MaxStreamingBitrate: streamingBitrate
@@ -1996,7 +2035,7 @@ function rokuDeviceProfile(streamingBitrate as integer, caps = invalid as object
             { Container: "mp4,m4v,mov,mkv", Type: "Video", VideoCodec: video, AudioCodec: sound.direct }
         ]
         TranscodingProfiles: [
-            { Container: "ts", Type: "Video", VideoCodec: "h264", AudioCodec: sound.stream, Protocol: "hls", Context: "Streaming", MaxAudioChannels: sound.channels, MinSegments: "2", BreakOnNonKeyFrames: true }
+            { Container: "ts", Type: "Video", VideoCodec: StreamQuality.transcodeVideoCodecs(caps.hevc), AudioCodec: sound.stream, Protocol: "hls", Context: "Streaming", MaxAudioChannels: sound.channels, MinSegments: "2", BreakOnNonKeyFrames: true }
         ]
         ContainerProfiles: []
         CodecProfiles: codecProfiles

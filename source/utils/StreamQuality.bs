@@ -182,7 +182,213 @@ namespace StreamQuality
         return bound
     end function
 
+    ' ---------- Adaptive Auto (what playback itself downloaded at) ----------
+
+    ' A light, smooth 4K transcode: what a wireless link is trusted to carry
+    ' until playback there has shown more.
+    const SMOOTH_4K_BPS = 24000000
+    ' Readings kept per server and link kind. Few and recent: a link that
+    ' changes (a new router, another room) should not be judged by last month.
+    const SUSTAINED_SAMPLE_LIMIT = 5
+    ' A reading counts only over this much video: the first segments of a
+    ' stream arrive in a burst that says little about the link.
+    const SUSTAINED_MIN_BYTES = 16000000
+    ' Up only when it pays: the link carries the source, or twice the cap.
+    const UPGRADE_MIN_RATIO = 2
+    ' Quiet time after a rebuffer or stall before stepping back up.
+    const RECOVERY_QUIET_SECS = 15
+    ' Between automatic quality changes. Each rebuilds the server's stream, so
+    ' they must not see-saw.
+    const ADAPTIVE_COOLDOWN_SECS = 120
+
+    ' roDeviceInfo.GetConnectionType(): "WiredConnection", "WiFiConnection",
+    ' or "" offline. Anything not Ethernet is treated as wireless.
+    function isWiredConnection(connectionType as string) as boolean
+        return connectionType = "WiredConnection"
+    end function
+
+    ' Registry key for one server over one kind of link: scheme, host and
+    ' port lower-cased plus any base path, without a trailing slash.
+    function sustainedKey(serverUrl as string, isWired as boolean) as string
+        url = serverUrl.Trim()
+        p = Instr(1, url, "://")
+        rest = url
+        scheme = ""
+        if p > 0
+            scheme = LCase(Left(url, p - 1)) + "://"
+            rest = Mid(url, p + 3)
+        end if
+        slash = Instr(1, rest, "/")
+        host = rest
+        path = ""
+        if slash > 0
+            host = Left(rest, slash - 1)
+            path = Mid(rest, slash)
+        end if
+        while Right(path, 1) = "/"
+            path = Left(path, path.Len() - 1)
+        end while
+        kind = "|wireless"
+        if isWired then kind = "|wired"
+        return scheme + LCase(host) + path + kind
+    end function
+
+    ' Adds one HLS segment (Video.downloadedSegment SegSize / DownloadDuration)
+    ' to a {bytes, ms} window. Returns the window's rate once it holds
+    ' SUSTAINED_MIN_BYTES of video, and starts a fresh window; 0 until then.
+    function addSegment(window as object, segBytes as integer, downloadMs as integer) as integer
+        if segBytes <= 0 or downloadMs < 0 then return 0
+        window.bytes = window.bytes + segBytes
+        window.ms = window.ms + downloadMs
+        if window.bytes < SUSTAINED_MIN_BYTES then return 0
+        rate = probeRateBps(window.bytes, window.ms)
+        window.bytes = 0
+        window.ms = 0
+        return rate
+    end function
+
+    ' Registry JSON hands numbers back as Integer, LongInteger or Double.
+    function isNumber(value as dynamic) as boolean
+        t = LCase(type(value))
+        return t = "integer" or t = "roint" or t = "rointeger" or t = "longinteger" or t = "rolonginteger" or t = "float" or t = "rofloat" or t = "double" or t = "rodouble"
+    end function
+
+    ' Whether a transcode re-encodes the VIDEO, from its TranscodeReasons
+    ' (the TranscodingUrl's comma-separated, maybe %2C-encoded, value). A
+    ' re-encode's segments arrive no faster than the server encodes them, so
+    ' its readings are the encoder's pace, not the link's: remembered, they
+    ' would hold every later Auto start on that link down to it (seen on the
+    ' dev Roku: a 10 Mbps 4K re-encode read 14 Mbps on an 80 Mbps link). A
+    ' remux (video copied) or an audio-only change is not paced that way.
+    ' DirectPlayError alone only says direct play was not allowed.
+    function reencodesVideo(reasons as string) as boolean
+        list = LCase(reasons).Replace("%2c", ",").Split(",")
+        for each r in list
+            r = r.Trim()
+            if Left(r, 5) = "video" then return true
+            if r = "containerbitrateexceedslimit" or r = "interlacedvideonotsupported" or r = "anamorphicvideonotsupported" or r = "refframesnotsupported" then return true
+        end for
+        return false
+    end function
+
+    ' The remembered readings with one more, newest last, at most
+    ' SUSTAINED_SAMPLE_LIMIT of them.
+    function addSustainedSample(samples as object, bps as integer) as object
+        kept = []
+        if type(samples) = "roArray"
+            for each s in samples
+                if isNumber(s) and s > 0 then kept.push(Int(s))
+            end for
+        end if
+        if bps > 0 then kept.push(bps)
+        while kept.Count() > SUSTAINED_SAMPLE_LIMIT
+            kept.Shift()
+        end while
+        return kept
+    end function
+
+    ' The link's sustained rate: the LOWEST recent reading, not the average.
+    ' One slow stretch (a stall) is the evidence that matters. 0 = none.
+    function sustainedBps(samples as object) as integer
+        if type(samples) <> "roArray" then return 0
+        low = 0
+        for each s in samples
+            if isNumber(s) and s > 0 and (low = 0 or s < low) then low = Int(s)
+        end for
+        return low
+    end function
+
+    ' The most a wireless link is trusted to carry: half its sustained rate
+    ' (a 4K remux's VBR peaks run to about twice its average), never more than
+    ' the Auto cap; the smooth-4K rate while nothing is remembered.
+    function wirelessCeilingBps(capBps as integer, sustained as integer) as integer
+        if sustained <= 0
+            if capBps < SMOOTH_4K_BPS then return capBps
+            return SMOOTH_4K_BPS
+        end if
+        half = sustained \ 2
+        if capBps < half then return capBps
+        return half
+    end function
+
+    ' The Auto request's bitrate. Ethernet carries what the probe measured;
+    ' Wi-Fi is held to wirelessCeilingBps, because the burst probe reads
+    ' Wi-Fi's peak and a copied 4K source then stalls on its VBR peaks.
+    function linkCapBps(capBps as integer, isWired as boolean, sustained as integer) as integer
+        if isWired then return capBps
+        return wirelessCeilingBps(capBps, sustained)
+    end function
+
+    ' Doubles after every upgrade that stalled straight back down, to 32x.
+    function adaptiveCooldownSecs(failedUpgrades as integer) as integer
+        n = failedUpgrades
+        if n < 0 then n = 0
+        if n > 5 then n = 5
+        secs = ADAPTIVE_COOLDOWN_SECS
+        for i = 1 to n
+            secs = secs * 2
+        end for
+        return secs
+    end function
+
+    ' Whether to rebuild a stream that Auto (or a stall step-down from Auto)
+    ' holds below its source, now that playback shows the link carries more.
+    ' -1 = no; 0 = now; n = not for another n seconds. ctx:
+    '   isAuto, isWired, isTranscoding, isBusy (booleans);
+    '   autoCap, activeCap, sourceBps, sustainedBps (bps, 0 = unknown);
+    '   secondsSinceRecovery, secondsSinceQualityChange (-1 = never);
+    '   failedUpgrades.
+    function sustainedUpgrade(ctx as object) as integer
+        if not ctx.isAuto or not ctx.isTranscoding then return -1
+        if ctx.sourceBps <= 0 or ctx.activeCap <= 0 or ctx.sustainedBps <= 0 then return -1
+        if ctx.activeCap >= ctx.sourceBps then return -1
+        if ctx.isWired
+            ceiling = ctx.autoCap
+            if ctx.sustainedBps < ceiling then ceiling = ctx.sustainedBps
+        else
+            ceiling = wirelessCeilingBps(ctx.autoCap, ctx.sustainedBps)
+        end if
+        if ceiling < ctx.sourceBps and ceiling < ctx.activeCap * UPGRADE_MIN_RATIO then return -1
+        wait = 0
+        if ctx.isBusy then wait = RECOVERY_QUIET_SECS
+        if ctx.secondsSinceRecovery >= 0 and RECOVERY_QUIET_SECS - ctx.secondsSinceRecovery > wait then wait = RECOVERY_QUIET_SECS - ctx.secondsSinceRecovery
+        if ctx.secondsSinceQualityChange >= 0
+            remaining = adaptiveCooldownSecs(ctx.failedUpgrades) - ctx.secondsSinceQualityChange
+            if remaining > wait then wait = remaining
+        end if
+        return wait
+    end function
+
     ' ---------- Device profile ----------
+
+    ' HEVC VideoRangeType values the server may hand over untouched. Dolby
+    ' Vision with an HDR10/HLG/SDR base layer plays as that base layer on any
+    ' HEVC Roku. Left off the list, Jellyfin answered
+    ' VideoRangeTypeNotSupported and re-encoded the whole 4K picture. Bare
+    ' DOVI (Profile 5) has no base layer, so it is offered only to a display
+    ' that does Dolby Vision; anywhere else it is green and purple.
+    function hevcRangeTypes(dolbyVision as boolean) as string
+        types = "SDR|HDR10|HDR10Plus|HLG|DOVIWithHDR10|DOVIWithHDR10Plus|DOVIWithHLG|DOVIWithSDR"
+        if dolbyVision then types += "|DOVI"
+        return types
+    end function
+
+    ' IsRequired false: a stream whose range the server could not work out
+    ' still direct-plays, as it did before this condition existed.
+    function videoRangeProfile(dolbyVision as boolean) as object
+        return { Type: "Video", Codec: "hevc", Conditions: [{ Condition: "EqualsAny", Property: "VideoRangeType", Value: hevcRangeTypes(dolbyVision), IsRequired: false }] }
+    end function
+
+    ' The HLS transcode's video codecs. H.264 stays first, so a re-encode is
+    ' still H.264; HEVC after it lets the server COPY an HEVC source into the
+    ' segments (a remux) when only the audio or container needs changing,
+    ' instead of re-encoding 4K ("300": DTS audio re-encoded the 44 Mbps 4K
+    ' picture to H.264). The retry after a rejected direct play therefore
+    ' tries a remux first; if that fails too, the step-down re-encodes.
+    function transcodeVideoCodecs(hevc as boolean) as string
+        if hevc then return "h264,hevc"
+        return "h264"
+    end function
 
     ' Video CodecProfile conditions: the HD-output limit, tightened by a
     ' tier's width cap. [] = unconstrained.

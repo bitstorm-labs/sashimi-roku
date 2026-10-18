@@ -16,7 +16,9 @@ npm run dev       # package + sideload (needs ROKU_DEV_TARGET / ROKU_DEV_PASSWOR
 `npm test` transpiles and then runs `tests/*Tests.brs` off-device with the
 `@rokucommunity/brs` interpreter (`tests/run.js`). It covers **pure logic only**
 — today `source/utils/StreamQuality.bs` (quality tiers, step-down ladder, probe
-arithmetic, the device profile's audio codecs and channel cap) and `source/utils/Confirm.bs` (destructive-confirmation button
+arithmetic, the device profile's audio codecs and channel cap, its HEVC
+VideoRangeType list and HLS video codecs, and adaptive Auto: the Wi-Fi
+ceiling, remembered link readings, the step-back-up decision) and `source/utils/Confirm.bs` (destructive-confirmation button
 order: `StandardMessageDialog` focuses its first button, so Cancel goes first)
 and `source/utils/NextEpisode.bs` (the end-of-episode Up Next screen: next
 episode across seasons, countdown/Skip/Cancel state machine, screen text)
@@ -96,6 +98,16 @@ Consequences worth internalising:
   the caption-mode work was verified (`SetCaptionsMode` from inside the app).
 - Screenshots miss anything shorter than ~2s — the capture round-trip is slower
   than that. A 3s toast will usually not be caught. Use console prints.
+
+The dev Roku (onn soundbar) is on **Wi-Fi** and reports a **1080p SDR**
+display (`GetDisplayProperties`: no HDR10/HLG/DV; video mode not 2160), so
+every 4K file re-encodes there for resolution (`VideoResolutionNotSupported`).
+To see an HEVC remux on it, use a 1080p HEVC file with DTS/TrueHD audio.
+Its captions setting also burns a subtitle into most deep-linked plays.
+`ECP /launch/dev?contentId=` cold-starts the channel, so playback races the
+bandwidth probe and starts at the unmeasured default; `POST /input?contentId=`
+deep-links into the running channel instead. Port 8085 replays recent
+history on connect, so mark the log's line count before acting on new output.
 
 Playback is best verified server-side via Jellyfin `/Sessions` (`NowPlayingItem`,
 `PositionTicks`, `PlayMethod`) — the screenshot API cannot see the video plane,

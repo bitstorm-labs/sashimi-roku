@@ -5,6 +5,7 @@ import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/TimeFormat.bs"
 import "pkg:/source/utils/ViewMode.bs"
 import "pkg:/source/utils/StreamQuality.bs"
+import "pkg:/source/utils/Throughput.bs"
 import "pkg:/source/utils/NextEpisode.bs"
 import "pkg:/source/utils/SkipPill.bs"
 
@@ -108,6 +109,9 @@ sub init()
     m.video.observeFieldScoped("state", "onVideoState")
     m.video.observeFieldScoped("position", "onPosition")
     m.video.observeFieldScoped("duration", "onDuration")
+    ' Each HLS segment's size and download time: the player's own measure of
+    ' the link, the Roku's stand-in for AVPlayer's access log.
+    m.video.observeFieldScoped("downloadedSegment", "onSegmentDownloaded")
     m.progressTimer.observeFieldScoped("fire", "onProgressTimer")
     m.osdTimer.observeFieldScoped("fire", "onOsdTimer")
     m.clockTimer.observeFieldScoped("fire", "onClockTimer")
@@ -178,6 +182,14 @@ sub init()
     m.deliveredBps = 0        ' what the current stream actually carries
     m.pendingNotice = ""      ' toast owed once the stepped-down stream plays
     m.encodeLive = false      ' the Video node was handed a server transcode
+    ' Adaptive Auto: stepping back up when playback shows the link carries
+    ' more (StreamQuality.sustainedUpgrade). Per item; see resetAdaptive.
+    m.sourceBps = 0           ' the file's own bitrate
+    m.isWired = false         ' the link kind readings are remembered under
+    m.videoCopied = true      ' readings measure the link, not the encoder
+    m.sessionSamples = []     ' this item's readings, remembered or not
+    m.segWindow = { bytes: 0, ms: 0 }
+    resetAdaptive()
     ' Rebuffers that were not the viewer's doing (see noteRebuffer)
     m.clock = CreateObject("roTimespan")
     m.rebufferTimes = []
@@ -245,6 +257,7 @@ sub onItemDataChanged()
     m.stepDownBps = 0         ' fresh item starts at full quality
     m.pendingNotice = ""
     m.rebufferTimes = []
+    resetAdaptive()
     setChapters(data)
     populateInfoBar()
     ' The Video node's own loading UI draws the title and a clock across the
@@ -365,6 +378,14 @@ function stepDown(linkIsSlow as boolean) as boolean
     nextBps = StreamQuality.nextStepDownBps(currentRateBps())
     if nextBps = 0 then return false
     m.stepDownBps = nextBps
+    ' The step-down is Auto's own when the viewer is on Auto (m.qualityBps
+    ' stays 0), so Auto may undo it later. An upgrade that stalls straight
+    ' back down makes the next one wait twice as long.
+    now = m.clock.TotalSeconds()
+    if m.lastUpgradeAt >= 0 and now - m.lastUpgradeAt < StreamQuality.adaptiveCooldownSecs(m.failedUpgrades) then m.failedUpgrades = m.failedUpgrades + 1
+    m.lastUpgradeAt = -1
+    m.lastQualityChangeAt = now
+    m.lastRecoveryAt = now
     if linkIsSlow
         ' The link just proved it cannot carry more, so Auto should not hand
         ' the next item the rate that stalled this one. A fresh probe (next
@@ -385,6 +406,81 @@ function stepDown(linkIsSlow as boolean) as boolean
     return true
 end function
 
+' ---------- Adaptive Auto: step back up ----------
+
+sub resetAdaptive()
+    m.lastQualityChangeAt = -1 ' last automatic change, either way
+    m.lastUpgradeAt = -1
+    m.lastRecoveryAt = -1      ' last rebuffer or stall
+    m.failedUpgrades = 0       ' upgrades that stalled straight back down
+    m.sessionSamples = []
+end sub
+
+' Every 16 MB of segments is one reading of the link. A remux's reading is
+' remembered for this server and link kind (the next stream's Auto starts
+' from it); a re-encode's is the encoder's pace, so it only counts for this
+' item, as a floor under what the link carries. Then Auto checks whether the
+' stream it is holding down can come back up. Each reading re-checks, so a
+' "not yet" waits for the next one.
+sub onSegmentDownloaded()
+    seg = m.video.downloadedSegment
+    if seg = invalid or seg.SegSize = invalid or seg.DownloadDuration = invalid then return
+    if seg.Status <> invalid and seg.Status <> 0 then return
+    reading = StreamQuality.addSegment(m.segWindow, seg.SegSize, seg.DownloadDuration)
+    #if DEBUG
+        if reading > 0 then print "[Player] reading "; reading; " bps"
+    #end if
+    if reading <= 0 then return
+    m.sessionSamples = StreamQuality.addSustainedSample(m.sessionSamples, reading)
+    if m.videoCopied then Throughput.record(m.global.serverUrl, m.isWired, reading)
+    considerSustainedUpgrade()
+end sub
+
+sub considerSustainedUpgrade()
+    if m.item = invalid then return
+    now = m.clock.TotalSeconds()
+    sinceRecovery = -1
+    if m.lastRecoveryAt >= 0 then sinceRecovery = now - m.lastRecoveryAt
+    sinceChange = -1
+    if m.lastQualityChangeAt >= 0 then sinceChange = now - m.lastQualityChangeAt
+    probed = 0
+    if m.global.probedBitrate <> invalid then probed = m.global.probedBitrate
+    ctx = {
+        ' A quality the viewer picked (here or in Settings) is never overridden.
+        isAuto: (m.qualityBps = 0 and AppSettings.maxBitrateBps() = 0)
+        isWired: m.isWired
+        isTranscoding: (m.playMethod = "Transcode")
+        isBusy: (m.video.state <> "playing" or m.isPaused or m.errorDialogUp or m.pendingStartSecs >= 0)
+        autoCap: StreamQuality.autoCapBps(probed, StreamQuality.isLocalServer(m.global.serverUrl))
+        activeCap: m.activeCapBps
+        sourceBps: m.sourceBps
+        sustainedBps: sustainedForUpgrade()
+        secondsSinceRecovery: sinceRecovery
+        secondsSinceQualityChange: sinceChange
+        failedUpgrades: m.failedUpgrades
+    }
+    decision = StreamQuality.sustainedUpgrade(ctx)
+    #if DEBUG
+        print "[Player] sustained="; ctx.sustainedBps; " cap="; m.activeCapBps; " source="; m.sourceBps; " wired="; m.isWired; " -> upgrade "; decision
+    #end if
+    if decision <> 0 then return
+    m.lastQualityChangeAt = now
+    m.lastUpgradeAt = now
+    m.stepDownBps = 0
+    ' A stall lowered the measurement so the next item would not start too
+    ' high; playback has since shown the link carries more.
+    if probed > m.global.measuredBitrate then m.global.measuredBitrate = probed
+    restartStream("Raising quality for your connection...")
+end sub
+
+' A remux reads the link itself, so the remembered readings (this one among
+' them) speak for it. A re-encode's readings are only floors, and only this
+' item's say anything about the stream that is playing.
+function sustainedForUpgrade() as integer
+    if m.videoCopied then return Throughput.sustainedBps(m.global.serverUrl, m.isWired)
+    return StreamQuality.sustainedBps(m.sessionSamples)
+end function
+
 ' A stream that keeps stopping to refill is too big for the link even when no
 ' single stall lasts long enough for the watchdog. True on the third rebuffer
 ' inside two minutes. Buffering the viewer caused (a seek, a restart, coming
@@ -392,6 +488,7 @@ end function
 function noteRebuffer() as boolean
     now = m.clock.TotalSeconds()
     if now - m.lastJumpAt < 15 then return false
+    m.lastRecoveryAt = now
     recent = []
     for each t in m.rebufferTimes
         if now - t <= 120 then recent.push(t)
@@ -682,6 +779,11 @@ sub onStreamReady(r as object)
     end if
     m.activeCapBps = 0
     if r.capBps <> invalid then m.activeCapBps = r.capBps
+    m.sourceBps = 0
+    if r.sourceBitrate <> invalid then m.sourceBps = r.sourceBitrate
+    m.isWired = (r.isWired <> invalid and r.isWired = true)
+    m.videoCopied = (r.videoCopied = invalid or r.videoCopied = true)
+    m.segWindow = { bytes: 0, ms: 0 }
     ' The quality in force, so a step-down or a pick is visible, not inferred.
     chips.push(qualityInForceLabel())
     buildChips(chips)
@@ -2148,6 +2250,7 @@ sub playEpisode(nextEp as object)
     m.stepDownBps = 0
     m.pendingNotice = ""
     m.rebufferTimes = []
+    resetAdaptive()
     m.pendingStartSecs = -1
     ' Runtime comes from the next episode's own PlaybackInfo; a stale value
     ' would place the chapter ticks and scrubber against the wrong length.
