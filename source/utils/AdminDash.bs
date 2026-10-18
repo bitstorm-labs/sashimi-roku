@@ -1,0 +1,773 @@
+' The admin dashboard's decisions: which play-mode badge a stream gets and why,
+' who may see the screen, what an activity line says (with addresses
+' redacted), and which health rows show in which colour. Pure functions only,
+' so tests/AdminDashTests.brs can run them off-device; AdminDashboardScreen
+' draws whatever these return.
+'
+' The badge truth table is shared word for word with the Apple and Android
+' clients (plans/sashimi/2026-10-18-admin-dashboard-design.md):
+'   Direct play       no TranscodingInfo, or video AND audio direct, no burn-in
+'                     (a container-only remux shows as Direct play, "Remux")
+'   Converting audio  video direct, audio not
+'   Converting video  anything else, including subtitle burn-in and HDR -> SDR
+'
+' Colours are SceneGraph #RRGGBBAA (alpha LAST).
+namespace AdminDash
+
+    const GREEN = "#7BD389FF"
+    const BLUE = "#8CC2FFFF"
+    const AMBER = "#F2B84BFF"
+    const RED = "#FF6B6BFF"
+    const GREY = "#6B7684FF"
+    ' The app's accent (the rail's selected purple), not the mockup's salmon.
+    const ACCENT = "#BD3EEDFF"
+    const STORAGE_WARN_PCT = 85
+
+    ' ---------- Play mode ----------
+
+    function playMode(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" then return "direct"
+        ti = session.TranscodingInfo
+        if type(ti) <> "roAssociativeArray" then return "direct"
+        reasons = reasonList(ti)
+        ' Burn-in and tone-mapping re-encode the picture whatever the flags say.
+        for each r in reasons
+            if r = "SubtitleCodecNotSupported" or r = "VideoRangeTypeNotSupported" then return "video"
+        end for
+        ' A missing flag is not "direct": a transcode the server did not describe
+        ' must never read as Direct play.
+        videoDirect = (ti.IsVideoDirect = true)
+        audioDirect = (ti.IsAudioDirect = true)
+        if videoDirect and audioDirect then return "direct"
+        if videoDirect then return "audio"
+        return "video"
+    end function
+
+    function badge(mode as string) as object
+        if mode = "audio" then return { label: "Converting audio", fg: BLUE, bg: "#1E2E45FF" }
+        if mode = "video" then return { label: "Converting video", fg: AMBER, bg: "#43341AFF" }
+        return { label: "Direct play", fg: GREEN, bg: "#1F3A2CFF" }
+    end function
+
+    ' TranscodeReasons is an array on current servers; older ones sent a
+    ' comma-separated string.
+    function reasonList(ti as dynamic) as object
+        if type(ti) <> "roAssociativeArray" then return []
+        r = ti.TranscodeReasons
+        if type(r) = "roArray" then return r
+        if isText(r) and r <> ""
+            out = []
+            for each part in r.Split(",")
+                p = part.Trim()
+                if p <> "" then out.push(p)
+            end for
+            return out
+        end if
+        return []
+    end function
+
+    ' Jellyfin's TranscodeReason enum in plain words. Anything new gets its
+    ' CamelCase name split into words rather than shown raw.
+    function reasonText(reason as dynamic) as string
+        if not isText(reason) or reason = "" then return ""
+        words = {
+            ContainerNotSupported: "Container not supported",
+            VideoCodecNotSupported: "Video format not supported",
+            AudioCodecNotSupported: "Audio format not supported",
+            SubtitleCodecNotSupported: "Subtitles burned in",
+            AudioIsExternal: "External audio track",
+            SecondaryAudioNotSupported: "Extra audio track not supported",
+            VideoProfileNotSupported: "Video profile not supported",
+            VideoLevelNotSupported: "Video level not supported",
+            VideoResolutionNotSupported: "Resolution too high",
+            VideoBitDepthNotSupported: "Bit depth not supported",
+            VideoFramerateNotSupported: "Frame rate not supported",
+            RefFramesNotSupported: "Too many reference frames",
+            AnamorphicVideoNotSupported: "Anamorphic video not supported",
+            InterlacedVideoNotSupported: "Interlaced video",
+            AudioChannelsNotSupported: "Too many audio channels",
+            AudioProfileNotSupported: "Audio profile not supported",
+            AudioSampleRateNotSupported: "Sample rate not supported",
+            AudioBitDepthNotSupported: "Audio bit depth not supported",
+            ContainerBitrateExceedsLimit: "Bitrate cap",
+            VideoBitrateNotSupported: "Video bitrate too high",
+            AudioBitrateNotSupported: "Audio bitrate too high",
+            UnknownVideoStreamInfo: "Unknown video stream",
+            UnknownAudioStreamInfo: "Unknown audio stream",
+            DirectPlayError: "Direct play failed",
+            VideoRangeTypeNotSupported: "HDR → SDR",
+            VideoCodecTagNotSupported: "Video codec tag not supported",
+            StreamCountExceedsLimit: "Too many streams"
+        }
+        ' AA keys are case-insensitive, so a lower-cased reason still matches.
+        if words.DoesExist(reason) then return words[reason]
+        return humanize(reason)
+    end function
+
+    function humanize(name as string) as string
+        out = ""
+        for i = 1 to Len(name)
+            c = Mid(name, i, 1)
+            if i > 1 and Asc(c) >= 65 and Asc(c) <= 90
+                out += " " + LCase(c)
+            else
+                out += c
+            end if
+        end for
+        return out
+    end function
+
+    ' The reason line: every TranscodeReason in plain words, where a codec or
+    ' resolution change is named by what changed ("DTS → AC3", "4K → 1080p").
+    function reasonLine(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" then return ""
+        ti = session.TranscodingInfo
+        if type(ti) <> "roAssociativeArray" then return ""
+        mode = playMode(session)
+        if mode = "direct" then return "Remux"
+
+        item = session.NowPlayingItem
+        audioArrow = ""
+        srcAudio = sourceAudio(session)
+        if ti.IsAudioDirect <> true and srcAudio <> invalid and isText(srcAudio.Codec) and isText(ti.AudioCodec) and ti.AudioCodec <> ""
+            if LCase(srcAudio.Codec) <> LCase(ti.AudioCodec) then audioArrow = codecName(srcAudio.Codec) + " → " + codecName(ti.AudioCodec)
+        end if
+        videoArrow = ""
+        srcVideo = sourceVideo(item)
+        if ti.IsVideoDirect <> true and srcVideo <> invalid
+            fromRes = resolutionLabel(srcVideo.Width, srcVideo.Height)
+            toRes = resolutionLabel(ti.Width, ti.Height)
+            if fromRes <> "" and toRes <> "" and fromRes <> toRes then videoArrow = fromRes + " → " + toRes
+        end if
+
+        parts = []
+        if mode = "audio" then parts.push("Video copied")
+        usedVideoArrow = false
+        for each r in reasonList(ti)
+            text = ""
+            if r = "AudioCodecNotSupported" and audioArrow <> ""
+                text = audioArrow
+            else if r = "VideoResolutionNotSupported" and videoArrow <> ""
+                text = videoArrow
+                usedVideoArrow = true
+            else
+                text = reasonText(r)
+            end if
+            if text <> "" and not contains(parts, text) then parts.push(text)
+        end for
+        if videoArrow <> "" and not usedVideoArrow then parts.push(videoArrow)
+        return join(parts, " · ")
+    end function
+
+    ' "4K Dolby Vision", "1080p": the file as it sits on the server.
+    function sourceFormat(item as dynamic) as string
+        v = sourceVideo(item)
+        if v = invalid then return ""
+        res = resolutionLabel(v.Width, v.Height)
+        range = rangeLabel(v.VideoRangeType)
+        if res = "" then return range
+        if range = "" then return res
+        return res + " " + range
+    end function
+
+    function detailLine(session as dynamic) as string
+        parts = []
+        if type(session) = "roAssociativeArray"
+            f = sourceFormat(session.NowPlayingItem)
+            if f <> "" then parts.push(f)
+            r = reasonLine(session)
+            if r <> "" then parts.push(r)
+        end if
+        return join(parts, " · ")
+    end function
+
+    function sourceVideo(item as dynamic) as dynamic
+        if type(item) <> "roAssociativeArray" or type(item.MediaStreams) <> "roArray" then return invalid
+        for each s in item.MediaStreams
+            if type(s) = "roAssociativeArray" and s.Type = "Video" then return s
+        end for
+        return invalid
+    end function
+
+    ' The audio track being played: PlayState.AudioStreamIndex, else the
+    ' default track, else the first.
+    function sourceAudio(session as dynamic) as dynamic
+        if type(session) <> "roAssociativeArray" then return invalid
+        item = session.NowPlayingItem
+        if type(item) <> "roAssociativeArray" or type(item.MediaStreams) <> "roArray" then return invalid
+        wanted = invalid
+        if type(session.PlayState) = "roAssociativeArray" then wanted = session.PlayState.AudioStreamIndex
+        first = invalid
+        def = invalid
+        for each s in item.MediaStreams
+            if type(s) = "roAssociativeArray" and s.Type = "Audio"
+                if wanted <> invalid and s.Index = wanted then return s
+                if first = invalid then first = s
+                if def = invalid and s.IsDefault = true then def = s
+            end if
+        end for
+        if def <> invalid then return def
+        return first
+    end function
+
+    function resolutionLabel(width as dynamic, height as dynamic) as string
+        w = num(width)
+        h = num(height)
+        if w <= 0 and h <= 0 then return ""
+        ' Width first: a 2.39:1 1080p film is 1920x800.
+        if w >= 3200 or h >= 1800 then return "4K"
+        if w >= 1800 or h >= 1000 then return "1080p"
+        if w >= 1200 or h >= 700 then return "720p"
+        if h >= 400 or w >= 640 then return "480p"
+        return "SD"
+    end function
+
+    function rangeLabel(rangeType as dynamic) as string
+        if not isText(rangeType) then return ""
+        r = LCase(rangeType)
+        if Left(r, 4) = "dovi" then return "Dolby Vision"
+        if r = "hdr10plus" then return "HDR10+"
+        if r = "hdr10" then return "HDR10"
+        if r = "hlg" then return "HLG"
+        return ""
+    end function
+
+    function codecName(codec as dynamic) as string
+        if not isText(codec) then return ""
+        names = {
+            dts: "DTS", ac3: "AC3", eac3: "E-AC3", truehd: "TrueHD", aac: "AAC", flac: "FLAC",
+            opus: "Opus", mp3: "MP3", vorbis: "Vorbis", pcm_s16le: "PCM", pcm_s24le: "PCM",
+            h264: "H.264", hevc: "HEVC", h265: "HEVC", av1: "AV1", vp9: "VP9", vp8: "VP8",
+            mpeg2video: "MPEG-2", mpeg4: "MPEG-4", vc1: "VC-1"
+        }
+        if names.DoesExist(codec) then return names[codec]
+        return UCase(codec)
+    end function
+
+    ' ---------- Admin gate ----------
+
+    ' Only a real boolean true opens the screen.
+    function isAdministrator(user as dynamic) as boolean
+        if type(user) <> "roAssociativeArray" then return false
+        p = user.Policy
+        if type(p) <> "roAssociativeArray" then return false
+        v = p.IsAdministrator
+        if type(v) <> "Boolean" and type(v) <> "roBoolean" then return false
+        return v = true
+    end function
+
+    ' The server is the real guard: either of these closes the screen.
+    function isDenied(statusCode as dynamic) as boolean
+        return statusCode = 401 or statusCode = 403
+    end function
+
+    ' ---------- Redaction ----------
+
+    ' Every IPv4 address becomes its first octet ("185.x.x.x"); an IPv6 address
+    ' keeps only its first group ("2001:x:x:x", or "x:x:x:x" when it starts with
+    ' "::"). Hand-rolled rather than roRegex: the off-device interpreter and
+    ' the device disagree on replacement back-references.
+    function redactIp(text as dynamic) as string
+        if not isText(text) or text = "" then return ""
+        out = ""
+        token = ""
+        for i = 1 to Len(text)
+            c = Mid(text, i, 1)
+            if isTokenChar(c)
+                token += c
+            else
+                out += redactToken(token) + c
+                token = ""
+            end if
+        end for
+        return out + redactToken(token)
+    end function
+
+    function isTokenChar(c as string) as boolean
+        a = Asc(c)
+        return (a >= 48 and a <= 58) or (a >= 65 and a <= 90) or (a >= 97 and a <= 122) or a = 46
+    end function
+
+    function redactToken(token as string) as string
+        if token = "" then return ""
+        ' Sentence punctuation after an address stays outside it.
+        core = token
+        tail = ""
+        while Len(core) > 0 and (Right(core, 1) = "." or Right(core, 1) = ":")
+            tail = Right(core, 1) + tail
+            core = Left(core, Len(core) - 1)
+        end while
+        if isIpv4(core) then return core.Split(".")[0] + ".x.x.x" + tail
+        if isIpv6(core)
+            first = core.Split(":")[0]
+            if first = "" then return "x:x:x:x" + tail
+            return first + ":x:x:x" + tail
+        end if
+        return token
+    end function
+
+    function isIpv4(s as string) as boolean
+        parts = s.Split(".")
+        if parts.count() <> 4 then return false
+        for each p in parts
+            if Len(p) < 1 or Len(p) > 3 then return false
+            for i = 1 to Len(p)
+                a = Asc(Mid(p, i, 1))
+                if a < 48 or a > 57 then return false
+            end for
+            if Val(p) > 255 then return false
+        end for
+        return true
+    end function
+
+    ' Three or more colons, or a "::": a clock ("12:30:45") has two.
+    function isIpv6(s as string) as boolean
+        colons = 0
+        for i = 1 to Len(s)
+            c = Mid(s, i, 1)
+            a = Asc(c)
+            if c = ":"
+                colons++
+            else if not ((a >= 48 and a <= 57) or (a >= 65 and a <= 70) or (a >= 97 and a <= 102) or c = ".")
+                return false
+            end if
+        end for
+        if colons < 2 then return false
+        return colons >= 3 or Instr(1, s, "::") > 0
+    end function
+
+    ' ---------- Storage ----------
+
+    ' Percent full, or -1 when the size is unknown. Byte counts run past 2^31
+    ' (a 46 TB array), so everything is a Double.
+    function percentFull(used as dynamic, free as dynamic) as float
+        u = num(used)
+        f = num(free)
+        total = u + f
+        if total <= 0 then return -1
+        return u * 100 / total
+    end function
+
+    function isStorageWarning(pct as dynamic) as boolean
+        return num(pct) > STORAGE_WARN_PCT
+    end function
+
+    ' Media disks (each distinct device behind a library folder, minus the
+    ' server's own data folder, where Collections live) and the transcode
+    ' cache, from /System/Info/Storage. Nothing when the server has no answer.
+    function storageRows(storage as dynamic) as object
+        rows = []
+        if type(storage) <> "roAssociativeArray" then return rows
+        internal = ""
+        if type(storage.ProgramDataFolder) = "roAssociativeArray" and isText(storage.ProgramDataFolder.Path) then internal = storage.ProgramDataFolder.Path
+
+        disks = []
+        seen = {}
+        if type(storage.Libraries) = "roArray"
+            for each lib in storage.Libraries
+                if type(lib) = "roAssociativeArray" and type(lib.Folders) = "roArray"
+                    for each f in lib.Folders
+                        if type(f) = "roAssociativeArray" and isText(f.Path) and not underPath(f.Path, internal)
+                            key = f.DeviceId
+                            if not isText(key) or key = "" then key = f.Path
+                            if not seen.DoesExist(key)
+                                seen[key] = true
+                                disks.push({ id: key, folder: f })
+                            end if
+                        end if
+                    end for
+                end if
+            end for
+        end if
+        for each d in disks
+            label = "Media storage"
+            if disks.count() > 1 then label = "Media storage (" + d.id + ")"
+            rows.push(storageRow(label, d.folder, false))
+        end for
+
+        if type(storage.TranscodingTempFolder) = "roAssociativeArray"
+            rows.push(storageRow("Transcode cache", storage.TranscodingTempFolder, true))
+        end if
+        return rows
+    end function
+
+    function storageRow(label as string, folder as object, asPercent as boolean) as object
+        pct = percentFull(folder.UsedSpace, folder.FreeSpace)
+        color = GREEN
+        if isStorageWarning(pct) then color = AMBER
+        value = ""
+        if pct < 0
+            value = "Unknown"
+            color = GREY
+        else if asPercent
+            value = Int(pct + 0.5).ToStr() + "% full"
+        else
+            value = formatBytes(num(folder.FreeSpace)) + " free of " + formatBytes(num(folder.FreeSpace) + num(folder.UsedSpace))
+        end if
+        return { text: label, value: value, color: color }
+    end function
+
+    function underPath(path as string, root as string) as boolean
+        if root = "" then return false
+        if path = root then return true
+        return Left(path, Len(root) + 1) = root + "/"
+    end function
+
+    function formatBytes(bytes as dynamic) as string
+        b = num(bytes)
+        if b >= 1000000000000# then return scaled(b / 1000000000000#, " TB", true)
+        if b >= 1000000000# then return scaled(b / 1000000000#, " GB", true)
+        return scaled(b / 1000000#, " MB", true)
+    end function
+
+    ' One decimal under 10 ("4.6 TB"), whole numbers above ("49 TB").
+    function scaled(v as double, unit as string, keepZero as boolean) as string
+        if v >= 10 then return Int(v + 0.5).ToStr() + unit
+        tenths = Int(v * 10 + 0.5)
+        whole = tenths \ 10
+        frac = tenths mod 10
+        if frac = 0 and not keepZero then return whole.ToStr() + unit
+        return whole.ToStr() + "." + frac.ToStr() + unit
+    end function
+
+    ' ---------- Sessions ----------
+
+    ' Sessions with something playing; an idle app is not a stream.
+    function playing(sessions as dynamic) as object
+        out = []
+        if type(sessions) <> "roArray" then return out
+        for each s in sessions
+            if type(s) = "roAssociativeArray" and type(s.NowPlayingItem) = "roAssociativeArray" then out.push(s)
+        end for
+        return out
+    end function
+
+    function counts(sessions as dynamic) as object
+        c = { streaming: 0, converting: 0 }
+        for each s in playing(sessions)
+            c.streaming++
+            if playMode(s) <> "direct" then c.converting++
+        end for
+        return c
+    end function
+
+    ' Bits per second: the delivered rate when the server converts, else the
+    ' file's video plus the audio track being played.
+    function sessionBitrate(session as dynamic) as double
+        if type(session) <> "roAssociativeArray" then return 0
+        ti = session.TranscodingInfo
+        if type(ti) = "roAssociativeArray" and num(ti.Bitrate) > 0 then return num(ti.Bitrate)
+        total = 0#
+        v = sourceVideo(session.NowPlayingItem)
+        if v <> invalid then total += num(v.BitRate)
+        a = sourceAudio(session)
+        if a <> invalid then total += num(a.BitRate)
+        return total
+    end function
+
+    function totalBitrate(sessions as dynamic) as double
+        total = 0#
+        for each s in playing(sessions)
+            total += sessionBitrate(s)
+        end for
+        return total
+    end function
+
+    function formatBitrate(bps as dynamic) as string
+        b = num(bps)
+        if b <= 0 then return ""
+        if b < 1000000 then return Int(b / 1000 + 0.5).ToStr() + " kbps"
+        return scaled(b / 1000000#, " Mbps", false)
+    end function
+
+    ' Share of the runtime played, 0..1.
+    function progress(session as dynamic) as float
+        if type(session) <> "roAssociativeArray" then return 0
+        runTicks = 0#
+        if type(session.NowPlayingItem) = "roAssociativeArray" then runTicks = num(session.NowPlayingItem.RunTimeTicks)
+        if runTicks <= 0 then return 0
+        posTicks = 0#
+        if type(session.PlayState) = "roAssociativeArray" then posTicks = num(session.PlayState.PositionTicks)
+        p = posTicks / runTicks
+        if p < 0 then return 0
+        if p > 1 then return 1
+        return p
+    end function
+
+    function clock(seconds as dynamic) as string
+        s = Int(num(seconds))
+        if s < 0 then s = 0
+        h = s \ 3600
+        mm = (s mod 3600) \ 60
+        ss = s mod 60
+        if h > 0 then return h.ToStr() + ":" + pad2(mm) + ":" + pad2(ss)
+        return mm.ToStr() + ":" + pad2(ss)
+    end function
+
+    ' "20:44 / 1:57:00". Ticks are 100 ns and overflow an Integer: divide as
+    ' Doubles, never CDbl().
+    function clockLine(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" then return ""
+        posSecs = 0#
+        runSecs = 0#
+        if type(session.PlayState) = "roAssociativeArray" then posSecs = num(session.PlayState.PositionTicks) / 10000000#
+        if type(session.NowPlayingItem) = "roAssociativeArray" then runSecs = num(session.NowPlayingItem.RunTimeTicks) / 10000000#
+        if runSecs <= 0 then return clock(posSecs)
+        return clock(posSecs) + " / " + clock(runSecs)
+    end function
+
+    function titleLines(item as dynamic) as object
+        if type(item) <> "roAssociativeArray" then return { title: "", subtitle: "" }
+        name = ""
+        if isText(item.Name) then name = item.Name
+        if item.Type = "Episode" and isText(item.SeriesName) and item.SeriesName <> ""
+            ep = ""
+            if item.ParentIndexNumber <> invalid then ep = "S" + Int(num(item.ParentIndexNumber)).ToStr()
+            if item.IndexNumber <> invalid
+                if ep <> "" then ep += " "
+                ep += "E" + Int(num(item.IndexNumber)).ToStr()
+            end if
+            line = name
+            if ep <> "" and name <> "" then line = ep + " · " + name
+            if ep <> "" and name = "" then line = ep
+            return { title: item.SeriesName, subtitle: line }
+        end if
+        year = ""
+        if item.ProductionYear <> invalid and num(item.ProductionYear) > 0 then year = Int(num(item.ProductionYear)).ToStr()
+        return { title: name, subtitle: year }
+    end function
+
+    function whoLine(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" then return ""
+        parts = []
+        if isText(session.UserName) and session.UserName <> "" then parts.push(session.UserName)
+        if isText(session.DeviceName) and session.DeviceName <> ""
+            parts.push(session.DeviceName)
+        else if isText(session.Client) and session.Client <> ""
+            parts.push(session.Client)
+        end if
+        return join(parts, " · ")
+    end function
+
+    ' The Details dialog: everything about one stream, addresses redacted.
+    function detailsText(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" then return ""
+        lines = []
+        item = session.NowPlayingItem
+        ti = session.TranscodingInfo
+        lines.push("Viewer: " + whoLine(session))
+        app = ""
+        if isText(session.Client) then app = session.Client
+        if isText(session.ApplicationVersion) and session.ApplicationVersion <> "" then app += " " + session.ApplicationVersion
+        if app <> "" then lines.push("App: " + app)
+        if isText(session.RemoteEndPoint) and session.RemoteEndPoint <> "" then lines.push("Address: " + redactIp(session.RemoteEndPoint))
+        lines.push("Mode: " + badge(playMode(session)).label)
+
+        src = []
+        f = sourceFormat(item)
+        if f <> "" then src.push(f)
+        if type(item) = "roAssociativeArray" and isText(item.Container) then src.push(UCase(item.Container))
+        v = sourceVideo(item)
+        if v <> invalid and isText(v.Codec) then src.push(codecName(v.Codec))
+        a = sourceAudio(session)
+        if a <> invalid and isText(a.Codec) then src.push(codecName(a.Codec))
+        if src.count() > 0 then lines.push("Source: " + join(src, " · "))
+
+        if type(ti) = "roAssociativeArray"
+            out = []
+            if isText(ti.Container) and ti.Container <> "" then out.push(UCase(ti.Container))
+            if isText(ti.VideoCodec) and ti.VideoCodec <> "" then out.push(codecName(ti.VideoCodec))
+            res = resolutionLabel(ti.Width, ti.Height)
+            if res <> "" then out.push(res)
+            if isText(ti.AudioCodec) and ti.AudioCodec <> "" then out.push(codecName(ti.AudioCodec))
+            if out.count() > 0 then lines.push("Delivered: " + join(out, " · "))
+            hw = hwName(ti.HardwareAccelerationType)
+            if hw <> "" and ti.IsVideoDirect <> true then lines.push("Hardware: " + hw)
+            words = []
+            for each r in reasonList(ti)
+                w = reasonText(r)
+                if w <> "" then words.push(w)
+            end for
+            if words.count() > 0 then lines.push("Why: " + join(words, ", "))
+        end if
+        rate = formatBitrate(sessionBitrate(session))
+        if rate <> "" then lines.push("Bitrate: " + rate)
+        lines.push("Position: " + clockLine(session))
+        return join(lines, Chr(10))
+    end function
+
+    function hwName(kind as dynamic) as string
+        if not isText(kind) or kind = "" or LCase(kind) = "none" then return ""
+        names = { qsv: "QSV", vaapi: "VA-API", nvenc: "NVENC", amf: "AMF", videotoolbox: "VideoToolbox", rkmpp: "RKMPP", v4l2m2m: "V4L2" }
+        if names.DoesExist(kind) then return names[kind]
+        return UCase(kind)
+    end function
+
+    ' ---------- Activity ----------
+
+    function activityLine(entry as dynamic) as object
+        if type(entry) <> "roAssociativeArray" then return { text: "", color: GREY }
+        name = ""
+        if isText(entry.Name) then name = entry.Name
+        kind = ""
+        if isText(entry.Type) then kind = entry.Type
+        sev = ""
+        if isText(entry.Severity) then sev = entry.Severity
+
+        if kind = "AuthenticationFailed"
+            prefix = "Failed login attempt from "
+            text = "Failed sign-in"
+            if Left(name, Len(prefix)) = prefix
+                text += " for " + Mid(name, Len(prefix) + 1)
+            else if name <> ""
+                text = name
+            end if
+            ip = addressIn(entry.ShortOverview)
+            if ip <> "" then text += " · " + ip
+            return { text: redactIp(text), color: RED }
+        end if
+
+        color = GREY
+        if sev = "Error" or sev = "Critical"
+            color = RED
+        else if sev = "Warning"
+            color = AMBER
+        else if kind = "VideoPlayback" or kind = "AudioPlayback"
+            color = ACCENT
+        else if kind = "SessionStarted" or kind = "AuthenticationSucceeded"
+            color = BLUE
+        end if
+        return { text: redactIp(name), color: color }
+    end function
+
+    ' "IP address: 185.220.101.4" -> "185.x.x.x".
+    function addressIn(overview as dynamic) as string
+        if not isText(overview) then return ""
+        prefix = "IP address: "
+        if Left(overview, Len(prefix)) <> prefix then return ""
+        return redactIp(Mid(overview, Len(prefix) + 1).Trim())
+    end function
+
+    function relativeTime(ageSecs as dynamic) as string
+        a = num(ageSecs)
+        if a < 60 then return "now"
+        if a < 3600 then return Int(a / 60).ToStr() + " min"
+        if a < 86400 then return Int(a / 3600).ToStr() + " h"
+        return Int(a / 86400).ToStr() + " d"
+    end function
+
+    function agoText(ageSecs as dynamic) as string
+        r = relativeTime(ageSecs)
+        if r = "now" then return "just now"
+        return r + " ago"
+    end function
+
+    ' Jellyfin's "2026-10-18T19:37:48.706744Z" as epoch seconds, 0 if it isn't
+    ' one. The fraction goes: Roku's parser is not documented to take seven
+    ' digits of it.
+    function isoSeconds(iso as dynamic) as integer
+        if not isText(iso) or Len(iso) < 19 then return 0
+        if Mid(iso, 5, 1) <> "-" or Mid(iso, 8, 1) <> "-" or Mid(iso, 11, 1) <> "T" then return 0
+        dt = CreateObject("roDateTime")
+        dt.FromISO8601String(Left(iso, 19) + "Z")
+        return dt.AsSeconds()
+    end function
+
+    ' ---------- Health ----------
+
+    ' Library scan, any failed task, hardware transcoding and a pending
+    ' restart, in that order. Storage rows come from storageRows.
+    function healthRows(tasks as dynamic, encoding as dynamic, info as dynamic, sessions as dynamic, nowSecs as integer) as object
+        rows = []
+        if type(tasks) = "roArray"
+            for each task in tasks
+                if type(task) = "roAssociativeArray" and task.Key = "RefreshLibrary"
+                    rows.push(scanRow(task, nowSecs))
+                    exit for
+                end if
+            end for
+            failed = 0
+            for each task in tasks
+                if type(task) = "roAssociativeArray" and task.Key <> "RefreshLibrary" and task.IsHidden <> true
+                    r = task.LastExecutionResult
+                    if type(r) = "roAssociativeArray" and (r.Status = "Failed" or r.Status = "Aborted")
+                        name = ""
+                        if isText(task.Name) then name = task.Name
+                        rows.push({ text: name, value: "Failed · " + agoText(nowSecs - isoSeconds(r.EndTimeUtc)), color: RED })
+                        failed++
+                    end if
+                end if
+            end for
+            if failed = 0 then rows.push({ text: "Scheduled tasks", value: "All OK", color: GREEN })
+        end if
+
+        if type(encoding) = "roAssociativeArray"
+            hw = hwName(encoding.HardwareAccelerationType)
+            if hw = ""
+                rows.push({ text: "Hardware transcoding", value: "Off", color: GREY })
+            else
+                inUse = 0
+                for each s in playing(sessions)
+                    ti = s.TranscodingInfo
+                    if type(ti) = "roAssociativeArray" and ti.IsVideoDirect <> true and hwName(ti.HardwareAccelerationType) <> "" then inUse++
+                end for
+                value = "Ready"
+                if inUse = 1 then value = "In use · 1 stream"
+                if inUse > 1 then value = "In use · " + inUse.ToStr() + " streams"
+                rows.push({ text: "Hardware transcoding (" + hw + ")", value: value, color: GREEN })
+            end if
+        end if
+
+        if type(info) = "roAssociativeArray" and info.HasPendingRestart = true
+            rows.push({ text: "Restart pending", value: "Server update waiting", color: AMBER })
+        end if
+        return rows
+    end function
+
+    function scanRow(task as object, nowSecs as integer) as object
+        if task.State = "Running" then return { text: "Library scan", value: "Running", color: BLUE }
+        r = task.LastExecutionResult
+        if type(r) <> "roAssociativeArray" then return { text: "Library scan", value: "Never run", color: GREY }
+        ago = agoText(nowSecs - isoSeconds(r.EndTimeUtc))
+        if r.Status = "Completed" then return { text: "Library scan", value: "OK · " + ago, color: GREEN }
+        if r.Status = "Cancelled" then return { text: "Library scan", value: "Cancelled · " + ago, color: AMBER }
+        return { text: "Library scan", value: "Failed · " + ago, color: RED }
+    end function
+
+    ' ---------- Helpers ----------
+
+    function num(v as dynamic) as double
+        t = type(v)
+        if t = "Integer" or t = "roInt" or t = "roInteger" or t = "LongInteger" or t = "roLongInteger" or t = "Float" or t = "roFloat" or t = "Double" or t = "roDouble" or t = "roIntrinsicDouble"
+            return v
+        end if
+        return 0
+    end function
+
+    function pad2(n as integer) as string
+        if n < 10 then return "0" + n.ToStr()
+        return n.ToStr()
+    end function
+
+    function contains(list as object, value as string) as boolean
+        for each x in list
+            if x = value then return true
+        end for
+        return false
+    end function
+
+    function join(list as object, sep as string) as string
+        out = ""
+        for i = 0 to list.count() - 1
+            if i > 0 then out += sep
+            out += list[i]
+        end for
+        return out
+    end function
+
+    function isText(v as dynamic) as boolean
+        t = type(v)
+        return t = "String" or t = "roString"
+    end function
+
+end namespace
