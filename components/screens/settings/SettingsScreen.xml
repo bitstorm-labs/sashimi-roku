@@ -2,6 +2,8 @@
 <component name="SettingsScreen" extends="Group">
     <interface>
         <field id="signOut" type="boolean" value="false" alwaysNotify="true" />
+        <!-- Server Dashboard row (administrators only): MainScene pushes it. -->
+        <field id="openDashboard" type="boolean" alwaysNotify="true" />
     </interface>
     <children>
         <!-- Background gradient (matches Home) -->
