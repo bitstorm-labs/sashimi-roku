@@ -38,7 +38,10 @@ episode row, where focus lands on entering it) and `source/utils/SkipPill.bs`
 and `source/utils/AdminDash.bs` (the admin Server dashboard: the play-mode
 badge truth table shared with Apple/Android, plain-words transcode reasons,
 the admin gate, IP redaction, the 85% storage warning, bitrate sums, health
-and activity rows, the cards' stable order).
+and activity rows, the cards' stable order) and `source/utils/RemoteControl.bs`
+(Jellyfin remote control: the /socket url, the capabilities body, server
+messages to Stop / DisplayMessage / keep-alive / ignore, keep-alive timing,
+reconnect backoff, the Roku OS 16 gate).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that
@@ -176,6 +179,19 @@ every format (srt/ass/pgs) and QSV makes the re-encode cheap. This means a
 subtitle change requires a stream restart, and Roku's own caption UI has no
 native track to toggle — the app translates `GetCaptionsMode()` into a track
 choice itself (`captionsMode()` / `applyCaptionsMode()` in `PlayerScreen.bs`).
+
+**Jellyfin remote control needs Roku OS 16.** The dashboard's Stop and
+Message arrive only over Jellyfin's `/socket` WebSocket (12.x has no polling
+route), and remote viewers reach the server over https, so a client has to do
+TLS -- which rules out a hand-rolled WebSocket on `roStreamSocket` (plain TCP).
+`roWebSocket` (OS 16.0) does TLS, framing, masking and ping/pong natively.
+On 15.x `CreateObject("roWebSocket")` still returns an object, but every
+`Open()` fails with error 29 "WebSockets are not allowed", so
+`RemoteControlTask` gates on `GetOSVersion().major >= 16` and does nothing on
+older firmware. `Open()` with no wait returns false even when it will
+succeed; the Opened/Closed/Error events decide. bsc 0.73.7 doesn't know the
+component, hence the `bs:disable-next-line: 1129`. The dev soundbar is on
+15.3.4, so it can only exercise the dispatch path, not the socket.
 
 ## Certification
 

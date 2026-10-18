@@ -1,0 +1,231 @@
+' Jellyfin remote control: what the dashboard's Stop and Message buttons need
+' from a client. Jellyfin delivers session commands ONLY over its /socket
+' WebSocket (the 12.x API has no polling route), and it lists a session as
+' remote-controllable only while that socket is open AND the session reported
+' SupportsMediaControl. RemoteControlTask holds the socket; this file is the
+' pure part -- the socket url, the capabilities body, parsing a server message
+' into one thing to do, keep-alive timing and reconnect backoff -- so
+' tests/RemoteControlTests.brs can run it off-device.
+'
+' Framing, masking and ping/pong are not here on purpose: roWebSocket (Roku OS
+' 15+) does all of it natively, and it also speaks TLS, which roStreamSocket
+' cannot -- and every remote viewer reaches the server over https, so a
+' hand-rolled client on a plain TCP socket could never have reached them.
+namespace RemoteControl
+
+    ' The server tells us its keep-alive window in ForceKeepAlive (seconds);
+    ' until it does, assume Jellyfin's default.
+    const DEFAULT_KEEPALIVE_SECS = 60
+    const MIN_BACKOFF_MS = 2000
+    const MAX_BACKOFF_MS = 60000
+    ' A message with no TimeoutMs: Jellyfin web shows it until dismissed, but
+    ' nothing should sit over a playing video indefinitely.
+    const DEFAULT_MESSAGE_SECS = 10
+    const MAX_MESSAGE_SECS = 120
+
+    ' roWebSocket arrived in Roku OS 16.0. On 15.x CreateObject still returns
+    ' an object, but every Open() fails with error 29 "WebSockets are not
+    ' allowed" (seen on the 15.3.4 dev soundbar), so gate on the version and
+    ' don't spend a reconnect loop finding out. v: roDeviceInfo.GetOSVersion(),
+    ' whose fields are strings.
+    function osSupported(v as dynamic) as boolean
+        if type(v) <> "roAssociativeArray" then return false
+        return toInt(v.Lookup("major")) >= 16
+    end function
+
+    ' The Error/Closed event that says this firmware refuses WebSockets
+    ' outright -- retrying cannot help.
+    function isNotAllowed(info as dynamic) as boolean
+        if type(info) <> "roAssociativeArray" then return false
+        if toInt(info.Lookup("Error")) = 29 then return true
+        msg = info.Lookup("ErrorMsg")
+        return isText(msg) and Instr(1, LCase(msg), "not allowed") > 0
+    end function
+
+    ' http(s)://host[:port][/base] -> ws(s)://host[:port][/base]/socket. A
+    ' base path (a reverse proxy at /jellyfin) is kept; the deviceId ties the
+    ' socket to this device's session (auth itself is the Authorization header
+    ' -- 12.x rejects api_key in the query).
+    function socketUrl(serverUrl as dynamic, deviceId as dynamic) as string
+        if not isText(serverUrl) then return ""
+        url = serverUrl.Trim()
+        lower = LCase(url)
+        if Left(lower, 8) = "https://"
+            url = "wss://" + Mid(url, 9)
+        else if Left(lower, 7) = "http://"
+            url = "ws://" + Mid(url, 8)
+        else
+            return ""
+        end if
+        while Right(url, 1) = "/"
+            url = Left(url, Len(url) - 1)
+        end while
+        url = url + "/socket"
+        if isText(deviceId) and deviceId <> "" then url = url + "?deviceId=" + escapeQuery(deviceId)
+        return url
+    end function
+
+    ' Body for POST /Sessions/Capabilities/Full. SupportsMediaControl is what
+    ' lets the dashboard show Stop; DisplayMessage is the only GeneralCommand
+    ' this app acts on, so it is the only one claimed.
+    function capabilities() as object
+        return {
+            PlayableMediaTypes: ["Video", "Audio"]
+            SupportedCommands: ["DisplayMessage"]
+            SupportsMediaControl: true
+            SupportsPersistentIdentifier: true
+        }
+    end function
+
+    function keepAliveMessage() as string
+        return "{""MessageType"":""KeepAlive""}"
+    end function
+
+    ' One server message -> one action:
+    '   { kind: "keepalive", secs }       ForceKeepAlive: start/retime pings
+    '   { kind: "stop" }                  Playstate Stop
+    '   { kind: "message", header, text, secs }  GeneralCommand DisplayMessage
+    '   { kind: "ignore" }                everything else, and anything malformed
+    ' text is the raw frame; a parse failure is "ignore", never a crash.
+    function parse(text as dynamic) as object
+        ignore = { kind: "ignore" }
+        if not isText(text) or text = "" then return ignore
+        msg = ParseJSON(text)
+        if type(msg) <> "roAssociativeArray" then return ignore
+        msgType = field(msg, "MessageType")
+        if not isText(msgType) then return ignore
+        data = field(msg, "Data")
+
+        if msgType = "ForceKeepAlive"
+            return { kind: "keepalive", secs: keepAliveSecs(data) }
+        end if
+
+        if msgType = "Playstate"
+            if type(data) <> "roAssociativeArray" then return ignore
+            command = field(data, "Command")
+            if isText(command) and LCase(command) = "stop" then return { kind: "stop" }
+            return ignore
+        end if
+
+        if msgType = "GeneralCommand"
+            if type(data) <> "roAssociativeArray" then return ignore
+            name = field(data, "Name")
+            if not isText(name) or LCase(name) <> "displaymessage" then return ignore
+            args = field(data, "Arguments")
+            if type(args) <> "roAssociativeArray" then args = {}
+            header = textOr(field(args, "Header"), "")
+            body = textOr(field(args, "Text"), "")
+            ' Nothing to show is not a message.
+            if header = "" and body = "" then return ignore
+            return { kind: "message", header: header, text: body, secs: messageSecs(field(args, "TimeoutMs")) }
+        end if
+
+        return ignore
+    end function
+
+    ' ForceKeepAlive's Data is the server's inactivity window in seconds.
+    function keepAliveSecs(data as dynamic) as integer
+        secs = toInt(data)
+        if secs <= 0 then return DEFAULT_KEEPALIVE_SECS
+        return secs
+    end function
+
+    ' Send a KeepAlive at half the window, as jellyfin-web does, so one lost
+    ' or late frame never lets the server drop the session. Floor of 5 s so a
+    ' tiny or bogus window cannot turn into a busy loop.
+    function keepAliveIntervalMs(windowSecs as dynamic) as integer
+        secs = toInt(windowSecs)
+        if secs <= 0 then secs = DEFAULT_KEEPALIVE_SECS
+        ms = secs * 500
+        if ms < 5000 then ms = 5000
+        return ms
+    end function
+
+    ' A socket that has heard nothing at all (not even the server's KeepAlive
+    ' answers) for two whole windows is dead even if it never said so -- a NAT
+    ' or Wi-Fi drop leaves no Closed event behind.
+    function isStale(silentMs as dynamic, windowSecs as dynamic) as boolean
+        silent = toInt(silentMs)
+        secs = toInt(windowSecs)
+        if secs <= 0 then secs = DEFAULT_KEEPALIVE_SECS
+        return silent > secs * 2000
+    end function
+
+    ' Reconnect delay after the Nth consecutive failure (1-based): 2, 4, 8,
+    ' 16, 32, then 60 s for good. A connection that opened resets the count.
+    function backoffMs(attempt as dynamic) as integer
+        n = toInt(attempt)
+        if n < 1 then n = 1
+        ms = MIN_BACKOFF_MS
+        for i = 2 to n
+            ms = ms * 2
+            if ms >= MAX_BACKOFF_MS then return MAX_BACKOFF_MS
+        end for
+        return ms
+    end function
+
+    ' TimeoutMs arrives as a STRING (GeneralCommand Arguments are a string
+    ' map); round up to whole seconds, default when absent, cap a huge one.
+    function messageSecs(timeoutMs as dynamic) as integer
+        ms = toInt(timeoutMs)
+        if ms <= 0 then return DEFAULT_MESSAGE_SECS
+        secs = ms \ 1000
+        if secs * 1000 < ms then secs = secs + 1
+        if secs > MAX_MESSAGE_SECS then return MAX_MESSAGE_SECS
+        return secs
+    end function
+
+    ' ---- helpers ----
+
+    ' AA Lookup is case-insensitive, so "messageType" from another server
+    ' build still matches.
+    function field(aa as object, key as string) as dynamic
+        if type(aa) <> "roAssociativeArray" then return invalid
+        return aa.Lookup(key)
+    end function
+
+    function isText(v as dynamic) as boolean
+        t = type(v)
+        return t = "String" or t = "roString"
+    end function
+
+    function textOr(v as dynamic, fallback as string) as string
+        if isText(v) then return v.Trim()
+        return fallback
+    end function
+
+    function toInt(v as dynamic) as integer
+        t = type(v)
+        if t = "Integer" or t = "roInt" or t = "roInteger" then return v
+        if t = "LongInteger" or t = "roLongInteger" or t = "Float" or t = "roFloat" or t = "Double" or t = "roDouble"
+            if v > 2147483647 then return 2147483647
+            return Int(v)
+        end if
+        if isText(v)
+            s = v.Trim()
+            if s = "" then return 0
+            ' Val("abc") is 0, which every caller already treats as absent.
+            n = Val(s)
+            if n > 2147483647 then return 2147483647
+            return Int(n)
+        end if
+        return 0
+    end function
+
+    ' Query-value escaping without roUrlTransfer (absent off-device). Device
+    ' ids are hex/alphanumeric, so this only has to be safe, not complete.
+    function escapeQuery(s as string) as string
+        out = ""
+        for i = 1 to Len(s)
+            c = Mid(s, i, 1)
+            code = Asc(c)
+            if (code >= 48 and code <= 57) or (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or c = "-" or c = "_" or c = "." or c = "~"
+                out = out + c
+            else
+                out = out + "%" + UCase(Right("0" + StrI(code, 16), 2))
+            end if
+        end for
+        return out
+    end function
+
+end namespace

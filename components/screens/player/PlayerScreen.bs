@@ -2842,6 +2842,17 @@ sub stopForHandoff()
     end if
 end sub
 
+' Stop from the Jellyfin dashboard: leave exactly as Back does -- the same
+' exitPlayer, so the resume point is saved (or left alone if the stream never
+' started) and MainScene pops the screen on `done`. A dialog this screen put
+' up (playback error, a confirm) would otherwise outlive it, so close it first.
+sub remoteStop()
+    scene = m.top.getScene()
+    if scene <> invalid and scene.dialog <> invalid then scene.dialog.close = true
+    m.errorDialogUp = false
+    exitPlayer()
+end sub
+
 ' A menu opened from a channel (held OK) closes back to the picture, not to
 ' the OSD a channel never shows.
 function leaveChannelMenu() as boolean

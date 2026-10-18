@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- A message sent from the Jellyfin dashboard (GeneralCommand DisplayMessage).
+     Display only: it never takes focus, so whatever screen is up -- the player
+     included, with its virtual highlight -- keeps the remote. MainScene keeps
+     it above every screen (liftOverlays). -->
+<component name="RemoteMessageOverlay" extends="Group">
+    <interface>
+        <!-- { header, text, secs } -->
+        <field id="show" type="assocarray" alwaysNotify="true" onChange="onShow" />
+    </interface>
+    <children>
+        <Group id="card" visible="false" translation="[360, 168]">
+            <Rectangle id="cardBg" width="1200" height="160" color="#16161E" opacity="0.94" />
+            <Rectangle id="accent" width="8" height="160" color="#BD3EED" />
+            <Label id="headerLabel" text="" font="font:MediumBoldSystemFont" color="#FFFFFF"
+                   width="1124" translation="[44, 28]" />
+            <Label id="bodyLabel" text="" font="font:SmallSystemFont" color="#FFFFFFD9"
+                   width="1124" wrap="true" maxLines="6" lineSpacing="4" translation="[44, 84]" />
+        </Group>
+        <Timer id="hideTimer" repeat="false" duration="10" />
+    </children>
+</component>
