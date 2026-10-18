@@ -16,10 +16,16 @@ import "pkg:/source/utils/ImageUrl.bs"
 
 const CARDS_PER_PAGE = 3
 const CARD_W = 560
-const CARD_H = 300
+const CARD_H = 380
 const CARD_GAP = 30
+const PAD = 24
+const POSTER_W = 110
+const POSTER_H = 165
+const PILL_H = 30
+const PILLS_Y = 252
+const FOOTER_Y = 332
 const ROWS_MAX = 8
-const ROW_PITCH = 40
+const ROW_PITCH = 38
 const ACCENT = "#BD3EEDFF"
 
 sub init()
@@ -237,6 +243,9 @@ end function
 
 ' Three card slots, refilled for whichever page is showing. Every field is
 ' reset on every fill, so a slot never keeps the previous stream's art.
+' Layout follows the OpsDec-style card (design revision 2026-10-18):
+' poster + state dot, title / series + SxxEyy, viewer, device, progress,
+' pills, then the reason and Local/Remote under a rule.
 sub buildCards()
     m.slots = []
     for i = 0 to CARDS_PER_PAGE - 1
@@ -253,57 +262,82 @@ sub buildCards()
 
         mask = CreateObject("roSGNode", "MaskGroup")
         mask.maskUri = "pkg:/images/poster_mask_r12.png"
-        mask.maskSize = [120, 180]
-        mask.translation = [24, 24]
+        mask.maskSize = [POSTER_W, POSTER_H]
+        mask.translation = [PAD, PAD]
         g.appendChild(mask)
         art = CreateObject("roSGNode", "Rectangle")
-        art.width = 120
-        art.height = 180
+        art.width = POSTER_W
+        art.height = POSTER_H
         art.color = "#2A313CFF"
         art.opacity = 0.99
         mask.appendChild(art)
         poster = CreateObject("roSGNode", "Poster")
-        poster.width = 120
-        poster.height = 180
+        poster.width = POSTER_W
+        poster.height = POSTER_H
         poster.loadDisplayMode = "scaleToZoom"
         mask.appendChild(poster)
+        dot = roundRect(g, "pkg:/images/circle_mask.png", PAD + POSTER_W - 22, PAD + 8, 14, 14)
 
-        title = addLabel(g, 164, 22, 372, "Inter-Bold", 28, "#FFFFFF")
-        subtitle = addLabel(g, 164, 60, 372, "Inter-Medium", 20, "#A3ADBAFF")
-        who = addLabel(g, 164, 88, 372, "Inter-Medium", 20, "#A3ADBAFF")
+        x = PAD + POSTER_W + 20
+        textW = CARD_W - x - PAD
+        title = addLabel(g, x, 20, textW, "Inter-Bold", 28, "#FFFFFF")
+        subtitle = addLabel(g, x, 60, textW, "Inter-Medium", 20, "#A3ADBAFF")
+        ep = roundRect(g, "pkg:/images/badge_mask_r6.png", x, 60, 0, 28)
+        ep.rect.color = "#3A1F47FF"
+        epText = addLabel(g, x, 60, 0, "Inter-Bold", 18, ACCENT)
+        epText.height = 28
+        epText.vertAlign = "center"
+        epText.horizAlign = "center"
 
-        badgeMask = CreateObject("roSGNode", "MaskGroup")
-        badgeMask.maskUri = "pkg:/images/badge_mask_r6.png"
-        badgeMask.translation = [164, 122]
-        g.appendChild(badgeMask)
-        badgeBg = CreateObject("roSGNode", "Rectangle")
-        badgeBg.height = 36
-        badgeBg.opacity = 0.99
-        badgeMask.appendChild(badgeBg)
-        badgeText = addLabel(g, 164, 122, 300, "Inter-Bold", 18, "#FFFFFF")
-        badgeText.height = 36
-        badgeText.vertAlign = "center"
-        badgeText.horizAlign = "center"
+        avatarBg = CreateObject("roSGNode", "Poster")
+        avatarBg.uri = "pkg:/images/avatar_accent.png"
+        avatarBg.width = 32
+        avatarBg.height = 32
+        avatarBg.translation = [x, 96]
+        g.appendChild(avatarBg)
+        initial = addLabel(g, x, 96, 32, "Inter-Bold", 16, "#FFFFFF")
+        initial.height = 32
+        initial.horizAlign = "center"
+        initial.vertAlign = "center"
+        ' The initial only, never the viewer's Jellyfin photo: the server sends
+        ' user images as the uploaded original whatever maxWidth/fillWidth say
+        ' (2-7 MB here) with EXIF orientation, which Roku does not apply, so a
+        ' phone photo lands sideways (the Sidebar's fixed rotation fits one
+        ' photo, not everyone's). Checked against the live server 2026-10-18.
+        user = addLabel(g, x + 44, 96, textW - 44, "Inter-Bold", 22, "#EEF1F5FF")
+        user.height = 32
+        user.vertAlign = "center"
+        device = addLabel(g, x, 140, textW, "Inter-Medium", 18, "#6B7684FF")
 
-        detail = addLabel(g, 164, 168, 372, "Inter-Medium", 18, "#A3ADBAFF")
-        detail.maxLines = 2
-        detail.wrap = true
-
+        barY = PAD + POSTER_H + 18
         track = CreateObject("roSGNode", "Rectangle")
-        track.translation = [24, 230]
-        track.width = CARD_W - 48
+        track.translation = [PAD, barY]
+        track.width = CARD_W - 2 * PAD
         track.height = 8
         track.color = "#2A313CFF"
         g.appendChild(track)
         fill = CreateObject("roSGNode", "Rectangle")
-        fill.translation = [24, 230]
+        fill.translation = [PAD, barY]
         fill.height = 8
         fill.color = ACCENT
         g.appendChild(fill)
+        clockLabel = addLabel(g, PAD, barY + 14, 300, "Inter-Medium", 18, "#A3ADBAFF")
+        pct = addLabel(g, CARD_W - PAD - 120, barY + 14, 120, "Inter-Medium", 18, "#A3ADBAFF")
+        pct.horizAlign = "right"
 
-        clockLabel = addLabel(g, 24, 252, 260, "Inter-Medium", 20, "#A3ADBAFF")
-        rate = addLabel(g, 276, 252, 260, "Inter-Medium", 20, "#A3ADBAFF")
-        rate.horizAlign = "right"
+        pills = CreateObject("roSGNode", "Group")
+        pills.translation = [PAD, PILLS_Y]
+        g.appendChild(pills)
+
+        rule = CreateObject("roSGNode", "Rectangle")
+        rule.translation = [PAD, FOOTER_Y]
+        rule.width = CARD_W - 2 * PAD
+        rule.height = 2
+        rule.color = "#2A313CFF"
+        g.appendChild(rule)
+        reason = addLabel(g, PAD, FOOTER_Y + 12, CARD_W - 2 * PAD - 130, "Inter-Medium", 18, "#6B7684FF")
+        where = addLabel(g, CARD_W - PAD - 120, FOOTER_Y + 12, 120, "Inter-Medium", 18, "#6B7684FF")
+        where.horizAlign = "right"
 
         ring = CreateObject("roSGNode", "Poster")
         ring.uri = "pkg:/images/ring_r16_white.9.png"
@@ -312,8 +346,31 @@ sub buildCards()
         ring.opacity = 0
         g.appendChild(ring)
 
-        m.slots.push({ group: g, bg: bg, poster: poster, title: title, subtitle: subtitle, who: who, badgeMask: badgeMask, badgeBg: badgeBg, badgeText: badgeText, detail: detail, fill: fill, clock: clockLabel, rate: rate, ring: ring })
+        m.slots.push({ group: g, bg: bg, poster: poster, dot: dot, title: title, subtitle: subtitle, ep: ep, epText: epText, initial: initial, user: user, device: device, fill: fill, clock: clockLabel, pct: pct, pills: pills, reason: reason, where: where, ring: ring })
     end for
+end sub
+
+' A rounded (or round) filled shape: a Rectangle inside a MaskGroup. The fill
+' stays just under opaque, or the mask is ignored (see CLAUDE.md).
+function roundRect(parent as object, maskUri as string, x as integer, y as integer, w as integer, h as integer) as object
+    mg = CreateObject("roSGNode", "MaskGroup")
+    mg.maskUri = maskUri
+    mg.maskSize = [w, h]
+    mg.translation = [x, y]
+    parent.appendChild(mg)
+    r = CreateObject("roSGNode", "Rectangle")
+    r.width = w
+    r.height = h
+    r.opacity = 0.99
+    mg.appendChild(r)
+    return { mask: mg, rect: r }
+end function
+
+sub setRoundRect(shape as object, x as integer, y as integer, w as integer, h as integer)
+    shape.mask.translation = [x, y]
+    shape.mask.maskSize = [w, h]
+    shape.rect.width = w
+    shape.rect.height = h
 end sub
 
 sub render()
@@ -424,32 +481,88 @@ end sub
 
 sub fillCard(slot as object, s as object)
     item = s.NowPlayingItem
-    lines = AdminDash.titleLines(item)
-    slot.title.text = lines.title
-    slot.subtitle.text = lines.subtitle
-    slot.who.text = AdminDash.whoLine(s)
+    c = AdminDash.cardTitle(item)
+    slot.title.text = c.title
     slot.poster.uri = posterUrl(item)
+    slot.dot.rect.color = AdminDash.stateDot(s)
 
-    b = AdminDash.badge(AdminDash.playMode(s))
-    w = Len(b.label) * 11 + 32
-    slot.badgeMask.maskSize = [w, 36]
-    slot.badgeBg.width = w
-    slot.badgeBg.color = b.bg
-    slot.badgeText.width = w
-    slot.badgeText.text = b.label
-    slot.badgeText.color = b.fg
+    ' The SxxEyy tag sits right after the series name, which gives up room
+    ' for it when it is long.
+    x = PAD + POSTER_W + 20
+    textW = CARD_W - x - PAD
+    slot.subtitle.text = c.sub
+    if c.ep <> ""
+        slot.epText.text = c.ep
+        tagW = textWidth(c.ep, "Inter-Bold", 18) + 16
+        subW = 0
+        if c.sub <> "" then subW = textWidth(c.sub, "Inter-Medium", 20) + 10
+        if subW + tagW > textW then subW = textW - tagW
+        slot.subtitle.width = subW
+        setRoundRect(slot.ep, x + subW, 60, tagW, 28)
+        slot.epText.translation = [x + subW, 60]
+        slot.epText.width = tagW
+        slot.ep.mask.visible = true
+        slot.epText.visible = true
+    else
+        slot.subtitle.width = textW
+        slot.ep.mask.visible = false
+        slot.epText.visible = false
+        slot.epText.text = ""
+    end if
 
-    slot.detail.text = AdminDash.detailLine(s)
-    slot.fill.width = Int((CARD_W - 48) * AdminDash.progress(s))
+    name = ""
+    if AdminDash.isText(s.UserName) then name = s.UserName
+    slot.user.text = name
+    slot.initial.text = AdminDash.initialOf(name)
+    slot.device.text = AdminDash.deviceLine(s)
+
+    slot.fill.width = Int((CARD_W - 2 * PAD) * AdminDash.progress(s))
     slot.fill.visible = slot.fill.width > 0
     slot.clock.text = AdminDash.clockLine(s)
-    rate = AdminDash.formatBitrate(AdminDash.sessionBitrate(s))
-    paused = (type(s.PlayState) = "roAssociativeArray" and s.PlayState.IsPaused = true)
-    if paused
-        if rate <> "" then rate = "Paused · " + rate else rate = "Paused"
-    end if
-    slot.rate.text = rate
+    slot.pct.text = AdminDash.percentText(s)
+
+    drawPills(slot.pills, AdminDash.pills(s))
+    slot.reason.text = AdminDash.footerReason(s)
+    slot.where.text = AdminDash.whereLabel(s)
 end sub
+
+' Pills left to right, wrapping to a second row; anything past that is
+' dropped rather than drawn over the footer.
+sub drawPills(parent as object, list as object)
+    while parent.getChildCount() > 0
+        parent.removeChildIndex(0)
+    end while
+    maxW = CARD_W - 2 * PAD
+    x = 0
+    y = 0
+    for each p in list
+        w = textWidth(p.text, "Inter-Bold", 17) + 24
+        if w > maxW then w = maxW
+        if x > 0 and x + w > maxW
+            x = 0
+            y += PILL_H + 8
+        end if
+        if y > PILL_H + 8 then exit for
+        shape = roundRect(parent, "pkg:/images/badge_mask_r6.png", x, y, w, PILL_H)
+        shape.rect.color = p.bg
+        l = addLabel(parent, x, y, w, "Inter-Bold", 17, p.fg)
+        l.height = PILL_H
+        l.horizAlign = "center"
+        l.vertAlign = "center"
+        l.text = p.text
+        x += w + 8
+    end for
+end sub
+
+' Rendered width of a line of text, measured on a scratch Label.
+function textWidth(text as string, fontName as string, size as integer) as integer
+    if m.measure = invalid
+        m.measure = CreateObject("roSGNode", "Label")
+    end if
+    m.measure.font = font(fontName, size)
+    m.measure.text = text
+    return Int(m.measure.boundingRect().width + 0.5)
+end function
 
 ' An episode shows its series' poster, as everywhere else in the app.
 function posterUrl(item as dynamic) as string

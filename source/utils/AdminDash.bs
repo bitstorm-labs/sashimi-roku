@@ -117,48 +117,6 @@ namespace AdminDash
         return out
     end function
 
-    ' The reason line: every TranscodeReason in plain words, where a codec or
-    ' resolution change is named by what changed ("DTS → AC3", "4K → 1080p").
-    function reasonLine(session as dynamic) as string
-        if type(session) <> "roAssociativeArray" then return ""
-        ti = session.TranscodingInfo
-        if type(ti) <> "roAssociativeArray" then return ""
-        mode = playMode(session)
-        if mode = "direct" then return "Remux"
-
-        item = session.NowPlayingItem
-        audioArrow = ""
-        srcAudio = sourceAudio(session)
-        if ti.IsAudioDirect <> true and srcAudio <> invalid and isText(srcAudio.Codec) and isText(ti.AudioCodec) and ti.AudioCodec <> ""
-            if LCase(srcAudio.Codec) <> LCase(ti.AudioCodec) then audioArrow = codecName(srcAudio.Codec) + " → " + codecName(ti.AudioCodec)
-        end if
-        videoArrow = ""
-        srcVideo = sourceVideo(item)
-        if ti.IsVideoDirect <> true and srcVideo <> invalid
-            fromRes = resolutionLabel(srcVideo.Width, srcVideo.Height)
-            toRes = resolutionLabel(ti.Width, ti.Height)
-            if fromRes <> "" and toRes <> "" and fromRes <> toRes then videoArrow = fromRes + " → " + toRes
-        end if
-
-        parts = []
-        if mode = "audio" then parts.push("Video copied")
-        usedVideoArrow = false
-        for each r in reasonList(ti)
-            text = ""
-            if r = "AudioCodecNotSupported" and audioArrow <> ""
-                text = audioArrow
-            else if r = "VideoResolutionNotSupported" and videoArrow <> ""
-                text = videoArrow
-                usedVideoArrow = true
-            else
-                text = reasonText(r)
-            end if
-            if text <> "" and not contains(parts, text) then parts.push(text)
-        end for
-        if videoArrow <> "" and not usedVideoArrow then parts.push(videoArrow)
-        return join(parts, " · ")
-    end function
-
     ' "4K Dolby Vision", "1080p": the file as it sits on the server.
     function sourceFormat(item as dynamic) as string
         v = sourceVideo(item)
@@ -170,15 +128,285 @@ namespace AdminDash
         return res + " " + range
     end function
 
-    function detailLine(session as dynamic) as string
-        parts = []
-        if type(session) = "roAssociativeArray"
-            f = sourceFormat(session.NowPlayingItem)
-            if f <> "" then parts.push(f)
-            r = reasonLine(session)
-            if r <> "" then parts.push(r)
+    ' ---------- Stream card (OpsDec style, design revision 2026-10-18) ----------
+    '
+    ' Poster with a state dot, title (series + S04E03 for episodes), viewer,
+    ' progress, then pills in a fixed order: resolution, video codec + range,
+    ' audio codec + channels, bitrate, play mode. A converted value reads
+    ' "source → output". The footer is the reason in words and Local/Remote.
+
+    function stateDot(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" or type(session.PlayState) <> "roAssociativeArray" then return GREY
+        paused = session.PlayState.IsPaused
+        if not isBool(paused) then return GREY
+        if paused then return AMBER
+        return GREEN
+    end function
+
+    function cardTitle(item as dynamic) as object
+        c = { title: "", sub: "", ep: "" }
+        if type(item) <> "roAssociativeArray" then return c
+        if isText(item.Name) then c.title = item.Name
+        year = ""
+        if num(item.ProductionYear) > 0 then year = Int(num(item.ProductionYear)).ToStr()
+        if item.Type = "Episode"
+            if isText(item.SeriesName) then c.sub = item.SeriesName
+            c.ep = episodeTag(item)
+        else if item.Type = "Movie"
+            c.sub = "Movie"
+            if year <> "" then c.sub += " · " + year
+        else
+            c.sub = year
         end if
+        return c
+    end function
+
+    ' "S04E03"; "E07" with no season; "" for anything but an episode.
+    function episodeTag(item as dynamic) as string
+        if type(item) <> "roAssociativeArray" or item.Type <> "Episode" then return ""
+        tag = ""
+        if isNumber(item.ParentIndexNumber) then tag = "S" + pad2(Int(item.ParentIndexNumber))
+        if isNumber(item.IndexNumber) then tag += "E" + pad2(Int(item.IndexNumber))
+        return tag
+    end function
+
+    ' "Sashimi · Living Room Roku": the app, then the device.
+    function deviceLine(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" then return ""
+        parts = []
+        if isText(session.Client) and session.Client <> "" then parts.push(session.Client)
+        if isText(session.DeviceName) and session.DeviceName <> "" then parts.push(session.DeviceName)
         return join(parts, " · ")
+    end function
+
+    function initialOf(name as dynamic) as string
+        if not isText(name) or name = "" then return "?"
+        return UCase(Left(name, 1))
+    end function
+
+    function percentText(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" or type(session.NowPlayingItem) <> "roAssociativeArray" then return ""
+        if num(session.NowPlayingItem.RunTimeTicks) <= 0 then return ""
+        return Int(progress(session) * 100 + 0.5).ToStr() + "%"
+    end function
+
+    function pills(session as dynamic) as object
+        out = []
+        kinds = [
+            { text: resolutionPill(session), fg: "#6CC6F0FF", bg: "#15303FFF" },
+            { text: videoPill(session), fg: "#B79CF5FF", bg: "#2A2140FF" },
+            { text: audioPill(session), fg: "#F2C46BFF", bg: "#3A2D12FF" },
+            { text: ratePill(session), fg: "#5FD3C4FF", bg: "#123331FF" }
+        ]
+        for each k in kinds
+            if k.text <> "" then out.push(k)
+        end for
+        b = badge(playMode(session))
+        out.push({ text: modeLabel(session), fg: b.fg, bg: b.bg })
+        return out
+    end function
+
+    ' Only a video conversion changes the picture's size, codec or range;
+    ' an audio-only conversion copies the video whatever TranscodingInfo says.
+    function videoConverted(session as dynamic) as boolean
+        return playMode(session) = "video"
+    end function
+
+    function resolutionPill(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" then return ""
+        v = sourceVideo(session.NowPlayingItem)
+        if v = invalid then return ""
+        src = resolutionLabel(v.Width, v.Height)
+        if src = "" or not videoConverted(session) then return src
+        ti = session.TranscodingInfo
+        dst = resolutionLabel(ti.Width, ti.Height)
+        if dst = "" or dst = src then return src
+        return src + " → " + dst
+    end function
+
+    ' "HEVC DV", or "HEVC DV → H264" / "HEVC DV → HEVC SDR" when re-encoded.
+    ' TranscodingInfo carries no range, so SDR is said only when the server
+    ' gave tone-mapping as a reason.
+    function videoPill(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" then return ""
+        v = sourceVideo(session.NowPlayingItem)
+        if v = invalid then return ""
+        srcCodec = pillCodec(v.Codec)
+        src = joinNonEmpty([srcCodec, rangeShort(v.VideoRangeType)], " ")
+        if not videoConverted(session) then return src
+        ti = session.TranscodingInfo
+        dstCodec = pillCodec(ti.VideoCodec)
+        if dstCodec = "" then return src
+        toneMapped = contains(reasonList(ti), "VideoRangeTypeNotSupported")
+        if dstCodec = srcCodec and not toneMapped then return src
+        dst = dstCodec
+        if toneMapped then dst += " SDR"
+        return src + " → " + dst
+    end function
+
+    ' "DTS 5.1", "DTS → AC3 5.1" (same channels, said once), "DTS 5.1 → AAC 2.0".
+    function audioPill(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" then return ""
+        a = sourceAudio(session)
+        if a = invalid then return ""
+        srcCodec = pillCodec(a.Codec)
+        srcCh = channelsLabel(a.Channels)
+        src = joinNonEmpty([srcCodec, srcCh], " ")
+        ti = session.TranscodingInfo
+        if type(ti) <> "roAssociativeArray" or ti.IsAudioDirect = true then return src
+        dstCodec = pillCodec(ti.AudioCodec)
+        if dstCodec = "" then return src
+        dstCh = channelsLabel(ti.AudioChannels)
+        if dstCodec = srcCodec and (dstCh = srcCh or dstCh = "") then return src
+        if dstCh <> "" and dstCh = srcCh then return srcCodec + " → " + dstCodec + " " + dstCh
+        return src + " → " + joinNonEmpty([dstCodec, dstCh], " ")
+    end function
+
+    function channelsLabel(channels as dynamic) as string
+        if not isNumber(channels) then return ""
+        n = Int(channels)
+        layouts = { "1": "1.0", "2": "2.0", "3": "2.1", "5": "5.0", "6": "5.1", "7": "6.1", "8": "7.1" }
+        key = n.ToStr()
+        if layouts.DoesExist(key) then return layouts[key]
+        if n > 0 then return key + "ch"
+        return ""
+    end function
+
+    ' The delivered rate; "60 → 8 Mbps" when the picture is re-encoded.
+    function ratePill(session as dynamic) as string
+        dst = formatBitrate(sessionBitrate(session))
+        if not videoConverted(session) or dst = "" then return dst
+        src = formatBitrate(sourceBitrate(session))
+        if src = "" or src = dst then return dst
+        unit = " Mbps"
+        if Right(src, Len(unit)) = unit and Right(dst, Len(unit)) = unit then src = Left(src, Len(src) - Len(unit))
+        return src + " → " + dst
+    end function
+
+    ' Encoding speed against real time: TranscodingInfo.Framerate over the
+    ' source's frame rate, "1.8x". "" when either is unknown.
+    function speed(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" or type(session.TranscodingInfo) <> "roAssociativeArray" then return ""
+        rate = num(session.TranscodingInfo.Framerate)
+        if rate <= 0 then return ""
+        v = sourceVideo(session.NowPlayingItem)
+        if v = invalid then return ""
+        fps = num(v.RealFrameRate)
+        if fps <= 0 then fps = num(v.AverageFrameRate)
+        if fps <= 0 then return ""
+        return scaled(rate / fps, "x", true)
+    end function
+
+    ' The server names its configured accelerator on every TranscodingInfo,
+    ' remuxes included (seen on the live server), so HW is claimed only when
+    ' the picture is actually encoded.
+    function isHardware(session as dynamic) as boolean
+        if not videoConverted(session) then return false
+        return hwName(session.TranscodingInfo.HardwareAccelerationType) <> ""
+    end function
+
+    ' "Direct Play", "Audio only · 1.0x", "TC 1.8x HW".
+    function modeLabel(session as dynamic) as string
+        mode = playMode(session)
+        if mode = "direct" then return "Direct Play"
+        sp = speed(session)
+        if mode = "audio" then return joinNonEmpty(["Audio only", sp], " · ")
+        hw = ""
+        if isHardware(session) then hw = "HW"
+        return joinNonEmpty(["TC", sp, hw], " ")
+    end function
+
+    ' The card's footer: why, in words. The pills already show what changed.
+    function footerReason(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" or type(session.TranscodingInfo) <> "roAssociativeArray" then return "Plays as-is"
+        if playMode(session) = "direct" then return "Remux"
+        words = []
+        for each r in reasonList(session.TranscodingInfo)
+            w = reasonText(r)
+            if w <> "" and not contains(words, w) then words.push(w)
+        end for
+        if words.count() = 0 then return "Converting"
+        return join(words, " · ")
+    end function
+
+    ' "Local" or "Remote" from the session's address; "" when it has none.
+    ' The address itself is never shown and never leaves the device.
+    function whereLabel(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" or not isText(session.RemoteEndPoint) then return ""
+        if session.RemoteEndPoint.Trim() = "" then return ""
+        if isLocalAddress(session.RemoteEndPoint) then return "Local"
+        return "Remote"
+    end function
+
+    ' This network: RFC 1918, loopback and link-local IPv4; IPv6 loopback,
+    ' link-local (fe80::/10) and unique-local (fc00::/7); an IPv4-mapped IPv6
+    ' address by its IPv4 rule. CGNAT (100.64.0.0/10) is the carrier's
+    ' network, so it counts as remote.
+    function isLocalAddress(address as dynamic) as boolean
+        if not isText(address) then return false
+        a = LCase(address.Trim())
+        if Left(a, 1) = "["
+            rb = Instr(1, a, "]")
+            if rb = 0 then return false
+            a = Mid(a, 2, rb - 2)
+        else if countOf(a, ":") = 1 and Instr(1, a, ".") > 0
+            a = Left(a, Instr(1, a, ":") - 1)
+        end if
+        mapped = "::ffff:"
+        if Left(a, Len(mapped)) = mapped and isIpv4(Mid(a, Len(mapped) + 1)) then a = Mid(a, Len(mapped) + 1)
+
+        if isIpv4(a)
+            o = a.Split(".")
+            o1 = Val(o[0])
+            o2 = Val(o[1])
+            if o1 = 10 or o1 = 127 then return true
+            if o1 = 172 and o2 >= 16 and o2 <= 31 then return true
+            if o1 = 192 and o2 = 168 then return true
+            return o1 = 169 and o2 = 254
+        end if
+        if not isIpv6(a) then return false
+        if a = "::1" then return true
+        first = a.Split(":")[0]
+        if first = "" or Len(first) > 4 then return false
+        g = hexValue(first)
+        ' fc00-fdff unique-local, fe80-febf link-local.
+        return (g >= 64512 and g <= 65023) or (g >= 65152 and g <= 65215)
+    end function
+
+    function hexValue(s as string) as integer
+        v = 0
+        for i = 1 to Len(s)
+            d = Instr(1, "0123456789abcdef", Mid(s, i, 1)) - 1
+            if d < 0 then return -1
+            v = v * 16 + d
+        end for
+        return v
+    end function
+
+    function countOf(s as string, c as string) as integer
+        n = 0
+        for i = 1 to Len(s)
+            if Mid(s, i, 1) = c then n++
+        end for
+        return n
+    end function
+
+    ' Short codec names as OpsDec shows them: "HEVC", "H264", "EAC3", "TRUEHD".
+    function pillCodec(codec as dynamic) as string
+        if not isText(codec) or codec = "" then return ""
+        c = LCase(codec)
+        if c = "h265" or c = "hevc" then return "HEVC"
+        return UCase(c)
+    end function
+
+    function rangeShort(rangeType as dynamic) as string
+        if not isText(rangeType) then return ""
+        r = LCase(rangeType)
+        if Left(r, 4) = "dovi" then return "DV"
+        if r = "hdr10plus" then return "HDR10+"
+        if r = "hdr10" then return "HDR10"
+        if r = "hlg" then return "HLG"
+        return ""
     end function
 
     function sourceVideo(item as dynamic) as dynamic
@@ -488,6 +716,12 @@ namespace AdminDash
         if type(session) <> "roAssociativeArray" then return 0
         ti = session.TranscodingInfo
         if type(ti) = "roAssociativeArray" and num(ti.Bitrate) > 0 then return num(ti.Bitrate)
+        return sourceBitrate(session)
+    end function
+
+    ' The file's video plus the audio track being played.
+    function sourceBitrate(session as dynamic) as double
+        if type(session) <> "roAssociativeArray" then return 0
         total = 0#
         v = sourceVideo(session.NowPlayingItem)
         if v <> invalid then total += num(v.BitRate)
@@ -806,6 +1040,24 @@ namespace AdminDash
             out += list[i]
         end for
         return out
+    end function
+
+    function joinNonEmpty(list as object, sep as string) as string
+        parts = []
+        for each x in list
+            if x <> "" then parts.push(x)
+        end for
+        return join(parts, sep)
+    end function
+
+    function isNumber(v as dynamic) as boolean
+        t = type(v)
+        return t = "Integer" or t = "roInt" or t = "roInteger" or t = "LongInteger" or t = "roLongInteger" or t = "Float" or t = "roFloat" or t = "Double" or t = "roDouble" or t = "roIntrinsicDouble"
+    end function
+
+    function isBool(v as dynamic) as boolean
+        t = type(v)
+        return t = "Boolean" or t = "roBoolean"
     end function
 
     function isText(v as dynamic) as boolean
