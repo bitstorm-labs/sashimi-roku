@@ -52,6 +52,14 @@ sub init()
     m.reminderBanner.observeFieldScoped("playItem", "onReminderPlay")
     m.global.observeFieldScoped("toastMessage", "onGlobalToast")
 
+    ' Jellyfin remote control (#224): the dashboard's Stop and Message. The
+    ' task holds the server's /socket for the active login; its commands land
+    ' in onRemoteCommand, and messages draw over every screen.
+    m.remoteMessage = createObject("roSGNode", "RemoteMessageOverlay")
+    m.remoteTask = createObject("roSGNode", "RemoteControlTask")
+    m.remoteTask.observeFieldScoped("command", "onRemoteCommand")
+    m.remoteTask.control = "RUN"
+
     ' Deep-link cover. A direct-play deep link keeps its detail screen hidden
     ' until it hands off to the player (see processDeepLink), and pushScreen
     ' hides the previous screen and the sidebar — so against an unreachable
@@ -464,6 +472,7 @@ sub onSessionExpired()
     expired = Servers.get(expiredId)
     if expired <> invalid then Servers.expire(expiredId)
     Registry.clearAuth()
+    m.remoteTask.session = {}
     m.global.serverUrl = ""
     m.global.authToken = ""
     m.global.userId = ""
@@ -472,6 +481,35 @@ sub onSessionExpired()
     if fallback <> invalid then Servers.activate(fallback.id)
     m.global.toastMessage = { message: "Session expired. Please sign in again." }
     showAuthScreen(expired)
+end sub
+
+'---------- Remote control (#224) ----------
+
+' Every way into the main UI has its final credentials in place here (see
+' enterMainUI). Same login as before -> no reconnect: the session field
+' notifies on any write, and a needless drop would briefly hide this device
+' from the dashboard.
+sub connectRemoteControl()
+    url = m.global.serverUrl
+    token = m.global.authToken
+    current = m.remoteTask.session
+    if current <> invalid and current.url = url and current.token = token then return
+    m.remoteTask.session = { url: url, token: token }
+end sub
+
+sub onRemoteCommand(event as object)
+    action = event.getData()
+    if action = invalid or action.kind = invalid then return
+    if action.kind = "message"
+        m.remoteMessage.show = action
+    else if action.kind = "stop"
+        ' Stop means playback. Nothing playing -> nothing to do (the dashboard
+        ' only offers it for a session that is playing, but a command can
+        ' cross the viewer leaving on their own).
+        top = invalid
+        if m.navStack.count() > 0 then top = m.navStack.peek()
+        if top <> invalid and top.subtype() = "PlayerScreen" then top.callFunc("remoteStop")
+    end if
 end sub
 
 sub onGlobalToast()
@@ -669,6 +707,7 @@ sub enterMainUI()
     ' rewrote the same url, so nothing reloaded: no Movies/TV/YouTube and a "?"
     ' avatar until a relaunch (#162).
     m.sidebar.callFunc("reloadSession")
+    connectRemoteControl()
 
     liftOverlays()
     m.sidebar.visible = true
@@ -756,6 +795,8 @@ sub liftOverlays()
     m.top.appendChild(m.toast)
     m.top.removeChild(m.reminderBanner)
     m.top.appendChild(m.reminderBanner)
+    m.top.removeChild(m.remoteMessage)
+    m.top.appendChild(m.remoteMessage)
     if hadFocus then m.sidebar.setFocus(true)
 end sub
 
@@ -1006,6 +1047,8 @@ sub clearAllScreens()
     m.themePlayer.callFunc("resetSession", "session")
     m.heroTrailer.callFunc("resetSession", "session")
     m.reminderBanner.active = false
+    ' The socket speaks for the outgoing login; enterMainUI opens the next.
+    m.remoteTask.session = {}
     endDeepLinkWait()
     while m.navStack.count() > 0
         screen = m.navStack.pop()

@@ -12,6 +12,8 @@
         <function name="releaseArtwork" />
         <!-- A reminder is tuning another channel: stop without leaving. -->
         <function name="stopForHandoff" />
+        <!-- The Jellyfin dashboard's Stop (RemoteControlTask -> MainScene). -->
+        <function name="remoteStop" />
     </interface>
     <children>
         <Rectangle width="1920" height="1080" color="#000000" />
