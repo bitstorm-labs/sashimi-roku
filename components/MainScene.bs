@@ -634,6 +634,22 @@ sub onManageChannels(event as object)
     screen.config = config
 end sub
 
+' Settings -> Server Dashboard. Only administrators see the row; this is the
+' second check, and the server (401/403 on its endpoints) is the real one.
+sub onOpenDashboard()
+    if not m.global.isAdministrator then return
+    screen = createObject("roSGNode", "AdminDashboardScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("done", "onDashboardDone")
+    pushScreen(screen)
+end sub
+
+sub onDashboardDone()
+    top = invalid
+    if m.navStack.count() > 0 then top = m.navStack.peek()
+    if top <> invalid and top.subtype() = "AdminDashboardScreen" then popScreen()
+end sub
+
 sub onChannelManagerDone()
     top = invalid
     if m.navStack.count() > 0 then top = m.navStack.peek()
@@ -691,6 +707,7 @@ function getOrCreateRootScreen(choice as object) as object
     else if kind = "settings"
         screen = createObject("roSGNode", "SettingsScreen")
         screen.observeFieldScoped("signOut", "onSignOut")
+        screen.observeFieldScoped("openDashboard", "onOpenDashboard")
     else if kind = "library"
         screen = createObject("roSGNode", "LibraryScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")

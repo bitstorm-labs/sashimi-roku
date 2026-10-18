@@ -34,7 +34,11 @@ carry Jellyfin's `&tag=`, read off the right ImageTags / Parent*ImageTag
 field, so a replaced image gets a new url instead of a cached stale copy)
 and `source/utils/RowWindow.bs` (the leftmost visible card of a floatingFocus
 episode row, where focus lands on entering it) and `source/utils/SkipPill.bs`
-(the player's skip pill: label, m:ss left, the fill's share of the segment).
+(the player's skip pill: label, m:ss left, the fill's share of the segment)
+and `source/utils/AdminDash.bs` (the admin Server dashboard: the play-mode
+badge truth table shared with Apple/Android, plain-words transcode reasons,
+the admin gate, IP redaction, the 85% storage warning, bitrate sums, health
+and activity rows, the cards' stable order).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that

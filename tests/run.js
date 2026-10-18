@@ -21,7 +21,8 @@ const suites = {
     'SeriesMetaTests.brs': ['out/source/utils/SeriesMeta.brs'],
     'ImageUrlTests.brs': ['out/source/utils/ImageUrl.brs'],
     'RowWindowTests.brs': ['out/source/utils/RowWindow.brs'],
-    'SkipPillTests.brs': ['out/source/utils/SkipPill.brs']
+    'SkipPillTests.brs': ['out/source/utils/SkipPill.brs'],
+    'AdminDashTests.brs': ['out/source/utils/AdminDash.brs']
 };
 
 // SASHIMI_TEST_MODULE swaps in another build of the module under test, to
