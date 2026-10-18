@@ -9,7 +9,7 @@
         <field id="show" type="assocarray" alwaysNotify="true" onChange="onShow" />
     </interface>
     <children>
-        <Group id="card" visible="false" translation="[360, 72]">
+        <Group id="card" visible="false" translation="[360, 168]">
             <Rectangle id="cardBg" width="1200" height="160" color="#16161E" opacity="0.94" />
             <Rectangle id="accent" width="8" height="160" color="#BD3EED" />
             <Label id="headerLabel" text="" font="font:MediumBoldSystemFont" color="#FFFFFF"
