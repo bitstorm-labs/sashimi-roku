@@ -36,6 +36,5 @@ Notes:
   `/Sessions` instead.
 - If the download returns `Error 40x` instead of a JPEG, the dev channel isn't
   running; relaunch it before capturing.
-- ECP keypress (`POST /keypress/Down`) is unreliable on this device — it has
-  returned 404 for whole sessions. If you need a specific screen, ask me to
-  navigate to it rather than assuming you can drive the remote.
+- ECP keypress works on this device (re-verified 2026-07-31, see CLAUDE.md):
+  pace presses ~0.5s apart or they coalesce, and the Options key is `Info`.

@@ -21,33 +21,33 @@
         <!-- Header counts, right-aligned; built in code to size to their text. -->
         <Group id="chips" />
 
-        <Label text="Now playing" color="#A3ADBAFF" translation="[90, 168]">
+        <Label text="Now playing" color="#A3ADBAFF" translation="[90, 146]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
         </Label>
         <Label id="pageLabel" text="" color="#A3ADBAFF" width="400" horizAlign="right"
-               translation="[1430, 174]">
+               translation="[1430, 152]">
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
-        <Group id="cards" translation="[90, 222]" />
-        <Label id="emptyLabel" text="" color="#A3ADBAFF" width="1740" height="300"
-               horizAlign="center" vertAlign="center" translation="[90, 222]" visible="false">
+        <Group id="cards" translation="[90, 198]" />
+        <Label id="emptyLabel" text="" color="#A3ADBAFF" width="1740" height="380"
+               horizAlign="center" vertAlign="center" translation="[90, 198]" visible="false">
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="30" />
         </Label>
-        <Label id="hintLabel" text="" color="#6B7684FF" width="1740" translation="[90, 548]">
+        <Label id="hintLabel" text="" color="#6B7684FF" width="1740" translation="[90, 594]">
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="20" />
         </Label>
 
-        <Poster uri="pkg:/images/card_r16.9.png" width="855" height="420" translation="[90, 600]" />
-        <Label text="Recent activity" color="#A3ADBAFF" translation="[118, 624]">
+        <Poster uri="pkg:/images/card_r16.9.png" width="855" height="400" translation="[90, 640]" />
+        <Label text="Recent activity" color="#A3ADBAFF" translation="[118, 662]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
         </Label>
-        <Group id="activityRows" translation="[118, 684]" />
+        <Group id="activityRows" translation="[118, 720]" />
 
-        <Poster uri="pkg:/images/card_r16.9.png" width="855" height="420" translation="[975, 600]" />
-        <Label text="Health" color="#A3ADBAFF" translation="[1003, 624]">
+        <Poster uri="pkg:/images/card_r16.9.png" width="855" height="400" translation="[975, 640]" />
+        <Label text="Health" color="#A3ADBAFF" translation="[1003, 662]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
         </Label>
-        <Group id="healthRows" translation="[1003, 684]" />
+        <Group id="healthRows" translation="[1003, 720]" />
 
         <JellyfinApi id="apiTask" />
         <!-- Sessions change by the second; activity and health by the minute.

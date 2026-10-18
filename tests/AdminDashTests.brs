@@ -10,7 +10,6 @@ sub main()
     testTruthTable(t)
     testBadges(t)
     testReasonWords(t)
-    testReasonLine(t)
     testSourceFormat(t)
     testAdminGate(t)
     testRedaction(t)
@@ -22,6 +21,20 @@ sub main()
     testTimes(t)
     testTitles(t)
     testDetails(t)
+    testStateDot(t)
+    testCardTitle(t)
+    testCardPeople(t)
+    testPercent(t)
+    testResolutionPill(t)
+    testVideoPill(t)
+    testAudioPill(t)
+    testRatePill(t)
+    testSpeed(t)
+    testModePill(t)
+    testPills(t)
+    testFooterReason(t)
+    testLocalAddress(t)
+    testWhere(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -57,9 +70,9 @@ function session(ti as dynamic, extra = {} as object) as object
             Name: "300", Type: "Movie", ProductionYear: 2006, RunTimeTicks: 70200000000&,
             Container: "mkv",
             MediaStreams: [
-                { Type: "Video", Codec: "hevc", Width: 3840, Height: 2160, VideoRangeType: "DOVIWithHDR10", BitRate: 58000000 },
-                { Type: "Audio", Codec: "dts", Index: 1, IsDefault: true, BitRate: 1509000 },
-                { Type: "Audio", Codec: "ac3", Index: 2, IsDefault: false, BitRate: 640000 }
+                { Type: "Video", Codec: "hevc", Width: 3840, Height: 2160, VideoRangeType: "DOVIWithHDR10", BitRate: 58000000, RealFrameRate: 23.976025, AverageFrameRate: 23.976025 },
+                { Type: "Audio", Codec: "dts", Index: 1, IsDefault: true, BitRate: 1509000, Channels: 6 },
+                { Type: "Audio", Codec: "ac3", Index: 2, IsDefault: false, BitRate: 640000, Channels: 2 }
             ]
         }
     }
@@ -122,27 +135,6 @@ sub testReasonWords(t as object)
     ' the raw enum name.
     eq(t, "unknown", AdminDash_reasonText("VideoWobbleNotSupported"), "Video wobble not supported")
     eq(t, "empty", AdminDash_reasonText(""), "")
-end sub
-
-sub testReasonLine(t as object)
-    eq(t, "direct: nothing", AdminDash_reasonLine(session(invalid)), "")
-    eq(t, "remux", AdminDash_reasonLine(session({ IsVideoDirect: true, IsAudioDirect: true, TranscodeReasons: ["ContainerNotSupported"] })), "Remux")
-    ' Audio: the codec change in place of "Audio format not supported".
-    eq(t, "audio", AdminDash_reasonLine(session({ IsVideoDirect: true, IsAudioDirect: false, AudioCodec: "ac3", TranscodeReasons: ["AudioCodecNotSupported"] })), "Video copied · DTS → AC3")
-    ' The mockup's line: bitrate cap, then the resolution change.
-    eq(t, "bitrate cap", AdminDash_reasonLine(session({ IsVideoDirect: false, IsAudioDirect: true, VideoCodec: "h264", Width: 1920, Height: 1080, TranscodeReasons: ["ContainerBitrateExceedsLimit"] })), "Bitrate cap · 4K → 1080p")
-    ' Every reason is listed, in plain words, and the resolution change is
-    ' named by the reason that caused it instead of being repeated.
-    line = AdminDash_reasonLine(session({ IsVideoDirect: false, IsAudioDirect: false, VideoCodec: "h264", AudioCodec: "aac", Width: 1920, Height: 1080, TranscodeReasons: ["VideoResolutionNotSupported", "AudioCodecNotSupported", "SubtitleCodecNotSupported"] }))
-    eq(t, "all reasons", line, "4K → 1080p · DTS → AAC · Subtitles burned in")
-    ' Unknown codecs fall back to the words.
-    s = session({ IsVideoDirect: true, IsAudioDirect: false, TranscodeReasons: ["AudioCodecNotSupported"] })
-    eq(t, "no target codec", AdminDash_reasonLine(s), "Video copied · Audio format not supported")
-    ' The audio track being played (PlayState.AudioStreamIndex) is the source.
-    s = session({ IsVideoDirect: true, IsAudioDirect: false, AudioCodec: "aac", TranscodeReasons: ["AudioCodecNotSupported"] })
-    s.PlayState.AudioStreamIndex = 2
-    eq(t, "selected audio", AdminDash_reasonLine(s), "Video copied · AC3 → AAC")
-    eq(t, "duplicate reasons", AdminDash_reasonLine(session({ IsVideoDirect: false, IsAudioDirect: true, TranscodeReasons: ["ContainerBitrateExceedsLimit", "ContainerBitrateExceedsLimit"] })), "Bitrate cap")
 end sub
 
 sub testSourceFormat(t as object)
@@ -354,6 +346,250 @@ sub testDetails(t as object)
     ok(t, "details has delivery", Instr(1, d, "H.264") > 0)
     ok(t, "details has reason", Instr(1, d, "Bitrate cap") > 0)
     ok(t, "details redacts address", Instr(1, d, "72.x.x.x") > 0 and Instr(1, d, "72.14") = 0)
-    eq(t, "detail line", AdminDash_detailLine(s), "4K Dolby Vision · Bitrate cap · 4K → 1080p")
-    eq(t, "direct detail", AdminDash_detailLine(session(invalid)), "4K Dolby Vision")
+end sub
+
+' ---------- The OpsDec-style card (design revision 2026-10-18) ----------
+
+' Video re-encoded by QSV at 43.2 fps from a 23.976 fps source, bitrate cap.
+function tcSession() as object
+    return session({ IsVideoDirect: false, IsAudioDirect: true, VideoCodec: "h264", AudioCodec: "dts", Width: 1920, Height: 1080, Bitrate: 8000000, Framerate: 43.2, AudioChannels: 6, HardwareAccelerationType: "qsv", TranscodeReasons: ["ContainerBitrateExceedsLimit"] })
+end function
+
+' Video copied, DTS to AC3 at real time.
+function audioSession() as object
+    return session({ IsVideoDirect: true, IsAudioDirect: false, VideoCodec: "hevc", AudioCodec: "ac3", Width: 3840, Height: 2160, Bitrate: 58640000, Framerate: 23.976, AudioChannels: 6, HardwareAccelerationType: "qsv", TranscodeReasons: ["AudioCodecNotSupported"] })
+end function
+
+sub testStateDot(t as object)
+    eq(t, "playing green", AdminDash_stateDot(session(invalid)), "#7BD389FF")
+    s = session(invalid)
+    s.PlayState.IsPaused = true
+    eq(t, "paused amber", AdminDash_stateDot(s), "#F2B84BFF")
+    s.PlayState = invalid
+    eq(t, "no play state grey", AdminDash_stateDot(s), "#6B7684FF")
+    s.PlayState = { PositionTicks: 0 }
+    eq(t, "no pause flag grey", AdminDash_stateDot(s), "#6B7684FF")
+    eq(t, "not a session grey", AdminDash_stateDot(invalid), "#6B7684FF")
+end sub
+
+sub testCardTitle(t as object)
+    c = AdminDash_cardTitle({ Type: "Episode", Name: "Mercy", SeriesName: "Vikings", ParentIndexNumber: 4, IndexNumber: 3 })
+    eq(t, "ep title", c.title, "Mercy")
+    eq(t, "ep sub", c.sub, "Vikings")
+    eq(t, "ep tag", c.ep, "S04E03")
+    eq(t, "tag 3 digits", AdminDash_episodeTag({ Type: "Episode", ParentIndexNumber: 12, IndexNumber: 112 }), "S12E112")
+    eq(t, "tag specials", AdminDash_episodeTag({ Type: "Episode", ParentIndexNumber: 0, IndexNumber: 2 }), "S00E02")
+    eq(t, "tag no season", AdminDash_episodeTag({ Type: "Episode", IndexNumber: 7 }), "E07")
+    eq(t, "tag nothing", AdminDash_episodeTag({ Type: "Episode" }), "")
+    eq(t, "movie has no tag", AdminDash_episodeTag({ Type: "Movie", ParentIndexNumber: 1, IndexNumber: 1 }), "")
+    c = AdminDash_cardTitle({ Type: "Movie", Name: "300", ProductionYear: 2006 })
+    eq(t, "movie title", c.title, "300")
+    eq(t, "movie sub", c.sub, "Movie · 2006")
+    eq(t, "movie tag", c.ep, "")
+    eq(t, "movie no year", AdminDash_cardTitle({ Type: "Movie", Name: "X" }).sub, "Movie")
+    eq(t, "other type keeps year", AdminDash_cardTitle({ Type: "MusicVideo", Name: "Y", ProductionYear: 1999 }).sub, "1999")
+    eq(t, "nothing", AdminDash_cardTitle(invalid).title, "")
+end sub
+
+sub testCardPeople(t as object)
+    eq(t, "device line", AdminDash_deviceLine(session(invalid)), "Sashimi · Living Room Roku")
+    eq(t, "device only", AdminDash_deviceLine({ DeviceName: "Pixel 8" }), "Pixel 8")
+    eq(t, "client only", AdminDash_deviceLine({ Client: "Jellyfin Web" }), "Jellyfin Web")
+    eq(t, "initial", AdminDash_initialOf("mom"), "M")
+    eq(t, "no name", AdminDash_initialOf(""), "?")
+    eq(t, "no name invalid", AdminDash_initialOf(invalid), "?")
+end sub
+
+sub testPercent(t as object)
+    eq(t, "18%", AdminDash_percentText(session(invalid)), "18%")
+    eq(t, "no runtime", AdminDash_percentText({ NowPlayingItem: {}, PlayState: {} }), "")
+end sub
+
+sub testResolutionPill(t as object)
+    eq(t, "direct res", AdminDash_resolutionPill(session(invalid)), "4K")
+    eq(t, "tc res", AdminDash_resolutionPill(tcSession()), "4K → 1080p")
+    ' Video copied: the delivered size is the source, whatever the server says.
+    eq(t, "audio res", AdminDash_resolutionPill(audioSession()), "4K")
+    s = session({ IsVideoDirect: false, IsAudioDirect: true, VideoCodec: "h264", Width: 3840, Height: 2160 })
+    eq(t, "same res no arrow", AdminDash_resolutionPill(s), "4K")
+    s = session({ IsVideoDirect: false, IsAudioDirect: true, VideoCodec: "h264" })
+    eq(t, "unknown output size", AdminDash_resolutionPill(s), "4K")
+    eq(t, "no video", AdminDash_resolutionPill({ NowPlayingItem: { MediaStreams: [] } }), "")
+end sub
+
+sub testVideoPill(t as object)
+    eq(t, "direct DV", AdminDash_videoPill(session(invalid)), "HEVC DV")
+    ranges = [["HDR10", "HEVC HDR10"], ["HDR10Plus", "HEVC HDR10+"], ["HLG", "HEVC HLG"], ["DOVIWithSDR", "HEVC DV"], ["SDR", "HEVC"]]
+    for each r in ranges
+        s = session(invalid)
+        s.NowPlayingItem.MediaStreams[0].VideoRangeType = r[0]
+        eq(t, "range " + r[0], AdminDash_videoPill(s), r[1])
+    end for
+    eq(t, "tc codec", AdminDash_videoPill(tcSession()), "HEVC DV → H264")
+    ' Tone-mapped in the same codec: the range is what changed.
+    s = session({ IsVideoDirect: false, IsAudioDirect: true, VideoCodec: "hevc", TranscodeReasons: ["VideoRangeTypeNotSupported"] })
+    eq(t, "tone map", AdminDash_videoPill(s), "HEVC DV → HEVC SDR")
+    s = session({ IsVideoDirect: false, IsAudioDirect: true, VideoCodec: "h264", TranscodeReasons: ["VideoRangeTypeNotSupported"] })
+    eq(t, "tone map + codec", AdminDash_videoPill(s), "HEVC DV → H264 SDR")
+    ' Re-encoded at another bitrate in the same codec and range: no arrow.
+    s = session({ IsVideoDirect: false, IsAudioDirect: true, VideoCodec: "hevc", TranscodeReasons: ["ContainerBitrateExceedsLimit"] })
+    eq(t, "same codec", AdminDash_videoPill(s), "HEVC DV")
+    eq(t, "audio copies video", AdminDash_videoPill(audioSession()), "HEVC DV")
+    s = session(invalid)
+    s.NowPlayingItem.MediaStreams[0].Codec = "h265"
+    s.NowPlayingItem.MediaStreams[0].VideoRangeType = "SDR"
+    eq(t, "h265 is HEVC", AdminDash_videoPill(s), "HEVC")
+    eq(t, "no video", AdminDash_videoPill({ NowPlayingItem: { MediaStreams: [] } }), "")
+end sub
+
+sub testAudioPill(t as object)
+    eq(t, "direct dts", AdminDash_audioPill(session(invalid)), "DTS 5.1")
+    ' Same channel count either side: said once, after the arrow.
+    eq(t, "dts to ac3", AdminDash_audioPill(audioSession()), "DTS → AC3 5.1")
+    s = session({ IsVideoDirect: true, IsAudioDirect: false, AudioCodec: "aac", AudioChannels: 2 })
+    eq(t, "downmix", AdminDash_audioPill(s), "DTS 5.1 → AAC 2.0")
+    s = session({ IsVideoDirect: true, IsAudioDirect: false, AudioCodec: "aac" })
+    eq(t, "output channels unknown", AdminDash_audioPill(s), "DTS 5.1 → AAC")
+    ' Audio copied while the video converts: the source track as is.
+    eq(t, "tc copies audio", AdminDash_audioPill(tcSession()), "DTS 5.1")
+    ' The flag decides: a copied track is the source even if AudioCodec disagrees.
+    s = session({ IsVideoDirect: false, IsAudioDirect: true, VideoCodec: "h264", AudioCodec: "aac", AudioChannels: 2 })
+    eq(t, "flag wins", AdminDash_audioPill(s), "DTS 5.1")
+    s = session(invalid)
+    s.PlayState.AudioStreamIndex = 2
+    eq(t, "selected track", AdminDash_audioPill(s), "AC3 2.0")
+    labels = [[1, "1.0"], [2, "2.0"], [3, "2.1"], [6, "5.1"], [8, "7.1"], [4, "4ch"]]
+    for each l in labels
+        eq(t, "channels " + l[0].ToStr(), AdminDash_channelsLabel(l[0]), l[1])
+    end for
+    eq(t, "channels unknown", AdminDash_channelsLabel(invalid), "")
+    s = session(invalid)
+    s.NowPlayingItem.MediaStreams[1].Codec = "truehd"
+    s.NowPlayingItem.MediaStreams[1].Channels = 8
+    eq(t, "truehd", AdminDash_audioPill(s), "TRUEHD 7.1")
+    eq(t, "no audio", AdminDash_audioPill({ NowPlayingItem: { MediaStreams: [] } }), "")
+end sub
+
+sub testRatePill(t as object)
+    eq(t, "direct rate", AdminDash_ratePill(session(invalid)), "60 Mbps")
+    eq(t, "tc rate", AdminDash_ratePill(tcSession()), "60 → 8 Mbps")
+    ' Video copied: the delivered rate, no arrow (it barely moves).
+    eq(t, "audio rate", AdminDash_ratePill(audioSession()), "59 Mbps")
+    s = session({ IsVideoDirect: false, IsAudioDirect: true, Bitrate: 720000 })
+    eq(t, "units differ", AdminDash_ratePill(s), "60 Mbps → 720 kbps")
+    s = session({ IsVideoDirect: false, IsAudioDirect: true, Bitrate: 8000000 })
+    s.NowPlayingItem.MediaStreams = []
+    eq(t, "source unknown", AdminDash_ratePill(s), "8 Mbps")
+    s = session({ IsVideoDirect: false, IsAudioDirect: true, Bitrate: 59509000 })
+    eq(t, "same rate", AdminDash_ratePill(s), "60 Mbps")
+    eq(t, "nothing", AdminDash_ratePill({ NowPlayingItem: {} }), "")
+end sub
+
+sub testSpeed(t as object)
+    eq(t, "1.8x", AdminDash_speed(tcSession()), "1.8x")
+    eq(t, "1.0x", AdminDash_speed(audioSession()), "1.0x")
+    s = tcSession()
+    s.TranscodingInfo.Framerate = 100
+    eq(t, "4.2x", AdminDash_speed(s), "4.2x")
+    s.TranscodingInfo.Framerate = 12
+    eq(t, "0.5x", AdminDash_speed(s), "0.5x")
+    ' No source fps: RealFrameRate missing falls back to AverageFrameRate.
+    s = tcSession()
+    s.NowPlayingItem.MediaStreams[0].RealFrameRate = invalid
+    s.NowPlayingItem.MediaStreams[0].AverageFrameRate = 24
+    eq(t, "average fps", AdminDash_speed(s), "1.8x")
+    s.NowPlayingItem.MediaStreams[0].AverageFrameRate = invalid
+    eq(t, "no source fps", AdminDash_speed(s), "")
+    s = tcSession()
+    s.TranscodingInfo.Delete("Framerate")
+    eq(t, "no framerate", AdminDash_speed(s), "")
+    s.TranscodingInfo.Framerate = 0
+    eq(t, "zero framerate", AdminDash_speed(s), "")
+    eq(t, "direct", AdminDash_speed(session(invalid)), "")
+end sub
+
+sub testModePill(t as object)
+    eq(t, "direct", AdminDash_modeLabel(session(invalid)), "Direct Play")
+    eq(t, "remux", AdminDash_modeLabel(session({ IsVideoDirect: true, IsAudioDirect: true, HardwareAccelerationType: "qsv", Framerate: 50, TranscodeReasons: ["ContainerNotSupported"] })), "Direct Play")
+    eq(t, "audio", AdminDash_modeLabel(audioSession()), "Audio only · 1.0x")
+    s = audioSession()
+    s.TranscodingInfo.Delete("Framerate")
+    eq(t, "audio no speed", AdminDash_modeLabel(s), "Audio only")
+    eq(t, "tc", AdminDash_modeLabel(tcSession()), "TC 1.8x HW")
+    s = tcSession()
+    s.TranscodingInfo.HardwareAccelerationType = "none"
+    eq(t, "tc software", AdminDash_modeLabel(s), "TC 1.8x")
+    s.TranscodingInfo.Delete("HardwareAccelerationType")
+    eq(t, "tc no hw field", AdminDash_modeLabel(s), "TC 1.8x")
+    s = tcSession()
+    s.TranscodingInfo.Delete("Framerate")
+    eq(t, "tc no speed", AdminDash_modeLabel(s), "TC HW")
+    ' The server names its configured accelerator on every TranscodingInfo,
+    ' remuxes included (seen on the live server), so HW only means something
+    ' when the picture is encoded.
+    ok(t, "hw on tc", AdminDash_isHardware(tcSession()))
+    ok(t, "no hw on audio", not AdminDash_isHardware(audioSession()))
+    ok(t, "no hw on direct", not AdminDash_isHardware(session(invalid)))
+end sub
+
+sub testPills(t as object)
+    p = AdminDash_pills(tcSession())
+    eq(t, "five pills", p.count(), 5)
+    if p.count() = 5
+        eq(t, "pill 1", p[0].text, "4K → 1080p")
+        eq(t, "pill 2", p[1].text, "HEVC DV → H264")
+        eq(t, "pill 3", p[2].text, "DTS 5.1")
+        eq(t, "pill 4", p[3].text, "60 → 8 Mbps")
+        eq(t, "pill 5", p[4].text, "TC 1.8x HW")
+        eq(t, "res colors", p[0].fg + p[0].bg, "#6CC6F0FF#15303FFF")
+        eq(t, "video colors", p[1].fg + p[1].bg, "#B79CF5FF#2A2140FF")
+        eq(t, "audio colors", p[2].fg + p[2].bg, "#F2C46BFF#3A2D12FF")
+        eq(t, "rate colors", p[3].fg + p[3].bg, "#5FD3C4FF#123331FF")
+        eq(t, "tc colors", p[4].fg + p[4].bg, "#F2B84BFF#43341AFF")
+    end if
+    p = AdminDash_pills(audioSession())
+    if p.count() = 5 then eq(t, "audio mode colors", p[4].fg + p[4].bg, "#8CC2FFFF#1E2E45FF")
+    p = AdminDash_pills(session(invalid))
+    if p.count() = 5 then eq(t, "direct mode colors", p[4].text + p[4].fg, "Direct Play#7BD389FF")
+    ' Nothing known about the file: only the play mode.
+    p = AdminDash_pills({ NowPlayingItem: {} })
+    eq(t, "bare pills", p.count(), 1)
+    if p.count() = 1 then eq(t, "bare mode", p[0].text, "Direct Play")
+end sub
+
+sub testFooterReason(t as object)
+    eq(t, "as is", AdminDash_footerReason(session(invalid)), "Plays as-is")
+    eq(t, "remux", AdminDash_footerReason(session({ IsVideoDirect: true, IsAudioDirect: true, TranscodeReasons: ["ContainerNotSupported"] })), "Remux")
+    eq(t, "audio", AdminDash_footerReason(audioSession()), "Audio format not supported")
+    eq(t, "tc", AdminDash_footerReason(tcSession()), "Bitrate cap")
+    s = session({ IsVideoDirect: false, IsAudioDirect: true, TranscodeReasons: ["VideoResolutionNotSupported", "SubtitleCodecNotSupported", "VideoResolutionNotSupported"] })
+    eq(t, "all reasons once", AdminDash_footerReason(s), "Resolution too high · Subtitles burned in")
+    eq(t, "no reasons", AdminDash_footerReason(session({ IsVideoDirect: false, IsAudioDirect: true })), "Converting")
+end sub
+
+sub testLocalAddress(t as object)
+    locals = ["192.168.86.30", "10.0.0.5", "10.255.255.255", "172.16.0.1", "172.31.255.255", "127.0.0.1", "169.254.10.1", "::1", "fe80::1", "FE80::ABCD", "febf::1", "fd12:3456::1", "fc00::1", "::ffff:192.168.1.5", "[fe80::1]:8096", "192.168.1.5:54321", " 10.1.2.3 "]
+    for each a in locals
+        ok(t, "local " + a, AdminDash_isLocalAddress(a))
+    end for
+    ' CGNAT (100.64.0.0/10) is someone else's network, not this LAN.
+    remotes = ["100.64.0.1", "100.127.255.255", "172.15.0.1", "172.32.0.1", "8.8.8.8", "192.169.0.1", "11.0.0.1", "fec0::1", "fe7f::1", "2001:db8::1", "::ffff:8.8.8.8", "::ffff:100.64.0.1", "999.168.1.1", "192.168.1", "localhost", "", "::"]
+    for each a in remotes
+        ok(t, "remote " + a, not AdminDash_isLocalAddress(a))
+    end for
+    ok(t, "invalid", not AdminDash_isLocalAddress(invalid))
+end sub
+
+sub testWhere(t as object)
+    s = session(invalid)
+    s.RemoteEndPoint = "192.168.86.30"
+    eq(t, "local", AdminDash_whereLabel(s), "Local")
+    s.RemoteEndPoint = "100.70.1.2"
+    eq(t, "cgnat remote", AdminDash_whereLabel(s), "Remote")
+    s.RemoteEndPoint = "72.14.3.99"
+    eq(t, "remote", AdminDash_whereLabel(s), "Remote")
+    s.RemoteEndPoint = ""
+    eq(t, "unknown", AdminDash_whereLabel(s), "")
+    s.Delete("RemoteEndPoint")
+    eq(t, "missing", AdminDash_whereLabel(s), "")
 end sub
