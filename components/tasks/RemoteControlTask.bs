@@ -17,6 +17,9 @@ const HANDSHAKE_TIMEOUT_MS = 20000
 ' Upper bound on one wait() while connected, so keep-alives and the stale
 ' check run on time even when the server is quiet.
 const TICK_MS = 5000
+' A failed capabilities report is retried this often while the socket stays
+' open: without it the dashboard never offers Stop for this session.
+const CAPS_RETRY_MS = 30000
 
 sub init()
     m.top.functionName = "taskLoop"
@@ -162,14 +165,19 @@ sub onOpened()
     #end if
     ' Every (re)connect: a server restart or an expired session forgets what
     ' was reported, and the report is what lets the dashboard show Stop.
+    m.capsReported = false
     reportCapabilities()
 end sub
 
 sub reportCapabilities()
+    m.capsTriedAt = now()
     meta = {}
     Http.postJson(Http.apiUrl("/Sessions/Capabilities/Full"), RemoteControl.capabilities(), meta, 10000)
+    code = 0
+    if meta.statusCode <> invalid then code = meta.statusCode
+    m.capsReported = (code >= 200 and code < 300)
     #if DEBUG
-        print "[Remote] capabilities -> "; meta.statusCode
+        print "[Remote] capabilities -> "; code
     #end if
 end sub
 
@@ -199,7 +207,11 @@ sub tick()
     if m.ws <> invalid
         if m.opened
             if t - m.lastKeepAliveAt >= RemoteControl.keepAliveIntervalMs(m.windowSecs) then sendKeepAlive()
-            if RemoteControl.isStale(t - m.lastRxAt, m.windowSecs) then failSocket("stale")
+            if RemoteControl.isStale(t - m.lastRxAt, m.windowSecs)
+                failSocket("stale")
+            else if not m.capsReported and t - m.capsTriedAt >= CAPS_RETRY_MS
+                reportCapabilities()
+            end if
         else if t - m.connectStartedAt >= HANDSHAKE_TIMEOUT_MS
             failSocket("handshake timeout")
         end if

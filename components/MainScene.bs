@@ -493,13 +493,18 @@ sub connectRemoteControl()
     url = m.global.serverUrl
     token = m.global.authToken
     current = m.remoteTask.session
-    if current <> invalid and current.url = url and current.token = token then return
+    if current <> invalid and current.url <> invalid and current.token <> invalid
+        if current.url = url and current.token = token then return
+    end if
     m.remoteTask.session = { url: url, token: token }
 end sub
 
 sub onRemoteCommand(event as object)
     action = event.getData()
     if action = invalid or action.kind = invalid then return
+    #if DEBUG
+        print "[Remote] MainScene command "; action.kind
+    #end if
     if action.kind = "message"
         m.remoteMessage.show = action
     else if action.kind = "stop"
