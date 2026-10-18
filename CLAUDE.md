@@ -38,7 +38,8 @@ episode row, where focus lands on entering it) and `source/utils/SkipPill.bs`
 and `source/utils/AdminDash.bs` (the admin Server dashboard: the play-mode
 badge truth table shared with Apple/Android, plain-words transcode reasons,
 the admin gate, IP redaction, the 85% storage warning, bitrate sums, health
-and activity rows, the cards' stable order) and `source/utils/RemoteControl.bs`
+and activity rows, the cards' stable order, and the OpsDec-style stream
+card: state dot, SxxEyy, source → output pills, speed, HW, Local/Remote) and `source/utils/RemoteControl.bs`
 (Jellyfin remote control: the /socket url, the capabilities body, server
 messages to Stop / DisplayMessage / keep-alive / ignore, keep-alive timing,
 reconnect backoff, the Roku OS 16 gate).
