@@ -245,6 +245,20 @@ sub testCounts(t as object)
     eq(t, "converting", c.converting, 2)
     eq(t, "none", AdminDash_counts([]).streaming, 0)
     eq(t, "invalid list", AdminDash_playing(invalid).count(), 0)
+    ' /Sessions answers most-recently-active first, so the order shuffles from
+    ' one poll to the next; the cards keep a stable order (user, device, id)
+    ' or a highlighted card would swap under the remote.
+    a = session(invalid, { Id: "a", UserName: "ozzy", DeviceName: "Fire TV" })
+    b = session(invalid, { Id: "b", UserName: "Mom", DeviceName: "Roku" })
+    c = session(invalid, { Id: "c", UserName: "mom", DeviceName: "Apple TV" })
+    sorted = AdminDash_playing([a, b, c])
+    eq(t, "sorted 1", sorted[0].Id, "c")
+    eq(t, "sorted 2", sorted[1].Id, "b")
+    eq(t, "sorted 3", sorted[2].Id, "a")
+    sorted = AdminDash_playing([c, a, b])
+    eq(t, "same order from another poll", sorted[0].Id + sorted[1].Id + sorted[2].Id, "cba")
+    eq(t, "index of id", AdminDash_indexOfId(sorted, "a"), 2)
+    eq(t, "index of missing id", AdminDash_indexOfId(sorted, "zz"), -1)
 end sub
 
 sub testActivity(t as object)
@@ -328,6 +342,7 @@ sub testTitles(t as object)
     eq(t, "movie title", tl.title, "300")
     eq(t, "movie sub", tl.subtitle, "2006")
     eq(t, "who", AdminDash_whoLine(session(invalid)), "mom · Living Room Roku")
+    eq(t, "stop message", AdminDash_stopMessage(session(invalid)), "mom is watching 300 on Living Room Roku. It stops on their screen right away.")
 end sub
 
 sub testDetails(t as object)

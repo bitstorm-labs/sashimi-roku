@@ -432,14 +432,45 @@ namespace AdminDash
 
     ' ---------- Sessions ----------
 
-    ' Sessions with something playing; an idle app is not a stream.
+    ' Sessions with something playing (an idle app is not a stream), in a
+    ' stable order: /Sessions answers most-recently-active first, which
+    ' reshuffles between polls and would swap the highlighted card.
     function playing(sessions as dynamic) as object
         out = []
         if type(sessions) <> "roArray" then return out
         for each s in sessions
-            if type(s) = "roAssociativeArray" and type(s.NowPlayingItem) = "roAssociativeArray" then out.push(s)
+            if type(s) = "roAssociativeArray" and type(s.NowPlayingItem) = "roAssociativeArray"
+                ' Insertion sort: a handful of sessions at most.
+                k = sortKey(s)
+                i = out.count()
+                while i > 0 and sortKey(out[i - 1]) > k
+                    i--
+                end while
+                out.push(invalid)
+                j = out.count() - 1
+                while j > i
+                    out[j] = out[j - 1]
+                    j--
+                end while
+                out[i] = s
+            end if
         end for
         return out
+    end function
+
+    function sortKey(s as object) as string
+        parts = []
+        for each f in [s.UserName, s.DeviceName, s.Id]
+            if isText(f) then parts.push(LCase(f)) else parts.push("")
+        end for
+        return join(parts, Chr(1))
+    end function
+
+    function indexOfId(sessions as object, id as string) as integer
+        for i = 0 to sessions.count() - 1
+            if sessions[i].Id = id then return i
+        end for
+        return -1
     end function
 
     function counts(sessions as dynamic) as object
@@ -547,6 +578,18 @@ namespace AdminDash
             parts.push(session.Client)
         end if
         return join(parts, " · ")
+    end function
+
+    ' The Stop confirmation: who, what, where.
+    function stopMessage(session as dynamic) as string
+        if type(session) <> "roAssociativeArray" then return ""
+        who = "Someone"
+        if isText(session.UserName) and session.UserName <> "" then who = session.UserName
+        title = titleLines(session.NowPlayingItem).title
+        if title = "" then title = "something"
+        text = who + " is watching " + title
+        if isText(session.DeviceName) and session.DeviceName <> "" then text += " on " + session.DeviceName
+        return text + ". It stops on their screen right away."
     end function
 
     ' The Details dialog: everything about one stream, addresses redacted.

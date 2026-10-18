@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Server dashboard for administrators (layout A of the approved design):
+     Now playing cards on top, Recent activity and Health side by side below.
+     Pushed full-width (the rail is hidden on pushed screens). Everything it
+     shows comes from source/utils/AdminDash.bs. -->
+<component name="AdminDashboardScreen" extends="Group">
+    <interface>
+        <!-- Back, or the server refused (401/403): MainScene pops the screen. -->
+        <field id="done" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+
+        <Label text="Server" color="#FFFFFF" translation="[90, 56]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="56" />
+        </Label>
+        <Label id="serverLabel" text="" color="#A3ADBAFF" width="700" maxLines="1"
+               ellipsizeOnBoundary="true" translation="[320, 80]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+        </Label>
+        <!-- Header counts, right-aligned; built in code to size to their text. -->
+        <Group id="chips" />
+
+        <Label text="Now playing" color="#A3ADBAFF" translation="[90, 168]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
+        </Label>
+        <Label id="pageLabel" text="" color="#A3ADBAFF" width="400" horizAlign="right"
+               translation="[1430, 174]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
+        </Label>
+        <Group id="cards" translation="[90, 222]" />
+        <Label id="emptyLabel" text="" color="#A3ADBAFF" width="1740" height="300"
+               horizAlign="center" vertAlign="center" translation="[90, 222]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="30" />
+        </Label>
+        <Label id="hintLabel" text="" color="#6B7684FF" width="1740" translation="[90, 548]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="20" />
+        </Label>
+
+        <Poster uri="pkg:/images/card_r16.9.png" width="855" height="420" translation="[90, 600]" />
+        <Label text="Recent activity" color="#A3ADBAFF" translation="[118, 624]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
+        </Label>
+        <Group id="activityRows" translation="[118, 684]" />
+
+        <Poster uri="pkg:/images/card_r16.9.png" width="855" height="420" translation="[975, 600]" />
+        <Label text="Health" color="#A3ADBAFF" translation="[1003, 624]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
+        </Label>
+        <Group id="healthRows" translation="[1003, 684]" />
+
+        <JellyfinApi id="apiTask" />
+        <!-- Sessions change by the second; activity and health by the minute.
+             Both run only while this screen is on screen. -->
+        <Timer id="sessionsTimer" duration="8" repeat="true" />
+        <Timer id="overviewTimer" duration="30" repeat="true" />
+    </children>
+</component>
