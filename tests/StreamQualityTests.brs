@@ -16,6 +16,16 @@ sub main()
     testProbe(t)
     testVideoConditions(t)
     testAudioProfile(t)
+    testRangeTypes(t)
+    testTranscodeCodecs(t)
+    testConnection(t)
+    testSustainedKey(t)
+    testSegments(t)
+    testReencodes(t)
+    testSustainedSamples(t)
+    testWirelessCeiling(t)
+    testCooldown(t)
+    testSustainedUpgrade(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -247,4 +257,164 @@ sub testAudioProfile(t as object)
     eq(t, "stereo channels", tv.channels, "2")
     eq(t, "stereo stream", tv.stream, "aac,ac3")
     eq(t, "stereo aac profile", tv.profiles.Count(), 1)
+end sub
+
+' Dolby Vision with a base layer must be listed, or Jellyfin re-encodes 54
+' 4K films (DOVIWithHDR10 MKVs such as Moonrise Kingdom) instead of copying
+' them. Bare DOVI only for a Dolby Vision display.
+sub testRangeTypes(t as object)
+    plain = StreamQuality_hevcRangeTypes(false)
+    eq(t, "range types no dv", plain, "SDR|HDR10|HDR10Plus|HLG|DOVIWithHDR10|DOVIWithHDR10Plus|DOVIWithHLG|DOVIWithSDR")
+    eq(t, "range types dv", StreamQuality_hevcRangeTypes(true), plain + "|DOVI")
+    parts = plain.Split("|")
+    bare = false
+    for each p in parts
+        if p = "DOVI" then bare = true
+    end for
+    eq(t, "no bare DOVI without dv display", bare, false)
+    rp = StreamQuality_videoRangeProfile(false)
+    eq(t, "range profile type", rp.Type, "Video")
+    eq(t, "range profile codec", rp.Codec, "hevc")
+    eq(t, "range profile cond", rp.Conditions[0].Condition, "EqualsAny")
+    eq(t, "range profile prop", rp.Conditions[0].Property, "VideoRangeType")
+    eq(t, "range profile value", rp.Conditions[0].Value, plain)
+    eq(t, "range profile not required", rp.Conditions[0].IsRequired, false)
+end sub
+
+sub testTranscodeCodecs(t as object)
+    ' H.264 first (re-encode target), HEVC copyable after it.
+    eq(t, "hevc device", StreamQuality_transcodeVideoCodecs(true), "h264,hevc")
+    eq(t, "no hevc device", StreamQuality_transcodeVideoCodecs(false), "h264")
+end sub
+
+sub testConnection(t as object)
+    eq(t, "wired", StreamQuality_isWiredConnection("WiredConnection"), true)
+    eq(t, "wifi", StreamQuality_isWiredConnection("WiFiConnection"), false)
+    eq(t, "offline", StreamQuality_isWiredConnection(""), false)
+end sub
+
+sub testSustainedKey(t as object)
+    eq(t, "key wireless", StreamQuality_sustainedKey("http://192.168.86.151:9096", false), "http://192.168.86.151:9096|wireless")
+    eq(t, "key wired", StreamQuality_sustainedKey("http://192.168.86.151:9096", true), "http://192.168.86.151:9096|wired")
+    eq(t, "key case + slash", StreamQuality_sustainedKey("HTTPS://Jelly.Example.com/jf/", false), "https://jelly.example.com/jf|wireless")
+    eq(t, "key same server", StreamQuality_sustainedKey("http://popcorn:9096/", true), StreamQuality_sustainedKey("http://POPCORN:9096", true))
+end sub
+
+sub testSegments(t as object)
+    w = { bytes: 0, ms: 0 }
+    ' 2 MB segments at 1 s each: nothing until 16 MB, then 16 Mbps.
+    for i = 1 to 7
+        eq(t, "segment " + i.ToStr() + " no reading", StreamQuality_addSegment(w, 2000000, 1000), 0)
+    end for
+    eq(t, "segment 8 reading", StreamQuality_addSegment(w, 2000000, 1000), 16000000)
+    eq(t, "window reset bytes", w.bytes, 0)
+    eq(t, "window reset ms", w.ms, 0)
+    ' A short burst of fast segments is not a reading on its own.
+    eq(t, "burst under 16MB", StreamQuality_addSegment(w, 4000000, 100), 0)
+    eq(t, "bad segment ignored", StreamQuality_addSegment(w, 0, 100), 0)
+    eq(t, "bad segment keeps window", w.bytes, 4000000)
+end sub
+
+sub testSustainedSamples(t as object)
+    s = []
+    for each bps in [90000000, 40000000, 120000000, 80000000, 70000000]
+        s = StreamQuality_addSustainedSample(s, bps)
+    end for
+    eq(t, "five kept", s.Count(), 5)
+    ' The lowest, not the average.
+    eq(t, "sustained lowest", StreamQuality_sustainedBps(s), 40000000)
+    ' A sixth pushes the oldest out; the slow one stays until it ages out.
+    s = StreamQuality_addSustainedSample(s, 100000000)
+    eq(t, "still five", s.Count(), 5)
+    eq(t, "oldest dropped", s[0], 40000000)
+    s = StreamQuality_addSustainedSample(s, 100000000)
+    eq(t, "slow reading aged out", StreamQuality_sustainedBps(s), 70000000)
+    eq(t, "none remembered", StreamQuality_sustainedBps([]), 0)
+    eq(t, "nothing stored", StreamQuality_sustainedBps(invalid), 0)
+    ' Registry JSON: doubles and junk.
+    j = ParseJSON("[30000000.0, ""x"", 50000000]")
+    eq(t, "json samples", StreamQuality_sustainedBps(j), 30000000)
+    eq(t, "json kept", StreamQuality_addSustainedSample(j, 0).Count(), 2)
+    eq(t, "zero reading not kept", StreamQuality_addSustainedSample([], 0).Count(), 0)
+end sub
+
+sub testWirelessCeiling(t as object)
+    ' Nothing remembered: the old smooth-4K clamp.
+    eq(t, "wifi unremembered", StreamQuality_wirelessCeilingBps(85000000, 0), 24000000)
+    eq(t, "wifi unremembered slow cap", StreamQuality_wirelessCeilingBps(4000000, 0), 4000000)
+    ' Remembered: half the sustained rate, under the cap.
+    eq(t, "wifi half sustained", StreamQuality_wirelessCeilingBps(85000000, 120000000), 60000000)
+    eq(t, "wifi capped", StreamQuality_wirelessCeilingBps(30000000, 120000000), 30000000)
+    ' A link that proved 100 Mbps copies a 44 Mbps 4K source on Wi-Fi.
+    eq(t, "wifi link cap", StreamQuality_linkCapBps(85000000, false, 100000000), 50000000)
+    eq(t, "wifi link cap unremembered", StreamQuality_linkCapBps(85000000, false, 0), 24000000)
+    ' Ethernet carries what it measured.
+    eq(t, "wired link cap", StreamQuality_linkCapBps(85000000, true, 10000000), 85000000)
+end sub
+
+sub testCooldown(t as object)
+    eq(t, "cooldown 0", StreamQuality_adaptiveCooldownSecs(0), 120)
+    eq(t, "cooldown 1", StreamQuality_adaptiveCooldownSecs(1), 240)
+    eq(t, "cooldown 3", StreamQuality_adaptiveCooldownSecs(3), 960)
+    eq(t, "cooldown capped 32x", StreamQuality_adaptiveCooldownSecs(9), 3840)
+    eq(t, "cooldown negative", StreamQuality_adaptiveCooldownSecs(-2), 120)
+end sub
+
+function upgradeCtx() as object
+    ' Wi-Fi, Auto held a 44 Mbps 4K source to 24 Mbps; the link now has
+    ' proven 100 Mbps sustained.
+    return {
+        isAuto: true, isWired: false, isTranscoding: true, isBusy: false,
+        autoCap: 85000000, activeCap: 24000000, sourceBps: 44000000, sustainedBps: 100000000,
+        secondsSinceRecovery: -1, secondsSinceQualityChange: -1, failedUpgrades: 0
+    }
+end function
+
+sub testSustainedUpgrade(t as object)
+    eq(t, "upgrade now", StreamQuality_sustainedUpgrade(upgradeCtx()), 0)
+    ' Never over a quality the viewer picked.
+    c = upgradeCtx() : c.isAuto = false
+    eq(t, "viewer pick", StreamQuality_sustainedUpgrade(c), -1)
+    ' Nothing held down: direct play, or a cap that already covers the source.
+    c = upgradeCtx() : c.isTranscoding = false
+    eq(t, "not transcoding", StreamQuality_sustainedUpgrade(c), -1)
+    c = upgradeCtx() : c.activeCap = 50000000
+    eq(t, "cap covers source", StreamQuality_sustainedUpgrade(c), -1)
+    c = upgradeCtx() : c.sustainedBps = 0
+    eq(t, "nothing remembered", StreamQuality_sustainedUpgrade(c), -1)
+    ' Wi-Fi ceiling 30 Mbps: under the source and under 2x 24 Mbps.
+    c = upgradeCtx() : c.sustainedBps = 60000000
+    eq(t, "not enough", StreamQuality_sustainedUpgrade(c), -1)
+    ' A stall step-down to 4 Mbps: 2x the cap is enough, short of the source.
+    c = upgradeCtx() : c.activeCap = 4000000 : c.sustainedBps = 20000000
+    eq(t, "double the step-down", StreamQuality_sustainedUpgrade(c), 0)
+    c = upgradeCtx() : c.activeCap = 8000000 : c.sustainedBps = 30000000
+    eq(t, "short of double", StreamQuality_sustainedUpgrade(c), -1)
+    ' Wired: the ceiling is the sustained rate itself, under the Auto cap.
+    c = upgradeCtx() : c.isWired = true : c.activeCap = 8000000 : c.sustainedBps = 30000000
+    eq(t, "wired double", StreamQuality_sustainedUpgrade(c), 0)
+    c = upgradeCtx() : c.isWired = true : c.autoCap = 12000000 : c.activeCap = 8000000 : c.sustainedBps = 90000000
+    eq(t, "wired auto cap limits", StreamQuality_sustainedUpgrade(c), -1)
+    ' Timing: busy, a fresh rebuffer, and the cooldown.
+    c = upgradeCtx() : c.isBusy = true
+    eq(t, "busy waits", StreamQuality_sustainedUpgrade(c), 15)
+    c = upgradeCtx() : c.secondsSinceRecovery = 5
+    eq(t, "recovery quiet", StreamQuality_sustainedUpgrade(c), 10)
+    c = upgradeCtx() : c.secondsSinceQualityChange = 100
+    eq(t, "cooldown wait", StreamQuality_sustainedUpgrade(c), 20)
+    c = upgradeCtx() : c.secondsSinceQualityChange = 130
+    eq(t, "cooldown over", StreamQuality_sustainedUpgrade(c), 0)
+    c = upgradeCtx() : c.secondsSinceQualityChange = 130 : c.failedUpgrades = 1
+    eq(t, "cooldown doubled", StreamQuality_sustainedUpgrade(c), 110)
+end sub
+
+' Only a remux's readings measure the link; a re-encode's are the encoder's.
+sub testReencodes(t as object)
+    eq(t, "audio only", StreamQuality_reencodesVideo("AudioCodecNotSupported"), false)
+    eq(t, "remux after direct play refused", StreamQuality_reencodesVideo("DirectPlayError"), false)
+    eq(t, "over the cap", StreamQuality_reencodesVideo("AudioCodecNotSupported,ContainerBitrateExceedsLimit"), true)
+    eq(t, "url-encoded", StreamQuality_reencodesVideo("AudioCodecNotSupported%2CContainerBitrateExceedsLimit"), true)
+    eq(t, "codec", StreamQuality_reencodesVideo("VideoCodecNotSupported"), true)
+    eq(t, "range", StreamQuality_reencodesVideo("VideoRangeTypeNotSupported"), true)
+    eq(t, "nothing", StreamQuality_reencodesVideo(""), false)
 end sub

@@ -1,0 +1,36 @@
+import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/StreamQuality.bs"
+
+' The player's own download-rate readings, remembered per server and per link
+' kind across launches (registry section "throughput", key "linkRates": one JSON map of
+' StreamQuality.sustainedKey -> recent readings). The rules live in
+' StreamQuality; this is only the storage.
+namespace Throughput
+
+    function isWired() as boolean
+        di = CreateObject("roDeviceInfo")
+        if di = invalid then return false
+        return StreamQuality.isWiredConnection(di.GetConnectionType())
+    end function
+
+    function all() as object
+        stored = Registry.readJson("throughput", "linkRates")
+        if type(stored) <> "roAssociativeArray" then return {}
+        return stored
+    end function
+
+    ' The link's sustained rate (the lowest recent reading), 0 when none.
+    function sustainedBps(serverUrl as string, wired as boolean) as integer
+        if serverUrl = "" then return 0
+        return StreamQuality.sustainedBps(all()[StreamQuality.sustainedKey(serverUrl, wired)])
+    end function
+
+    sub record(serverUrl as string, wired as boolean, bps as integer)
+        if serverUrl = "" or bps <= 0 then return
+        stored = all()
+        key = StreamQuality.sustainedKey(serverUrl, wired)
+        stored[key] = StreamQuality.addSustainedSample(stored[key], bps)
+        Registry.writeJson("throughput", "linkRates", stored)
+    end sub
+
+end namespace
