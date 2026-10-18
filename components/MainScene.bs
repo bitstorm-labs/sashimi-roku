@@ -22,6 +22,9 @@ sub init()
         deviceId: ""
         toastMessage: {}
         measuredBitrate: 0
+        ' The probe's own answer. measuredBitrate is lowered by a stall; Auto's
+        ' step back up returns it to this.
+        probedBitrate: 0
         showQualityBadges: (AppSettings.read("showQualityBadges", "true") = "true")
         showReviewRatings: (AppSettings.read("showReviewRatings", "true") = "true")
         useEpisodeRatings: (AppSettings.read("useEpisodeRatings", "false") = "true")
@@ -547,6 +550,7 @@ sub measureConnection()
     ' there) says nothing about this one; until the probe answers, Auto uses
     ' its local/remote default.
     m.global.measuredBitrate = 0
+    m.global.probedBitrate = 0
     task = createObject("roSGNode", "JellyfinApi")
     task.observeFieldScoped("response", "onBandwidthMeasured")
     m.bwTask = task
@@ -565,6 +569,7 @@ sub onBandwidthMeasured()
     r = m.bwTask.response
     if r <> invalid and r.action = "measureBandwidth" and r.bitrate > 0
         m.global.measuredBitrate = r.bitrate
+        m.global.probedBitrate = r.bitrate
         #if DEBUG
             print "[BW] measured " + str(Int(r.bitrate / 1000000)).Trim() + " Mbps"
         #end if
