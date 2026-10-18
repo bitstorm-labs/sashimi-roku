@@ -101,6 +101,14 @@ sub processRequest()
         doGetChannelCards()
     else if action = "getCurrentUser"
         doGetCurrentUser(request)
+    else if action = "adminSessions"
+        doAdminSessions()
+    else if action = "adminOverview"
+        doAdminOverview()
+    else if action = "adminStopSession"
+        doAdminSessionCommand(request, "/Playing/Stop", invalid)
+    else if action = "adminMessageSession"
+        doAdminSessionCommand(request, "/Message", { Header: "Sashimi", Text: request.text, TimeoutMs: 10000 })
     else if action = "channelsLoad"
         doChannelsLoad(request)
     else if action = "channelsMutate"
@@ -2279,6 +2287,65 @@ sub doGetCurrentUser(request as object)
     isAdmin = false
     if ok and result.Policy <> invalid and result.Policy.IsAdministrator <> invalid then isAdmin = (result.Policy.IsAdministrator = true)
     m.top.response = { success: ok, action: "getCurrentUser", isAdministrator: isAdmin, serverId: request.serverId }
+end sub
+
+' ---------- Admin dashboard (administrators) ----------
+' Every answer carries the status code: AdminDashboardScreen closes on a
+' 401/403 (the server is the real admin gate) and only says "can't reach the
+' server" for a timeout or 5xx.
+
+' Sessions seen in the last 16 minutes; the screen keeps the playing ones.
+sub doAdminSessions()
+    meta = {}
+    result = Http.getJson(Http.apiUrl("/Sessions?activeWithinSeconds=960"), meta)
+    code = metaCode(meta)
+    ok = (type(result) = "roArray")
+    if not ok then result = []
+    m.top.response = { success: ok, action: "adminSessions", statusCode: code, sessions: result }
+end sub
+
+' The slow-changing half: server info, the activity log, scheduled tasks,
+' storage and the encoding settings, one call each. A part that fails is
+' invalid on its own and the rest still draws; any 401/403 wins.
+sub doAdminOverview()
+    resp = { success: true, action: "adminOverview", statusCode: 200 }
+    parts = [
+        { key: "info", path: "/System/Info" },
+        { key: "activity", path: "/System/ActivityLog/Entries?startIndex=0&limit=15" },
+        { key: "tasks", path: "/ScheduledTasks?isHidden=false" },
+        { key: "storage", path: "/System/Info/Storage" },
+        { key: "encoding", path: "/System/Configuration/encoding" }
+    ]
+    answered = 0
+    for each part in parts
+        meta = {}
+        result = Http.getJson(Http.apiUrl(part.path), meta)
+        code = metaCode(meta)
+        if code = 401 or code = 403
+            m.top.response = { success: false, action: "adminOverview", statusCode: code }
+            return
+        end if
+        if result <> invalid then answered++
+        resp[part.key] = result
+    end for
+    if answered = 0
+        resp.success = false
+        resp.statusCode = 0
+    end if
+    m.top.response = resp
+end sub
+
+' Stop or message one session. Both answer 204 on success.
+sub doAdminSessionCommand(request as object, suffix as string, body as dynamic)
+    action = request.action
+    if request.sessionId = invalid or request.sessionId = ""
+        m.top.response = { success: false, action: action, statusCode: -1 }
+        return
+    end if
+    meta = {}
+    result = Http.postJson(Http.apiUrl("/Sessions/" + Http.escape(request.sessionId) + suffix), body, meta)
+    code = metaCode(meta)
+    m.top.response = { success: (result <> invalid and code >= 200 and code < 300), action: action, statusCode: code, sessionId: request.sessionId }
 end sub
 
 ' The channel list, plus (itemId) the item's membership of every channel and
