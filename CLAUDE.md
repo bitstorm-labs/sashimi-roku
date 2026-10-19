@@ -2,7 +2,8 @@
 
 A Roku (BrightScript / SceneGraph) client for Jellyfin. Sibling clients live in
 `sashimi-apple` (tvOS/iOS) and `sashimi-android`; this repo is standalone but
-aims for visual parity with the tvOS app.
+aims for visual parity with the tvOS app. Public repo: no IPs, hostnames,
+tokens or household names in docs, code comments or tests.
 
 ## Commands
 
@@ -58,67 +59,64 @@ Always run `npm run lint` and `npm test` before committing. Both must be clean.
 personal and gitignored):
 
 - **`/sideload`** — lint, package, push to the dev Roku, screenshot the result
-- **`/ship`** — bump `build_version`, tag, and sign a store-ready `.pkg`
+- **`/ship`** — bump `build_version`, tag, and sign a `.pkg` for the beta channel
 - A `PostToolUse` hook runs `npm run lint` after every `.bs`/`.xml` edit, so a
   syntax error surfaces at the edit instead of at commit time.
 
 ## Dev device
 
-The dev Roku is at `192.168.86.30`. Password is in the login keychain
-(`security find-generic-password -s sashimi-roku-dev -a rokudev -w`).
+Set `ROKU_DEV_TARGET` (the dev Roku's address) and `ROKU_DEV_PASSWORD` in your
+shell. Keep the password in your keychain, not in this repo.
 
 ```bash
 # sideload
-curl --digest -u "rokudev:$PW" -F mysubmit=Replace -F archive=@out/sashimi-roku.zip \
-     http://192.168.86.30/plugin_install
+curl --digest -u "rokudev:$ROKU_DEV_PASSWORD" -F mysubmit=Replace -F archive=@out/sashimi-roku.zip \
+     http://$ROKU_DEV_TARGET/plugin_install
 
-# screenshot (graphics plane only — never captures video)
+# screenshot (graphics plane only, never captures video).
 # passwd MUST carry the dev password: an empty field returns a 35-byte 404
 # body that saves as a "blank screenshot", which reads as a black screen
-# rather than a failed command — the same false-negative class as the nc note.
-curl --digest -u "rokudev:$PW" -F mysubmit=Screenshot -F archive= -F passwd="$PW" \
-     http://192.168.86.30/plugin_inspect >/dev/null
-curl --digest -u "rokudev:$PW" http://192.168.86.30/pkgs/dev.jpg -o shot.jpg
+# rather than a failed command.
+curl --digest -u "rokudev:$ROKU_DEV_PASSWORD" -F mysubmit=Screenshot -F archive= -F passwd="$ROKU_DEV_PASSWORD" \
+     http://$ROKU_DEV_TARGET/plugin_inspect >/dev/null
+curl --digest -u "rokudev:$ROKU_DEV_PASSWORD" http://$ROKU_DEV_TARGET/pkgs/dev.jpg -o shot.jpg
 
-# debug console (print output) — attach AFTER launching; a channel replace
-# drops the connection. Use -d when running it in the background: without it
-# nc exits as soon as its stdin closes, which looks like "no output".
-nc -d 192.168.86.30 8085
+# debug console (print output): attach AFTER launching, since a channel
+# replace drops the connection. Use -d when backgrounding it: without it nc
+# exits as soon as its stdin closes, which looks like "no output".
+nc -d $ROKU_DEV_TARGET 8085
 ```
 
 **ECP names the Options key `Info`.** `POST /keypress/Options` returns 200 and
 does nothing, which looks exactly like the app ignoring the key. Use
 `/keypress/Info` when driving the OSD remotely.
 
-**ECP keypress works again** (it used to 403 on this device; re-verified
-2026-07-31 with `POST /keypress/Down` → 200 and a visible focus move). You can
-drive the UI remotely, but presses sent back-to-back are coalesced — pace them
-~0.5s apart or only the first one or two land. Also useful: `POST
-/launch/dev?contentId=…&mediaType=…` (deep links), `/query/active-app`,
+**ECP keypress drives the UI**, but presses sent back-to-back are coalesced:
+pace them ~0.5s apart or only the first one or two land. Also useful:
+`POST /launch/dev?contentId=...&mediaType=...` (deep links), `/query/active-app`,
 `/query/device-info`.
 
-Consequences worth internalising:
-- Don't test sign-out on the dev box — it would strand it at a login screen
-  someone has to type into. To reach the sign-in screen safely, use Settings →
-  Servers → Add Server, which opens the same screen with Back as an escape.
+- Don't test sign-out on the dev box: it strands the device at a login screen
+  someone has to type into. To reach the sign-in screen safely, use Settings ->
+  Servers -> Add Server, which opens the same screen with Back as an escape.
 - To verify something that normally needs a button press, drive it from an
-  instrumented `#if DEBUG` build and read the result on port 8085. That's how
-  the caption-mode work was verified (`SetCaptionsMode` from inside the app).
-- Screenshots miss anything shorter than ~2s — the capture round-trip is slower
-  than that. A 3s toast will usually not be caught. Use console prints.
+  instrumented `#if DEBUG` build and read the result on port 8085.
+- Screenshots miss anything shorter than ~2s (the capture round-trip is slower).
+  A 3s toast will usually not be caught. Use console prints.
 
-The dev Roku (onn soundbar) is on **Wi-Fi** and reports a **1080p SDR**
-display (`GetDisplayProperties`: no HDR10/HLG/DV; video mode not 2160), so
-every 4K file re-encodes there for resolution (`VideoResolutionNotSupported`).
-To see an HEVC remux on it, use a 1080p HEVC file with DTS/TrueHD audio.
-Its captions setting also burns a subtitle into most deep-linked plays.
-`ECP /launch/dev?contentId=` cold-starts the channel, so playback races the
-bandwidth probe and starts at the unmeasured default; `POST /input?contentId=`
-deep-links into the running channel instead. Port 8085 replays recent
-history on connect, so mark the log's line count before acting on new output.
+Check what the dev Roku actually is before testing: this one is on Wi-Fi, runs
+Roku OS 15 (so it cannot open the remote-control socket) and reports a 1080p SDR
+display (`GetDisplayProperties`: no HDR10/HLG/DV), so every 4K file re-encodes
+there for resolution (`VideoResolutionNotSupported`). To see an HEVC remux on
+it, use a 1080p HEVC file with DTS/TrueHD audio. Its captions setting also
+burns a subtitle into most deep-linked plays. `ECP /launch/dev?contentId=`
+cold-starts the channel, so playback races the bandwidth probe and starts at
+the unmeasured default; `POST /input?contentId=` deep-links into the running
+channel instead. Port 8085 replays recent history on connect, so mark the log's
+line count before acting on new output.
 
 Playback is best verified server-side via Jellyfin `/Sessions` (`NowPlayingItem`,
-`PositionTicks`, `PlayMethod`) — the screenshot API cannot see the video plane,
+`PositionTicks`, `PlayMethod`). The screenshot API cannot see the video plane,
 so a "black" screenshot during playback is expected, not a bug.
 
 ## Debug builds
@@ -155,8 +153,7 @@ invisible-button traps twice. Don't "simplify" it back to real focus.
 
 **One media player instance plays at a time.** A Video node started while
 another Audio or Video node is playing fails at once with `errorMsg` "player:
-only one playing instance supported" (`state = "error"`, verified on the 9100X
-soundbar). So the theme song must stop before the player opens a stream, and
+only one playing instance supported" (`state = "error"`, verified on hardware). So the theme song must stop before the player opens a stream, and
 the detail-screen hero trailer (`HeroTrailerPlayer`) waits for a theme to end
 instead of playing muted under it as the Apple app does. A Video node outside
 the focused screen never takes focus as long as nothing calls `setFocus` on it
@@ -169,8 +166,8 @@ track, "Finishes at" and subtitle lines rendered cyan for months this way.
 `tests/colors.js` (part of `npm test`) fails on any 8-digit colour that only
 makes sense alpha-first.
 
-**A fully opaque Rectangle inside a MaskGroup draws unmasked** (seen on the
-9100X soundbar: the skip pill's purple fill poked out square past its capsule
+**A fully opaque Rectangle inside a MaskGroup draws unmasked** (seen on a
+low-end Roku: the skip pill's purple fill poked out square past its capsule
 at opacity 1.0, and was clipped at 0.99 and 0.55). Keep masked fills below
 opacity 1.
 
@@ -191,8 +188,8 @@ On 15.x `CreateObject("roWebSocket")` still returns an object, but every
 `RemoteControlTask` gates on `GetOSVersion().major >= 16` and does nothing on
 older firmware. `Open()` with no wait returns false even when it will
 succeed; the Opened/Closed/Error events decide. bsc 0.73.7 doesn't know the
-component, hence the `bs:disable-next-line: 1129`. The dev soundbar is on
-15.3.4, so it can only exercise the dispatch path, not the socket.
+component, hence the `bs:disable-next-line: 1129`. The dev Roku is on
+15.x, so it can only exercise the dispatch path, not the socket.
 
 ## Certification
 
@@ -216,15 +213,15 @@ forced code changes:
   `series` must resolve a "smart bookmark" (next unwatched episode). An invalid
   `contentId` must show an error and land on the home screen.
 
-## Jellyfin server (dev/family)
+## Jellyfin server
 
-`http://192.168.86.151:9096`, Jellyfin 10.11.x on Unraid, QSV hardware
-transcoding. Trickplay tile sheets are 6×6 at 320×180 → **1920×1080** per sheet;
-do not raise the tile count, because 3200×1800 sheets exceed the 2048×2048 max
-texture size on older Roku models.
+Develop against Jellyfin 10.11.x with hardware transcoding (QSV). Trickplay tile
+sheets are 6x6 at 320x180, which makes **1920x1080** per sheet. Do not raise the
+tile count: 3200x1800 sheets exceed the 2048x2048 max texture size on older
+Roku models.
 
 Read trickplay geometry from the item's own `Trickplay` metadata rather than
-assuming — it carries `Width`, `Height`, `TileWidth`, `TileHeight`,
+assuming. It carries `Width`, `Height`, `TileWidth`, `TileHeight`,
 `ThumbnailCount` and `Interval` per item.
 
 ## Fix what you find
@@ -241,5 +238,5 @@ exactly what's needed.
 - Comments explain **why**, especially where the code looks odd — most of the
   odd-looking code here is working around a platform trap listed above. Match
   the surrounding density; don't narrate what the code already says.
-- Branch → PR → merge on green CI. Tag push is the real ship gate.
+- Branch -> PR -> merge on green CI. Tag push is the real ship gate: it builds the GitHub Release zip. The signed `.pkg` is made by `scripts/package-signed.sh` on a physical Roku and uploaded to the Roku developer portal by hand.
 - Keep old API routes/behaviour working for already-deployed clients.

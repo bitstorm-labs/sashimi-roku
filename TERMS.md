@@ -1,6 +1,6 @@
 # Terms of Use — Sashimi
 
-**Last updated: July 2026**
+**Last updated: October 2026**
 
 Sashimi is a free, open-source client application for Jellyfin media servers.
 

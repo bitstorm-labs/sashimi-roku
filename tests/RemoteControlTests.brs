@@ -46,7 +46,7 @@ end sub
 
 sub testSocketUrl(t as object)
     eq(t, "https -> wss", RemoteControl_socketUrl("https://fin.example.ca", "abc123"), "wss://fin.example.ca/socket?deviceId=abc123")
-    eq(t, "http with port -> ws", RemoteControl_socketUrl("http://192.168.86.151:9096", "abc"), "ws://192.168.86.151:9096/socket?deviceId=abc")
+    eq(t, "http with port -> ws", RemoteControl_socketUrl("http://192.168.1.20:9096", "abc"), "ws://192.168.1.20:9096/socket?deviceId=abc")
     eq(t, "scheme any case", RemoteControl_socketUrl("HTTPS://Fin.example.ca", "a"), "wss://Fin.example.ca/socket?deviceId=a")
     eq(t, "base path kept", RemoteControl_socketUrl("https://host/jellyfin", "a"), "wss://host/jellyfin/socket?deviceId=a")
     eq(t, "trailing slashes dropped", RemoteControl_socketUrl("https://host/jellyfin//", "a"), "wss://host/jellyfin/socket?deviceId=a")
