@@ -8,14 +8,14 @@ talking to a Jellyfin server.
 ```bash
 npm install
 npm run lint       # BrighterScript static analysis — must be clean
-npm run package    # builds out/sashimi-roku.zip
+npm run package    # builds out/sashimi-roku.zip and copies it to sashimi.zip
 ```
 
 To run it on hardware you need a Roku in developer mode:
 
 ```bash
-export ROKU_DEV_TARGET=192.168.1.50
-export ROKU_DEV_PASSWORD=yourdevpassword
+export ROKU_DEV_TARGET=<your Roku's address>
+export ROKU_DEV_PASSWORD=<developer password>
 npm run dev        # package + sideload
 ```
 
@@ -24,7 +24,7 @@ replacing the channel drops the connection.
 
 ## Before you open a PR
 
-- `npm run lint` and `npm test` are clean.
+- `npm run lint` and `npm test` are clean (CI runs both).
 - You sideloaded it and the screen you touched still works. `npm test` only
   covers pure logic (`tests/`), so manual verification is the safety net for
   everything else — please say in the PR what you actually exercised, and on

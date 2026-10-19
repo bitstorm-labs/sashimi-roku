@@ -4,7 +4,7 @@
 # the "release" step; cloud CI only builds the unsigned zip artifact.
 # Password comes from macOS Keychain (service: sashimi-roku-signing).
 set -euo pipefail
-DEVICE="${ROKU_DEV_TARGET:-192.168.86.30}"
+DEVICE="${ROKU_DEV_TARGET:?set ROKU_DEV_TARGET to the dev Roku's address}"
 # The dev password lives in the Keychain too; a hard-coded default went stale.
 DEVPW="${ROKU_DEV_PASSWORD:-$(security find-generic-password -s sashimi-roku-dev -a rokudev -w)}"
 VERSION=$(grep -E "^(major|minor|build)_version" manifest | cut -d= -f2 | paste -sd. -)
