@@ -1,6 +1,6 @@
 # Privacy Policy for Sashimi
 
-**Last updated: July 2026**
+**Last updated: October 2026**
 
 ## Overview
 
@@ -22,7 +22,7 @@ All of this lives in the Roku registry, a per-channel storage area on the device
 
 2. **A device identifier** — a random, channel-scoped ID from Roku's `GetChannelClientId()`. It is not your Roku's serial number and it is not shared with anyone but your own Jellyfin server, which uses it to distinguish this device in its session list.
 
-3. **Your preferences** — home screen row order, maximum bitrate, subtitle and playback settings, recent searches.
+3. **Your preferences** — home screen row order, maximum bitrate, subtitle and playback settings, recent searches, and programme reminders you set on the channel Guide.
 
 ### How that data is protected
 
@@ -34,7 +34,7 @@ All of this lives in the Roku registry, a per-channel storage area on the device
 
 Sashimi communicates with two things, both of which are yours:
 
-1. **Your Jellyfin server** — all browsing, streaming, and playback progress goes directly from your Roku to the server you configured, and nowhere else.
+1. **Your Jellyfin server** — all browsing, streaming, and playback progress goes directly from your Roku to the server you configured, and nowhere else. On Roku OS 16 and newer, Sashimi also keeps one WebSocket open to that server so its dashboard can send Stop and Message commands to this Roku.
 
 2. **Your local network** — when you use "Discover Servers", Sashimi sends one UDP broadcast (`"Who is JellyfinServer?"` to port 7359, Jellyfin's standard discovery protocol) and listens briefly for replies. It contains no personal data and never leaves your network.
 

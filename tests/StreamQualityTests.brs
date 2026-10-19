@@ -133,7 +133,7 @@ sub testSettingsCap(t as object)
 end sub
 
 sub testLocalServer(t as object)
-    eq(t, "lan ip", StreamQuality_isLocalServer("http://192.168.86.151:9096"), true)
+    eq(t, "lan ip", StreamQuality_isLocalServer("http://192.168.1.20:9096"), true)
     eq(t, "10.x", StreamQuality_isLocalServer("http://10.0.0.5:8096/"), true)
     eq(t, "172.16", StreamQuality_isLocalServer("https://172.20.1.1"), true)
     eq(t, "172.32", StreamQuality_isLocalServer("https://172.32.1.1"), false)
@@ -294,8 +294,8 @@ sub testConnection(t as object)
 end sub
 
 sub testSustainedKey(t as object)
-    eq(t, "key wireless", StreamQuality_sustainedKey("http://192.168.86.151:9096", false), "http://192.168.86.151:9096|wireless")
-    eq(t, "key wired", StreamQuality_sustainedKey("http://192.168.86.151:9096", true), "http://192.168.86.151:9096|wired")
+    eq(t, "key wireless", StreamQuality_sustainedKey("http://192.168.1.20:9096", false), "http://192.168.1.20:9096|wireless")
+    eq(t, "key wired", StreamQuality_sustainedKey("http://192.168.1.20:9096", true), "http://192.168.1.20:9096|wired")
     eq(t, "key case + slash", StreamQuality_sustainedKey("HTTPS://Jelly.Example.com/jf/", false), "https://jelly.example.com/jf|wireless")
     eq(t, "key same server", StreamQuality_sustainedKey("http://popcorn:9096/", true), StreamQuality_sustainedKey("http://POPCORN:9096", true))
 end sub

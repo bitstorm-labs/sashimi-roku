@@ -6,8 +6,8 @@ Build the channel and push it to the dev Roku, then show me what's on screen.
 
 ```bash
 cd "$CLAUDE_PROJECT_DIR"
-PW=$(security find-generic-password -s sashimi-roku-dev -a rokudev -w)
-DEVICE="${ROKU_DEV_TARGET:-192.168.86.30}"
+PW="${ROKU_DEV_PASSWORD:?set ROKU_DEV_PASSWORD}"
+DEVICE="${ROKU_DEV_TARGET:?set ROKU_DEV_TARGET}"
 
 npm run lint            # must be clean before packaging
 npm run package
@@ -36,5 +36,5 @@ Notes:
   `/Sessions` instead.
 - If the download returns `Error 40x` instead of a JPEG, the dev channel isn't
   running; relaunch it before capturing.
-- ECP keypress works on this device (re-verified 2026-07-31, see CLAUDE.md):
+- ECP keypress works on this device (see CLAUDE.md):
   pace presses ~0.5s apart or they coalesce, and the Options key is `Info`.

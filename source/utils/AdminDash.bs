@@ -5,7 +5,7 @@
 ' draws whatever these return.
 '
 ' The badge truth table is shared word for word with the Apple and Android
-' clients (plans/sashimi/2026-10-18-admin-dashboard-design.md):
+' clients:
 '   Direct play       no TranscodingInfo, or video AND audio direct, no burn-in
 '                     (a container-only remux shows as Direct play, "Remux")
 '   Converting audio  video direct, audio not

@@ -1,5 +1,5 @@
 ---
-description: Bump build_version, tag the release, and produce a signed .pkg for the channel store
+description: Bump build_version, tag the release, and produce a signed .pkg for the Roku beta channel
 argument-hint: "[patch|minor|major] (default: patch)"
 ---
 
@@ -24,13 +24,13 @@ the merge.
 5. Commit the bump, push, and tag `vX.Y.Z`. The tag fires `build.yml`, which
    publishes a GitHub Release with the sideload zip attached.
 
-6. Produce the signed channel package. This **requires the physical dev Roku** —
-   Roku provides no offline signer, so CI can only ever build the unsigned zip:
+6. Produce the signed package. This **requires a physical dev Roku** (set
+   `ROKU_DEV_TARGET` and `ROKU_DEV_PASSWORD`): Roku provides no offline signer,
+   so CI only builds the unsigned zip.
    ```bash
-   export ROKU_DEV_PASSWORD=$(security find-generic-password -s sashimi-roku-dev -a rokudev -w)
    bash scripts/package-signed.sh
    ```
    It writes `out/sashimi-signed-<version>.pkg`.
 
-7. Send me the `.pkg` with SendUserFile and remind me the upload to
-   developer.roku.com is manual — there's no API for it.
+7. Send me the `.pkg` and remind me the upload is manual: developer.roku.com,
+   the channel's **Package Upload**, then the beta channel. There is no API.

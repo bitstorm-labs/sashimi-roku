@@ -568,7 +568,7 @@ sub testFooterReason(t as object)
 end sub
 
 sub testLocalAddress(t as object)
-    locals = ["192.168.86.30", "10.0.0.5", "10.255.255.255", "172.16.0.1", "172.31.255.255", "127.0.0.1", "169.254.10.1", "::1", "fe80::1", "FE80::ABCD", "febf::1", "fd12:3456::1", "fc00::1", "::ffff:192.168.1.5", "[fe80::1]:8096", "192.168.1.5:54321", " 10.1.2.3 "]
+    locals = ["192.168.1.50", "10.0.0.5", "10.255.255.255", "172.16.0.1", "172.31.255.255", "127.0.0.1", "169.254.10.1", "::1", "fe80::1", "FE80::ABCD", "febf::1", "fd12:3456::1", "fc00::1", "::ffff:192.168.1.5", "[fe80::1]:8096", "192.168.1.5:54321", " 10.1.2.3 "]
     for each a in locals
         ok(t, "local " + a, AdminDash_isLocalAddress(a))
     end for
@@ -582,7 +582,7 @@ end sub
 
 sub testWhere(t as object)
     s = session(invalid)
-    s.RemoteEndPoint = "192.168.86.30"
+    s.RemoteEndPoint = "192.168.1.50"
     eq(t, "local", AdminDash_whereLabel(s), "Local")
     s.RemoteEndPoint = "100.70.1.2"
     eq(t, "cgnat remote", AdminDash_whereLabel(s), "Remote")

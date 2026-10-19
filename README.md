@@ -11,6 +11,7 @@
 <p align="center">
   <a href="#screenshots">Screenshots</a> •
   <a href="#features">Features</a> •
+  <a href="#get-more-out-of-sashimi">Server add-ons</a> •
   <a href="#requirements">Requirements</a> •
   <a href="#installing">Installing</a> •
   <a href="#settings">Settings</a> •
@@ -23,13 +24,13 @@
 
 Sashimi is a Roku channel for [Jellyfin](https://jellyfin.org/) media servers,
 written in BrightScript and SceneGraph. It talks only to the Jellyfin server you
-point it at — there is no Sashimi account, no telemetry, and no third-party
+point it at. There is no Sashimi account, no telemetry and no third-party
 network traffic.
 
-It is the Roku member of the Sashimi family; sibling clients for
+It is the Roku member of the Sashimi family. Sibling clients for
 [Apple TV / iPhone / iPad](https://github.com/bitstorm-labs/sashimi-apple) and
 [Android](https://github.com/bitstorm-labs/sashimi-android) live in their own
-repositories and aim for visual and feature parity.
+repositories.
 
 ## Screenshots
 
@@ -59,183 +60,173 @@ Movies use the same layout without seasons.*
 
 ### Browsing
 
-- **Pullout sidebar** — a collapsed icon rail that expands over the content when
-  focused. It holds Home, each of your libraries, Search, Settings and an
-  account row. Press LEFT from a top-level screen to reveal it.
-- **Home screen** — a hero banner that rotates through featured items every few
-  seconds (LEFT/RIGHT pages through it manually), a **Continue Watching** row,
-  and a **Recently Added** row for each library. Continue Watching merges your
-  in-progress items with Jellyfin's Next Up, so a just-finished episode surfaces
-  its successor.
-- **Configurable home rows** — reorder rows or hide them from
+- **Pullout sidebar.** A collapsed icon rail that expands when focused (press
+  LEFT). It holds Home, Stations (channels), your libraries, Search, Settings
+  and an account row.
+- **Home.** A rotating hero banner, **Continue Watching**, a **Stations** row if
+  you have channels, and **Recently Added** per library. Reorder or hide rows in
   *Settings → Home Screen Rows*.
-- **Library grid** with sorting by Name, Date Added, Release Date, Rating or
-  Runtime, an independent Ascending/Descending toggle, and filtering by All,
-  Unwatched, Watched or Favorites. Press `*` for the menu; the header always
-  shows what is currently applied.
-- **A–Z jump bar** — press RIGHT from the grid in any library to reveal an
-  alphabet rail (plus a `#` bucket for titles that start with a digit or symbol)
-  and jump straight to a letter. LEFT dismisses it.
-- **Shuffle** — press UP from the top row of a Movies or TV library to reach the
-  Shuffle button and play one random item. Series detail screens have their own
-  Shuffle button for a random episode.
-- **Search** across movies and series, with a **recent search history** — the
-  last 10 queries, with a "Clear Recent Searches" entry.
-- **Quality badges** (4K / HD / SD) and **community ratings** on artwork, both
-  individually toggleable. Episode tiles can show either the episode's own
-  rating or the parent series' rating.
-- **Unplayed counts, watched checks and progress bars** on cards.
-- **Pinchflat / YouTube libraries** are detected by name and rendered with
-  circular channel avatars and channel-style titles.
+- **Continue Watching** merges in-progress items with Next Up, so a finished
+  episode surfaces its successor, newest activity first, one entry per series.
+- **Library grid** with sort (Name, Date Added, Release Date, Rating, Runtime),
+  ascending/descending, and filters (All, Unwatched, Watched, Favorites). Press
+  `*` for the menu. RIGHT from the grid opens an A-Z jump bar.
+- **Shuffle.** UP from the top row of a Movies or TV library plays a random
+  item. Series screens have their own Shuffle for a random episode.
+- **Search** across movies and series, with your last 10 queries.
+- **People.** Open a cast member to see what else they are in, across all your
+  saved servers.
+- **Quality and rating badges**, unplayed counts, watched checks and progress
+  bars on cards.
+- **YouTube-style libraries** (for example from Pinchflat) are detected by name
+  and drawn with round channel avatars.
+
+### Channels and the Guide
+
+With the [Channels plugin](#get-more-out-of-sashimi), virtual channels show up
+as a **Stations** row on Home and in the sidebar. Select a card to tune in to
+what is airing now. The **Guide** is a scrolling timeline of channels and
+programmes, and you can set a reminder for an upcoming airing.
+
+Jellyfin administrators also get **Add to Channel** on movie and series screens
+and **Manage Channels** on the Guide (rename, logos, remove titles, delete). It
+needs Channels plugin 0.11 or newer. Dayparts and rules stay in the Jellyfin
+dashboard.
 
 ### Detail screens
 
-- **Play** / **Resume** (with a separate **Start Over**), **Mark Watched**,
-  **Shuffle** for series, **Series** to jump from an episode to its parent, and
-  a **More** menu holding the full overview and the **Favorite** toggle.
-- **Trailer** — appears when Jellyfin reports a local trailer for the item
-  (`LocalTrailerCount > 0`, e.g. one downloaded by
-  [Trailarr](https://github.com/nandyalu/trailarr)). It opens the trailer in the
-  normal player. Remote and YouTube-hosted trailers are not supported.
-- **Hero trailer** — after two seconds on a movie, series, season or episode
-  screen, the backdrop cross-fades to 30 seconds of the title's local trailer
-  (seasons and episodes use their series' trailer; long trailers skip their
-  first 10 seconds), then fades back to the image. It plays once per visit,
-  keeps running when you drill from a series into one of its episodes, and
-  stops the moment you play something or leave. The server transcodes it to
-  720p at 4 Mbps. Roku can only play one stream at a time, so when the show's
-  theme song is playing the trailer waits for it to finish and then plays with
-  sound. Turn it off with **Play Trailers on Detail Screens**.
-- **Add to Channel** (server administrators only) — puts a movie or series (an
-  episode or season adds its series) on a SashimiTV channel, or takes it off.
-  ✓ marks the channels it was added to; a dimmed ✓ "(via …)" marks one it airs
-  on through a dashboard rule. Scheduled channels ask which daypart, and
-  **New Channel…** creates a channel that starts with the title. **Manage
-  Channels**, the last chip on the Guide, renames channels, changes or removes
-  their logo, removes added titles and deletes channels. Dayparts, seasons and
-  rules stay in the Jellyfin dashboard. Needs the Channels plugin 0.11+.
-- **Seasons and episodes** — season pills plus an episode row for series; an
-  episode's own screen shows a "More Episodes" strip with the current episode
-  marked. A **Cast** row lists up to 20 actors.
-- **Mark a whole season** — press `*` on a season pill (or in its episode row)
-  for **Mark Season Watched**, or **Mark Season Unwatched** once every episode
-  in it is played. One server call covers the season, Specials included.
-- **Ratings** — the community score with the TMDb mark and, where Jellyfin has
-  one, the critic score with a Rotten Tomatoes mark. Both logos are bundled
-  images; Sashimi makes no requests to TMDb or Rotten Tomatoes.
-- **Media badges** — resolution, video codec, and Dolby Digital / Digital Plus /
-  TrueHD wordmarks for the primary audio track, otherwise a codec and
-  channel-layout chip. Movies also get official-rating and genre chips.
+- **Play**, **Resume** (with **Start Over**), **Mark Watched**, **Shuffle**,
+  **Series** (jump from an episode to its show), and a **More** menu with the
+  full overview and the Favorite toggle.
+- **Trailer button.** Appears when the item has a local trailer on the server,
+  for example one downloaded by [Trailarr](https://github.com/nandyalu/trailarr).
+  Remote and YouTube trailers are not supported.
+- **Hero trailer.** After two seconds on a movie, series, season or episode
+  screen, the backdrop fades to about 30 seconds of the local trailer, then
+  back to the image. It plays once per visit and stops when you play something
+  or leave. If the show's theme song is playing, the trailer waits for it to
+  finish, because Roku can only play one stream at a time. Turn it off with
+  **Play Trailers on Detail Screens**.
+- **Theme songs.** A show's `theme.mp3` plays on its screens. Turn it off with
+  **Play Theme Songs**.
+- **Seasons and episodes.** Season pills, an episode row, a "More Episodes"
+  strip, and a Cast row. Press `*` on a season for **Mark Season Watched /
+  Unwatched**.
+- **Show status** pill (Continuing, Ended, Upcoming), community and critic
+  ratings, and resolution, codec and Dolby audio badges.
 
 ### Playback
 
-- **Trick-play scrubbing** — thumbnail previews while seeking, drawn from
-  Jellyfin's trickplay tile sheets. Tile geometry is read from each item's own
-  `Trickplay` metadata rather than assumed. See
-  [Troubleshooting](#no-trick-play-thumbnails-while-scrubbing) if you see none.
-- **Chapters** — a chapters menu plus tick marks on the scrub bar, for items
-  with more than one chapter.
-- **Intro Skipper support** — a "Skip Intro" / "Skip Credits" pill on episodes,
-  backed by the
-  [Intro Skipper](https://github.com/intro-skipper/intro-skipper) Jellyfin
-  plugin, with optional auto-skip for each (both off by default).
-- **Auto-play next episode** (on by default).
-- **Audio and subtitle track selection.** Subtitles are burned in server-side,
-  which makes every format work — SRT, styled ASS, image-based PGS — at the cost
-  of a stream restart. See [Known limitations](#subtitle-changes-restart-the-stream).
-- **View modes** — *View Mode* on the overlay (or hold OK on a channel) frames
-  the picture as **Normal** (whole picture, native shape), **Zoom** (fills the
-  screen, crops the edges) or **Stretch** (fills the screen, distorts). The pick
-  lasts for the rest of the session, across episodes, channels and stream
-  restarts, without restarting playback; *Use for All Videos* saves it as the
-  default.
-- **Roku's system caption setting is honoured** — turning captions on or off in
-  Roku's own settings selects or clears a subtitle track.
-- **Adaptive fallbacks** — a direct play the hardware rejects retries once over
-  HLS. A stream that stalls, keeps rebuffering, or never starts steps down
-  from the same position, roughly halving each time (20 → 8 → 4 → 2 → 1 Mbps →
-  720 kbps) with the picture width to match, and says so on screen. Only when
-  the ladder runs out does it surface an error. *Always Play Original* opts
-  out of both.
-- **Quality menu** — Auto, 1080p · 20 Mbps, 720p · 8 Mbps, 480p · 4 Mbps, and
-  three low-bandwidth tiers: 720p · 2 Mbps, 480p · 1 Mbps, 360p · 720 kbps.
-  Each tier caps resolution as well as bitrate. The menu marks the quality in
-  force, including one reached by an automatic step-down.
-- **Stream info on the overlay** — resolution, video codec, whether the stream is
-  **Original** or **Converted**, the delivered bitrate, the quality in force, a
-  clock, and a "Finishes at" estimate.
-- **Accelerating seek** — repeated presses in the same direction step 10s → 20s →
-  40s → 60s, with the scrub bar and thumbnail previewing before the seek commits.
-- **Progress reporting** — position is reported to Jellyfin on start, every five
-  seconds, on pause and on stop, so resume works across all your clients. The
-  resume threshold is configurable.
+- **Skip pill.** A "Skip Intro" or "Skip Credits" pill (also Recap and Preview)
+  with a countdown fill, driven by Jellyfin's Media Segments. Optional auto-skip
+  for intros and credits, both off by default.
+- **Up Next.** At the end of an episode a card counts down to the next one, with
+  Skip and Cancel. Auto-play next episode is on by default.
+- **Adaptive quality.** In **Auto**, Sashimi measures your connection and picks
+  a bitrate, holds Wi-Fi to a lower ceiling, remembers the link between
+  sessions, and steps back up when it can. A stream that stalls steps down from
+  the same position (20, 8, 4, 2, 1 Mbps, 720 kbps) and says so on screen.
+  *Always Play Original* turns the automatic fallbacks off.
+- **HEVC and Dolby Vision without re-encoding.** When only the audio or
+  container needs changing, the server remuxes and keeps the original video, so
+  HEVC and Dolby Vision sources keep their quality. Surround audio goes out as
+  Dolby where your device supports it.
+- **Quality menu** in the player: Auto plus six tiers from 1080p at 20 Mbps
+  down to 360p at 720 kbps. The menu marks the quality in force.
+- **Trick-play scrubbing** with thumbnails from Jellyfin's trickplay sheets, and
+  **chapters** with tick marks on the scrub bar. Accelerating seek steps
+  10, 20, 40, 60 seconds.
+- **Audio and subtitle tracks.** Subtitles are burned in by the server, so SRT,
+  styled ASS and image-based PGS all work. Changing them restarts the stream.
+  Roku's system caption On/Off setting is honoured.
+- **View modes.** Normal, Zoom (crop) or Stretch, per session or as a default.
+- **Stream info** on the overlay: resolution, codec, Original or Converted,
+  bitrate, and a "Finishes at" estimate.
+- **Progress reporting** to Jellyfin on start, every five seconds, on pause and
+  on stop, so resume works across all your clients.
+
+### Server dashboard and remote control
+
+- **Server Dashboard** (*Settings → Server Dashboard*, Jellyfin administrators
+  only). Now-playing cards for every active stream: who, on what device, direct
+  play or converting (and why), progress, and local or remote. Plus storage,
+  health and recent activity. OK on a card can **Stop** the stream or **Message**
+  the viewer.
+- **Receiving Stop and Message.** Sashimi also accepts those commands from the
+  Jellyfin dashboard on the Roku it is running on. This needs **Roku OS 16 or
+  newer** (it uses the `roWebSocket` API). On older firmware the feature is
+  quietly off and everything else works.
 
 ### Connecting
 
-- **LAN server discovery** — broadcasts Jellyfin's standard
-  `"Who is JellyfinServer?"` probe on **UDP 7359** and lists whatever replies
-  within about three seconds. Manual URL entry always works too.
-- **Multi-server** — add as many servers as you like and switch between them
-  from the sidebar account row or *Settings → Servers*; the libraries reload for
-  the newly active server.
-- **Deep linking** via ECP (`supports_input_launch`). `movie`, `episode`,
-  `series`, `shortformvideo`, `tvspecial`, `livefeed` and `sportsevent` begin
-  playback immediately, with `series` resolving to your next unwatched episode.
-  Other types, including `season`, open the detail screen.
+- **LAN discovery** with Jellyfin's standard UDP 7359 probe, or enter an
+  address by hand.
+- **Multi-server.** Add several servers and switch from the sidebar or
+  *Settings → Servers*.
+- **Deep linking** through Roku's ECP. `movie`, `episode`, `series` (resolved
+  to your next unwatched episode) and similar types start playback at once.
+  `season` opens its detail screen.
+
+## Get more out of Sashimi
+
+Sashimi works with a stock Jellyfin server. These add-ons make it better. None
+is required.
+
+| Add-on | What you get in Sashimi on Roku | Without it |
+|---|---|---|
+| **[Continue Watching](https://github.com/bitstorm-labs/jellyfin-plugin-continue-watching)** plugin | One server-ranked Resume + Next Up row, in the same order on every Sashimi client. | The Roku builds the row itself from Resume and Next Up. Same idea, ranked on the device. |
+| **[Channels](https://github.com/bitstorm-labs/jellyfin-plugin-channels)** plugin | 24/7 virtual channels: the Stations row, the Guide and reminders, plus Add to Channel and Manage Channels for admins. | No Stations row or Guide. |
+| **[Theme Songs](https://github.com/bitstorm-labs/jellyfin-theme-songs)** plugin | Downloads `theme.mp3` per series. Sashimi plays it on series screens. Setting: *Play Theme Songs*. | Silence on series screens. Shows with no theme file are always silent. |
+| **[Intro Skipper](https://github.com/intro-skipper/intro-skipper)** (third party) | Detects intros and credits. Sashimi reads them through Jellyfin's native Media Segments and shows the Skip pill and optional auto-skip. | No skip pill. |
+| **[Trailarr](https://github.com/nandyalu/trailarr)** (separate app) | Downloads local trailers. Sashimi shows a Trailer button and plays hero trailers on detail screens. | No trailer button or hero trailer. |
+
+Also on the server side:
+
+- **Hardware transcoding** (QSV, NVENC, VAAPI) makes Auto quality, burned-in
+  subtitles and trailer playback much smoother.
+- **Trickplay image extraction**, enabled per library, gives you thumbnails
+  while scrubbing.
 
 ## Requirements
 
-- A **Roku device** (or the Roku OS emulator) on Roku OS 11 or newer.
-- A **Jellyfin server, version 10.10 or newer.** Sashimi is developed and tested
-  against Jellyfin 10.11.x. Older servers may work but are not tested.
-- For development only: [Node.js](https://nodejs.org/) 18+ for the build
-  toolchain ([BrighterScript](https://github.com/rokucommunity/brighterscript) +
-  [roku-deploy](https://github.com/rokucommunity/roku-deploy)), and
-  **Developer Mode** enabled on the Roku — see
-  [Roku's guide](https://developer.roku.com/docs/developer-program/getting-started/developer-setup.md).
-
-Optional, on the server side:
-
-- **Trickplay image extraction** enabled per library, for thumbnail scrubbing.
-- The **Intro Skipper** plugin, for skip-intro and skip-credits.
+- A Roku device. Remote Stop and Message need Roku OS 16 or newer; the rest of
+  the app does not.
+- A Jellyfin server, version 10.10 or newer. Sashimi is developed against
+  10.11.x.
+- To build it yourself: Node.js 20 and a Roku in Developer Mode (see
+  [Roku's guide](https://developer.roku.com/docs/developer-program/getting-started/developer-setup.md)).
 
 ## Installing
 
-Sashimi is not yet in the Roku Channel Store. Until it is, install it by
-sideloading:
+Sashimi is not in the Roku Channel Store. Install it by sideloading:
 
 1. On your Roku: **Settings → System → Advanced system settings → Developer
-   options**, and enable Developer Mode. The device reboots and shows its IP
-   address; set a developer password when prompted.
-2. Download the `sashimi-roku-<version>.zip` asset from the
+   options**, and enable Developer Mode. Set a developer password when prompted.
+2. Download `sashimi-roku-<version>.zip` from the
    [latest release](https://github.com/bitstorm-labs/sashimi-roku/releases).
-3. Browse to `http://<your-roku-ip>` on a computer on the same network and sign
-   in with the developer password.
-4. Upload the zip and press **Install**.
-5. Launch Sashimi from the Roku home screen.
+3. Browse to `http://<your-roku-ip>` from a computer on the same network and
+   sign in with the developer password.
+4. Upload the zip and press **Install**, then launch Sashimi.
 
-> Sideloaded channels are removed when the Roku reboots into non-developer mode,
+> Sideloaded channels are removed when the Roku reboots out of developer mode,
 > and only one sideloaded channel can be installed at a time.
 
-### First run
-
-On the connection screen you can either press **Discover Servers** to find
-Jellyfin on your network automatically, or type the address yourself — for
-example `http://192.168.1.100:8096`. An address entered without a scheme is
-assumed to be `http://`. Then enter your Jellyfin username and password and
-press **Connect**.
+On first run, press **Discover Servers** or type your server's address (for
+example `http://192.168.1.100:8096`), then enter your Jellyfin username and
+password.
 
 ## Settings
 
 | Setting | Default | Notes |
 |---|---|---|
 | **Servers** | — | Add, switch between, or remove servers. `*` removes the highlighted one. |
+| **Server Dashboard** | — | Jellyfin administrators only. See Features. |
 | **Home Screen Rows** | — | LEFT/RIGHT reorder, OK shows/hides, Back saves. Visit Home once first so your libraries are known. |
-| **Maximum Bitrate** | Auto | Auto, or cap at 80 / 20 / 8 / 4 / 2 / 1 Mbps or 720 kbps (from 20 Mbps down each also caps resolution). Auto measures your downstream bandwidth and uses 85% of it, down to 720 kbps; until a measurement lands it assumes 4 Mbps for a server reached over the internet and 20 Mbps on the local network. |
+| **Maximum Bitrate** | Auto | Auto, or cap at 4K (80 Mbps), 1080p (20), 720p (8), 480p (4), 720p (2), 480p (1) or 360p (720 kbps). From 20 Mbps down each also caps resolution. Auto measures your connection and adapts; see Playback. |
 | **Always Play Original** | Off | Requests direct play and disables the adaptive HLS and bitrate-step-down fallbacks. |
 | **Auto-Play Next Episode** | On | |
-| **Auto-Skip Intro** | Off | Requires the Intro Skipper plugin. |
-| **Auto-Skip Credits** | Off | Requires the Intro Skipper plugin. |
+| **Auto-Skip Intro** | Off | Needs intro/credit markers on the server (Intro Skipper). |
+| **Auto-Skip Credits** | Off | Needs intro/credit markers on the server (Intro Skipper). |
 | **Resume Threshold** | 30 seconds | How far in you must be before Sashimi offers to resume rather than start over. |
 | **Default View Mode** | Normal | Normal, Zoom or Stretch. A mode picked in the player overrides it for the rest of that session; changing it here replaces that pick. |
 | **TV Shuffle** | Random Episode | What Shuffle on a TV library plays: a random episode, or a random show's next episode. |
@@ -246,7 +237,7 @@ press **Connect**.
 | **Show Quality Badges** | On | 4K / HD / SD badges on artwork. |
 | **Show Review Ratings** | On | Community ratings on artwork. |
 | **Use Episode Ratings** | Off | When off, episode tiles show the series rating. |
-| **Play Theme Songs** | On | A show's theme song on its detail screens (needs theme files, e.g. from the Theme Songs plugin). |
+| **Play Theme Songs** | On | A show's theme song on its detail screens (needs `theme.mp3` files, e.g. from the Theme Songs plugin). |
 | **Play Trailers on Detail Screens** | On | The hero trailer described under Detail screens. |
 | **Version** | — | Read-only. |
 | **Sign Out** | — | Clears stored credentials and asks the server to revoke the token. |
@@ -314,10 +305,7 @@ for any server reachable from outside your home.**
 
 Check the server from another client first. If Sashimi shows *Playback error*,
 the dialog includes a numeric Roku error code — please include it when reporting
-an issue. Fuller output is available over telnet on port **8085** while the
-channel is running (`nc <roku-ip> 8085`), though release builds keep logging
-deliberately sparse so that titles, tokens and server URLs never reach the
-console.
+an issue. Release builds keep logging sparse on purpose, so titles, tokens and server URLs never reach the debug console (port **8085**).
 
 ### "Session expired — please sign in again"
 
@@ -354,123 +342,82 @@ costs:
 - Sashimi is **not yet in the Roku Channel Store**, so sideloading is the only
   install path today.
 
+## Known limitations
+
+- **Subtitle changes restart the stream.** Roku's native subtitle rendering
+  fails silently, so the server burns subtitles into the video. Every format
+  works, but toggling or switching tracks re-buffers, and the server must
+  transcode while subtitles are on. Roku's "On instant replay" and "When mute"
+  caption modes are ignored.
+- **Search covers movies and series only.** Library grids list movies and
+  series, not single episodes.
+- **English only.**
+- **Not in the Channel Store**, so sideloading is the public install path.
+
 ## Development
 
 ```bash
-# Install the toolchain
 npm install
+npm run lint      # BrighterScript static analysis, no zip
+npm test          # off-device unit tests (pure logic only)
+npm run package   # build out/sashimi-roku.zip and copy to sashimi.zip
 
-# Type-check / validate (BrighterScript static analysis, no zip)
-npm run lint
-
-# Build the channel zip (out/sashimi-roku.zip)
-npm run build
-
-# Build and copy to sashimi.zip
-npm run package
-
-# Sideload to a dev device (set env first)
-export ROKU_DEV_TARGET=192.168.x.x     # your Roku's IP
-export ROKU_DEV_PASSWORD=xxxx          # Developer Mode password
-npm run deploy
-
-# Build + sideload in one step
-npm run dev
+export ROKU_DEV_TARGET=<your Roku's address>
+export ROKU_DEV_PASSWORD=<Developer Mode password>
+npm run dev       # package + sideload
 ```
 
-> `npm run lint` does not refresh `sashimi.zip`. Run `npm run package` before
-> deploying or signing so the zip reflects your latest changes.
+The debug console is on telnet port **8085** (`nc <roku-ip> 8085`). Attach
+after sideloading, because replacing the channel drops the connection.
 
-The debug console (BrightScript `print` output) is available over telnet on port
-**8085** while the channel runs. Attach *after* sideloading — replacing the
-channel drops the connection.
-
-`CLAUDE.md` documents the platform traps this codebase works around: image
-scaling that silently centers, SceneGraph components that recycle their
-children, and Task fields that drop same-tick writes. Reading it first will save
-you a confusing afternoon.
-
-### Project structure
+`CLAUDE.md` documents the platform traps this codebase works around. Read it
+before changing rendering code.
 
 ```
-sashimi-roku/
-├── source/
-│   ├── Main.bs        # App entry point + ECP deep-link plumbing
-│   └── utils/         # Registry, Servers, AppSettings, Http, Quality, …
-├── components/
-│   ├── MainScene.*    # Root scene + navigation stack
-│   ├── screens/       # auth, home, library, search, detail, player, settings
-│   ├── widgets/       # Sidebar, HeroBanner, HomeItem, GridItem, ToastOverlay
-│   └── tasks/         # JellyfinApi (REST) + ServerDiscoveryTask (UDP)
-├── docs/screenshots/  # Images used by this README
-├── images/            # Logo, channel icons, splash, UI art
-├── fonts/             # Bundled Roboto family
-├── locale/            # Localized strings (en_US only today)
-├── manifest           # Channel metadata + version (major/minor/build)
-└── scripts/           # package-signed.sh (on-device signing)
+source/        Main.bs (entry, deep links) and utils/ (pure logic, tested)
+components/    MainScene, screens/, widgets/, tasks/ (JellyfinApi, discovery, remote control)
+tests/         Off-device unit tests
+docs/          README screenshots
+images/ fonts/ locale/ scripts/
+manifest       Channel metadata and version
 ```
 
-## Packaging & release
+## Releasing
 
-CI builds and validates every push and pull request. Pushing a `v*.*.*` tag also
-publishes a GitHub Release with the sideloadable zip attached.
+CI (`.github/workflows/build.yml`) lints, tests and packages every push and pull
+request. Pushing a `v*.*.*` tag publishes a GitHub Release with the sideload zip.
 
-Roku channels must be **signed on a physical device** — there is no offline
-signer — so producing a store-ready `.pkg` is a local step:
-
-```bash
-# Bump build_version in `manifest` first, then:
-bash scripts/package-signed.sh        # build → sideload → sign on device
-# → out/sashimi-signed-<version>.pkg
-```
-
-The signed package is uploaded manually at
-[developer.roku.com](https://developer.roku.com/) → your channel →
-**Package Upload**. The home-screen channel icon ships inside the package
-(`mm_icon_focus_hd/sd` in the manifest); Channel Store listing art is only
-required for public certification.
+The signed `.pkg` for Roku's beta channel is a separate manual step, because
+Roku signs only on a physical device. Bump `build_version` in `manifest`, then
+run `bash scripts/package-signed.sh` against a dev Roku. It writes
+`out/sashimi-signed-<version>.pkg`, which is uploaded by hand under **Package
+Upload** at [developer.roku.com](https://developer.roku.com/).
 
 ## Contributing
 
-Contributions are welcome. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the
-full guide; in short:
-
-1. Create a feature branch: `git checkout -b feat/my-feature`
-2. Commit using [Conventional Commits](https://www.conventionalcommits.org/):
-   `git commit -m "feat: add new feature"`
-3. Run `npm run lint` and `npm test` until both are clean, then sideload and
-   test on a real device — the tests only reach pure logic, so manual
-   verification is the safety net for everything else. Say in the PR what you
-   exercised and on what hardware.
-4. Check that `manifest` still has `bs_const=DEBUG=false`.
-5. Open a Pull Request. CI runs BrighterScript static analysis.
-
-If you are planning something large, open an issue first so we can agree on the
-shape.
+See **[CONTRIBUTING.md](CONTRIBUTING.md)**. In short: branch, use
+[Conventional Commits](https://www.conventionalcommits.org/), get `npm run lint`
+and `npm test` clean, test on a real Roku, and say in the PR what you ran. If
+you plan something large, open an issue first.
 
 ## Security and privacy
 
-Sashimi collects nothing. No analytics, no telemetry, no crash reporting, no
-ads. Your credentials and preferences are stored only in the Roku registry on
-your own device, and the only servers it talks to are yours.
+Sashimi collects nothing: no analytics, telemetry, crash reporting or ads. Your
+credentials and preferences stay in the Roku registry on your device.
 
-- **[PRIVACY.md](PRIVACY.md)** — exactly what is stored and what leaves the
-  device.
-- **[SECURITY.md](SECURITY.md)** — how to report a vulnerability privately, and
-  what is in and out of scope.
-- **[TERMS.md](TERMS.md)** — terms of use.
+- **[PRIVACY.md](PRIVACY.md)**: what is stored and what leaves the device.
+- **[SECURITY.md](SECURITY.md)**: how to report a vulnerability privately.
+- **[TERMS.md](TERMS.md)**: terms of use.
 
 ## License
 
-Sashimi is released under the **MIT License**. See [LICENSE](LICENSE) for the
-full text.
+MIT. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- [Jellyfin](https://jellyfin.org/) — the free software media system
-- [RokuCommunity](https://github.com/rokucommunity) — BrighterScript & roku-deploy
-- [Intro Skipper](https://github.com/intro-skipper/intro-skipper) — the plugin
-  behind skip-intro support
+- [Jellyfin](https://jellyfin.org/), the free software media system
+- [RokuCommunity](https://github.com/rokucommunity) for BrighterScript and roku-deploy
+- [Intro Skipper](https://github.com/intro-skipper/intro-skipper) for intro and credit detection
 
 Sashimi is an independent project and is not affiliated with or endorsed by the
 Jellyfin project or Roku, Inc.
