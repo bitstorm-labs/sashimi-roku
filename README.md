@@ -170,15 +170,16 @@ dashboard.
 ## Get more out of Sashimi
 
 Sashimi works with a stock Jellyfin server. These add-ons make it better. None
-is required.
+is required. The first three are made by Bitstorm Labs. The last two are separate
+projects by other people; see [Acknowledgments](#acknowledgments).
 
 | Add-on | What you get in Sashimi on Roku | Without it |
 |---|---|---|
 | **[Continue Watching](https://github.com/bitstorm-labs/jellyfin-plugin-continue-watching)** plugin | One server-ranked Resume + Next Up row, in the same order on every Sashimi client. | The Roku builds the row itself from Resume and Next Up. Same idea, ranked on the device. |
 | **[Channels](https://github.com/bitstorm-labs/jellyfin-plugin-channels)** plugin | 24/7 virtual channels: the Stations row, the Guide and reminders, plus Add to Channel and Manage Channels for admins. | No Stations row or Guide. |
 | **[Theme Songs](https://github.com/bitstorm-labs/jellyfin-theme-songs)** plugin | Downloads `theme.mp3` per series. Sashimi plays it on series screens. Setting: *Play Theme Songs*. | Silence on series screens. Shows with no theme file are always silent. |
-| **[Intro Skipper](https://github.com/intro-skipper/intro-skipper)** (third party) | Detects intros and credits. Sashimi reads them through Jellyfin's native Media Segments and shows the Skip pill and optional auto-skip. | No skip pill. |
-| **[Trailarr](https://github.com/nandyalu/trailarr)** (separate app) | Downloads local trailers. Sashimi shows a Trailer button and plays hero trailers on detail screens. | No trailer button or hero trailer. |
+| **[Intro Skipper](https://github.com/intro-skipper/intro-skipper)**, by the Intro Skipper team (not Bitstorm Labs) | Detects intros and credits. Sashimi reads them through Jellyfin's native Media Segments and shows the Skip pill and optional auto-skip. | No skip pill. |
+| **[Trailarr](https://github.com/nandyalu/trailarr)**, a separate app by nandyalu (not Bitstorm Labs) | Downloads local trailers. Sashimi shows a Trailer button and plays hero trailers on detail screens. | No trailer button or hero trailer. |
 
 Also on the server side:
 
@@ -415,9 +416,32 @@ MIT. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- [Jellyfin](https://jellyfin.org/), the free software media system
-- [RokuCommunity](https://github.com/rokucommunity) for BrighterScript and roku-deploy
-- [Intro Skipper](https://github.com/intro-skipper/intro-skipper) for intro and credit detection
+Sashimi is built on, and works with, other people's projects. Each one is a
+separate project under its own license. Sashimi is not affiliated with or
+endorsed by any of them, nor by Roku, Inc.
 
-Sashimi is an independent project and is not affiliated with or endorsed by the
-Jellyfin project or Roku, Inc.
+**The server**
+
+- [Jellyfin](https://jellyfin.org/) (the Jellyfin project, GPL-2.0). The free
+  software media system Sashimi is a client for.
+
+**Server add-ons Sashimi works with** (not made by Bitstorm Labs)
+
+- [Intro Skipper](https://github.com/intro-skipper/intro-skipper) (by the Intro
+  Skipper team, GPL-3.0). Detects intros and credits. Sashimi reads the
+  segments it writes to Jellyfin and shows the Skip pill.
+- [Trailarr](https://github.com/nandyalu/trailarr) (by nandyalu, GPL-3.0).
+  Downloads trailers next to your media. Sashimi plays them on detail screens.
+
+**Tools and assets**
+
+- [BrighterScript](https://github.com/rokucommunity/brighterscript) and
+  [roku-deploy](https://github.com/rokucommunity/roku-deploy) (RokuCommunity, MIT).
+  Compile, package and deploy the channel.
+- [brs](https://github.com/rokucommunity/brs) (RokuCommunity, MIT). Runs the
+  unit tests off-device.
+- [Inter](https://github.com/rsms/inter) (rsms and contributors, SIL Open Font
+  License 1.1). The channel's typeface, bundled in `fonts/`.
+
+The TMDb and Rotten Tomatoes logos next to ratings belong to their owners. The
+ratings themselves come from your Jellyfin server.
