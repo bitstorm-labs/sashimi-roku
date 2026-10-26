@@ -250,6 +250,8 @@ sub onTrailerResolved(trailer as dynamic)
         return
     end if
     c = HeroTrailer.clip(trailer.seconds, m.toEnd.DoesExist(m.pending.sourceId))
+    ' The host sizes the trailer's rectangle to its picture (heroTrailerAttach).
+    c.aspect = trailer.aspect
     caps = HeroTrailer.streamCaps()
     enqueue({
         action: "getPlaybackStream"
@@ -294,6 +296,10 @@ sub play(stream as object, sourceId as string, c as object)
     video.enableTrickPlay = false
     video.notificationInterval = 0.25
     video.mute = HeroTrailer.shouldMute(isThemePlaying())
+    ' The picture's width over height (0 when unknown), for the host's layout.
+    aspect = 0.0
+    if c.aspect <> invalid then aspect = c.aspect
+    video.addFields({ heroAspect: aspect })
     content = CreateObject("roSGNode", "ContentNode")
     content.url = stream.url
     content.streamFormat = stream.streamFormat

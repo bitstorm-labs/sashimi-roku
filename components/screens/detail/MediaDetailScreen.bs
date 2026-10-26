@@ -920,9 +920,10 @@ end sub
 
 ' ---------- Hero trailer ----------
 ' HeroTrailerPlayer owns the Video node and every decision; this screen only
-' gives it a place to draw and does the cross-fade. The trailer covers exactly
-' the image's fitted rectangle, or a 16:9 box in the backdrop region when the
-' image hasn't loaded (or there is none).
+' gives it a place to draw and does the cross-fade. The trailer gets its own
+' rectangle, its picture's aspect fitted into the hero region flush top-right
+' (DetailLayout.trailerBox), whatever shape the still backdrop is: inside the
+' backdrop's rectangle a 16:9 trailer letterboxed with hard-edged bars (#257).
 
 function heroTrailerAttach(video as object) as void
     if video = invalid then return
@@ -965,26 +966,16 @@ sub fadeBackdropTo(target as float)
 end sub
 
 sub layoutTrailer()
-    w = m.backdropRegionW
-    h = m.backdropRegionH
-    if m.backdropImage.loadStatus = "ready"
-        w = m.backdropImage.width
-        h = m.backdropImage.height
-    else
-        h = Int(w * 9 / 16)
-        if h > m.backdropRegionH
-            h = m.backdropRegionH
-            w = Int(h * 16 / 9)
-        end if
-    end if
-    x = 1920 - w
-    m.trailerFeather.translation = [x, 0]
-    m.trailerFeather.width = w
-    m.trailerFeather.height = h
+    aspect = invalid
+    if m.trailerVideo <> invalid and m.trailerVideo.hasField("heroAspect") then aspect = m.trailerVideo.heroAspect
+    tb = DetailLayout.trailerBox(m.backdropRegionW, m.backdropRegionH, aspect)
+    m.trailerFeather.translation = [tb.x, 0]
+    m.trailerFeather.width = tb.w
+    m.trailerFeather.height = tb.h
     if m.trailerVideo = invalid then return
-    m.trailerVideo.translation = [x, 0]
-    m.trailerVideo.width = w
-    m.trailerVideo.height = h
+    m.trailerVideo.translation = [tb.x, 0]
+    m.trailerVideo.width = tb.w
+    m.trailerVideo.height = tb.h
 end sub
 
 sub setHeader(item as object)
