@@ -112,6 +112,12 @@ sub init()
     ' refresh immediately on return (bypassing the 20s debounce) so Continue
     ' Watching never shows a stale just-dismissed show.
     m.global.addFields({ watchStateDirty: false })
+    ' Counts in-app watched-state writes: Mark Watched / Mark Season Watched,
+    ' and the player's stop report and mark-played once the server has them. A
+    ' detail screen in front with a different number than it loaded re-reads
+    ' its episodes and buttons (WatchState.isStale): popScreen only re-shows
+    ' the screen underneath, which kept the series page's pre-write marks.
+    m.global.addFields({ watchStateVersion: 0 })
     ' Session-scoped subtitle memory (tvOS parity): the chosen track TITLE
     ' ("" = nothing chosen yet, "OFF" = explicitly disabled). Raw stream
     ' indexes are per-file, so the player re-matches by title each episode.

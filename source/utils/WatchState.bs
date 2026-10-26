@@ -1,0 +1,75 @@
+' Watched-state plumbing shared by the detail screens and the API task. Pure
+' functions only, so tests/WatchStateTests.brs can run them off-device.
+namespace WatchState
+
+    ' Mark played / unplayed: Jellyfin 10.9+ answers /UserPlayedItems/{id}
+    ' and marks /Users/{uid}/PlayedItems/{id} obsolete; 10.8 has only the
+    ' latter. Both take an item, an episode or a whole season (one call marks
+    ' every episode in it). Modern first, legacy second.
+    function playedPaths(userId as string, itemId as string) as object
+        return [
+            "/UserPlayedItems/" + itemId + "?userId=" + userId,
+            "/Users/" + userId + "/PlayedItems/" + itemId
+        ]
+    end function
+
+    ' A route the server does not have answers 404 (or 405 when only another
+    ' verb is mapped). Anything else -- success, 401, a 5xx, a timeout -- is the
+    ' answer, and repeating it on the old route would only double the wait.
+    function shouldTryLegacy(status as integer) as boolean
+        return (status = 404 or status = 405)
+    end function
+
+    ' A detail screen remembers the global watchStateVersion it last loaded.
+    ' Any in-app write (Mark Watched, Mark Season Watched, a closed player)
+    ' moves it; a screen that comes back to the front with a different number
+    ' is showing state from before that write.
+    function isStale(seen as dynamic, current as dynamic) as boolean
+        if current = invalid then return false
+        if seen = invalid then return true
+        return (seen <> current)
+    end function
+
+    ' How to apply a fresh episode list to the row already on screen.
+    '   "keep"    -- nothing usable came back (getEpisodes reports a failed
+    '                fetch as an empty success); leave the row alone.
+    '   "patch"   -- same episodes in the same order: update `indices` in place,
+    '                so focus stays on the card the viewer came back to.
+    '   "rebuild" -- the list changed shape; rebuild the row.
+    function episodePlan(shown as dynamic, fresh as dynamic) as object
+        if fresh = invalid or fresh.count() = 0 then return { mode: "keep", indices: [] }
+        if shown = invalid or shown.count() <> fresh.count() then return { mode: "rebuild", indices: [] }
+        indices = []
+        for i = 0 to fresh.count() - 1
+            if idOf(shown[i]) = "" or idOf(shown[i]) <> idOf(fresh[i]) then return { mode: "rebuild", indices: [] }
+            if played(shown[i]) <> played(fresh[i]) or percent(shown[i]) <> percent(fresh[i]) or position(shown[i]) <> position(fresh[i])
+                indices.push(i)
+            end if
+        end for
+        return { mode: "patch", indices: indices }
+    end function
+
+    function idOf(ep as dynamic) as string
+        if ep = invalid or ep.Id = invalid then return ""
+        return ep.Id
+    end function
+
+    function played(ep as dynamic) as boolean
+        if ep = invalid or ep.UserData = invalid or ep.UserData.Played = invalid then return false
+        return (ep.UserData.Played = true)
+    end function
+
+    ' What the card's progress bar reads (DetailRowItem draws it for 0 < pct < 100).
+    function percent(ep as dynamic) as float
+        if ep = invalid or ep.UserData = invalid or ep.UserData.PlayedPercentage = invalid then return 0.0
+        return ep.UserData.PlayedPercentage
+    end function
+
+    ' Compared too: the card's item JSON is what Play/Resume reads when it is
+    ' opened, so a moved resume point is a change even at the same percentage.
+    function position(ep as dynamic) as double
+        if ep = invalid or ep.UserData = invalid or ep.UserData.PlaybackPositionTicks = invalid then return 0
+        return ep.UserData.PlaybackPositionTicks
+    end function
+
+end namespace
