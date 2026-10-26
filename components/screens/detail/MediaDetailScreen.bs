@@ -9,6 +9,8 @@ import "pkg:/source/utils/ShowStatus.bs"
 import "pkg:/source/utils/SeriesMeta.bs"
 import "pkg:/source/utils/RowWindow.bs"
 import "pkg:/source/utils/WatchState.bs"
+import "pkg:/source/utils/DetailActions.bs"
+import "pkg:/source/utils/SeasonPage.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -22,6 +24,7 @@ sub init()
     m.statusPill = invalid
     m.badgesEndX = 0
     m.seriesStatus = invalid
+    m.series = invalid          ' a season's series, once seriesMeta lands
     m.backdropImage = m.top.findNode("backdropImage")
     m.backdropMask = m.top.findNode("backdropMask")
     ' Snap the feather mask to the fitted image once its decoded size is known.
@@ -41,6 +44,7 @@ sub init()
     m.tomatoIcon = m.top.findNode("tomatoIcon")
     m.tomatoScore = m.top.findNode("tomatoScore")
     m.badgesGroup = m.top.findNode("badgesGroup")
+    m.seasonInfoLabel = m.top.findNode("seasonInfoLabel")
     m.tagsGroup = m.top.findNode("tagsGroup")
     m.titleFontBig = CreateObject("roSGNode", "Font")
     m.titleFontBig.uri = "pkg:/fonts/Inter-Bold.ttf"
@@ -82,7 +86,10 @@ sub init()
     m.selectedSeasonIndex = 0
     m.selectedEpisodes = []     ' episodes of the selected season, as loaded
     m.seasonAction = invalid    ' { season, index, played } awaiting confirmation
+    m.chipMenu = invalid        ' DetailActions.seasonChipMenu items on screen
+    m.moreMenu = invalid        ' DetailActions.moreItems on screen
     m.playTarget = invalid      ' resolved episode a Series/Season Play button launches
+    m.playTargetAction = ""     ' a Season page's: "play" or "resume" (SeasonPage.playTarget)
     m.pendingPlay = false       ' Play pressed before the target resolved
     m.zone = "buttons"          ' buttons | rows
     m.rowKinds = []             ' kind per RowList row, e.g. ["season","episode","cast"]
@@ -428,30 +435,37 @@ sub onItemLoaded(response as object)
     ' The status pill shows the SERIES' status: a series has it on the item;
     ' a season or episode gets it when the seriesMeta fetch lands.
     m.seriesStatus = invalid
+    m.series = invalid
     if m.itemType = "Series" then m.seriesStatus = item.Status
 
     setBackdrop(item)
     setHeader(item)
-    if not m.isYouTube
+    if m.itemType = "Season"
+        ' The Season page's info row is year, rating and the status badge
+        ' (renderSeasonInfo), not the scores row.
+        hideRatings()
+        renderSeasonInfo()
+    else if not m.isYouTube
         setRatings(item)
     else
         ' YouTube videos never carry TMDB/critic scores worth showing; hide
         ' the row and anchor the media badges where the ratings would start.
-        m.tmdbLogo.visible = false
-        m.tmdbScore.visible = false
-        m.tomatoIcon.visible = false
-        m.tomatoScore.visible = false
+        hideRatings()
         m.badgesGroup.translation = m.ratingsGroup.translation
     end if
     renderStatusPill()
     buildTags(item)
 
     overview = ""
-    if item.Overview <> invalid then overview = item.Overview
+    ' The Season page is the approved mockup's header only: no overview.
+    if item.Overview <> invalid and m.itemType <> "Season" then overview = item.Overview
     m.overviewLabel.text = overview
 
     reflowHeader()
 
+    ' A new item (an in-place Go to Series) opens on Play, not on whichever
+    ' button buildButtons would keep from the previous one.
+    m.detailButtons.activatedKind = ""
     buildButtons()
 
     m.rowContent = CreateObject("roSGNode", "ContentNode")
@@ -460,6 +474,7 @@ sub onItemLoaded(response as object)
     m.selectedEpisodes = []
     m.currentEpIndex = invalid
     m.playTarget = invalid
+    m.playTargetAction = ""
     m.pendingPlay = false
 
     if m.itemType = "Series"
@@ -468,15 +483,13 @@ sub onItemLoaded(response as object)
         ' itself "Play S1:E1" / "Resume S1:E2" like the other clients.
         enqueue({ action: "getNextUp", seriesId: item.Id, limit: 1, context: "playTargetNextUp" })
     else if m.itemType = "Season"
-        ' The series' status for the pill (seasons have none of their own).
+        ' The Season page (#246), opened from an episode's More, a second
+        ' select on the series' selected season chip, its Options menu, or a
+        ' deep link (cert 5.2 allows mediaType=season a springboard, as long
+        ' as it highlights the season's episodes). The series supplies the
+        ' status badge and rating; the episode list supplies the Play target,
+        ' the watched count and the Mark Season label (updateSeasonState).
         if item.SeriesId <> invalid and item.SeriesId <> "" and not m.isYouTube then enqueue({ action: "getItem", itemId: item.SeriesId, context: "seriesMeta" })
-        enqueue({ action: "getItems", parentId: item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, context: "playTargetUnwatched" })
-        ' Cert 5.2 allows mediaType=season to show a springboard instead of
-        ' playing, but only one "highlighting the season's episodes" — and this
-        ' branch used to resolve the Play target and stop, leaving a title, a
-        ' backdrop and three buttons over nothing. A Season is only ever reached
-        ' by deep link (in-app browsing swaps episodes into the Series screen's
-        ' inline Seasons row), so this is the sole path that builds one.
         if item.SeriesId <> invalid and item.SeriesId <> ""
             enqueue({ action: "getEpisodes", seriesId: item.SeriesId, seasonId: item.Id })
         else
@@ -622,6 +635,10 @@ end sub
 
 sub playResolvedTarget()
     if m.playTarget = invalid then return
+    if m.playTargetAction <> ""
+        m.top.playItem = { item: m.playTarget, action: m.playTargetAction }
+        return
+    end if
     act = "play"
     if m.playTarget.UserData <> invalid and m.playTarget.UserData.PlaybackPositionTicks <> invalid and m.playTarget.UserData.PlaybackPositionTicks > 0 then act = "resume"
     m.top.playItem = { item: m.playTarget, action: act }
@@ -631,7 +648,24 @@ end sub
 ' text stack otherwise overlaps the 200x300 poster (title sat at y250 inside
 ' the poster's y60-360 box, squishing everything together).
 sub layoutHeader()
-    if m.itemType = "Movie"
+    ' Every type but the Season page starts its rows at 734 and shows an
+    ' overview; this screen is reused in place (an episode's Go to Series, the
+    ' Season page's Series), so each layout sets them.
+    m.rowList.translation = [60, 734]
+    m.overviewLabel.visible = true
+    if m.itemType = "Season"
+        ' Season page (#246): the season poster on the left, series name,
+        ' "Season N • X episodes • Y of X watched", the info row and the
+        ' buttons beside it (reflowSeasonHeader), the episodes right under the
+        ' poster -- there is no overview to make room for.
+        m.moviePosterMask.maskSize = [260, 390]
+        m.moviePoster.width = 260
+        m.moviePoster.height = 390
+        m.titleLabel.font = m.titleFontBig
+        m.titleLabel.translation = [360, 84]
+        m.overviewLabel.visible = false
+        m.rowList.translation = [60, 480]
+    else if m.itemType = "Movie"
         m.moviePosterMask.maskSize = [260, 390]
         m.moviePoster.width = 260
         m.moviePoster.height = 390
@@ -691,6 +725,9 @@ sub reflowHeader()
     if m.itemType = "Movie"
         reflowMovieHeader()
         return
+    else if m.itemType = "Season"
+        reflowSeasonHeader()
+        return
     end if
 
     if m.itemType = "Series" and m.logoImage.loadStatus = "ready"
@@ -745,6 +782,31 @@ sub reflowMovieHeader()
     m.overviewLabel.translation = [60, overviewY]
     m.overviewLabel.width = 1200
     applyOverviewLines(overviewY)
+end sub
+
+' The Season page's text column beside the poster: title, meta line, the
+' info row with the status badge after its text, then the buttons.
+sub reflowSeasonHeader()
+    titleH = Int(m.titleLabel.boundingRect().height)
+    y = 84 + titleH + 8
+    m.metaLabel.translation = [360, y]
+    positionEndsAt()
+    y += 40
+    m.seasonInfoLabel.translation = [360, y]
+    x = 360
+    if m.seasonInfoLabel.visible then x += Int(m.seasonInfoLabel.boundingRect().width) + 14
+    m.badgesGroup.translation = [x, y]
+    if m.seasonInfoLabel.visible or m.badgesGroup.getChildCount() > 0 then y += 40
+    m.detailButtons.translation = [360, y + 16]
+end sub
+
+' "2026 • TV-MA" on the Season page; the series' rating arrives with
+' seriesMeta, so this runs again then.
+sub renderSeasonInfo()
+    info = ""
+    if m.itemType = "Season" then info = SeasonPage.infoLine(m.item, m.series)
+    m.seasonInfoLabel.text = info
+    m.seasonInfoLabel.visible = (info <> "")
 end sub
 
 ' Real rendered bottom of the series logo. scaleToFit fits the decoded bitmap
@@ -911,12 +973,16 @@ sub setHeader(item as object)
     m.moviePosterMask.visible = false
     m.channelMask.visible = false
     m.channelLabel.visible = false
+    m.seasonInfoLabel.visible = false
     m.titleLabel.visible = true
     layoutHeader()
 
     title = ""
     if item.Name <> invalid then title = item.Name
     if m.itemType = "Series" then title = YT.cleanTitle(title)
+    ' The Season page is titled with its series; the season's own name leads
+    ' the meta line.
+    if m.itemType = "Season" and item.SeriesName <> invalid and item.SeriesName <> "" then title = YT.cleanTitle(item.SeriesName)
     ' S:E prefix only for regular (non-YouTube) episodes
     if m.itemType = "Episode" and not m.isYouTube and item.ParentIndexNumber <> invalid and item.IndexNumber <> invalid
         title = "S" + str(item.ParentIndexNumber).Trim() + ":E" + str(item.IndexNumber).Trim() + " " + Chr(8226) + " " + title
@@ -940,6 +1006,10 @@ sub setHeader(item as object)
         end if
     else if m.itemType = "Series"
         line = SeriesMeta.line(item.ProductionYear, item.ChildCount)
+        if line <> "" then meta.push(line)
+    else if m.itemType = "Season"
+        ' Episode and watched counts join once the list loads (updateSeasonState).
+        line = SeasonPage.metaLine(item, m.selectedEpisodes)
         if line <> "" then meta.push(line)
     else
         ' Movies: release year + runtime + Ends at (cert/genres live in the tags row)
@@ -979,6 +1049,16 @@ sub setHeader(item as object)
     if m.itemType = "Movie"
         m.moviePosterMask.visible = true
         m.moviePoster.uri = ImageUrl.primary(item.Id, 400, ImageUrl.primaryTag(item))
+    else if m.itemType = "Season"
+        ' The season's poster, else its series'.
+        m.moviePosterMask.visible = true
+        if item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+            m.moviePoster.uri = ImageUrl.primary(item.Id, 400, ImageUrl.primaryTag(item))
+        else if item.SeriesId <> invalid and item.SeriesId <> ""
+            m.moviePoster.uri = ImageUrl.primary(item.SeriesId, 400, ImageUrl.seriesPrimaryTag(item))
+        else
+            m.moviePoster.uri = ""
+        end if
     else if m.isYouTube
         m.channelMask.visible = true
         channelId = item.Id
@@ -1037,6 +1117,13 @@ sub applyLogoState()
     end if
 end sub
 
+sub hideRatings()
+    m.tmdbLogo.visible = false
+    m.tmdbScore.visible = false
+    m.tomatoIcon.visible = false
+    m.tomatoScore.visible = false
+end sub
+
 sub setRatings(item as object)
     community = item.CommunityRating
     critic = item.CriticRating
@@ -1083,7 +1170,9 @@ sub onSeriesMetaLoaded(response as object)
     series = response.item
     if series = invalid then return
     if m.itemType = "Episode" and m.item.CommunityRating = invalid and m.item.CriticRating = invalid then setRatings(series)
+    m.series = series
     m.seriesStatus = series.Status
+    renderSeasonInfo()
     renderStatusPill()
     ' The donated rating or the pill may have made the ratings row appear —
     ' restack.
@@ -1117,8 +1206,8 @@ end sub
 ' series' on a season or episode (m.seriesStatus). buildBadges clears the
 ' group when an episode's chips arrive, so it calls this again; the pill is
 ' tracked so a repeat call replaces it rather than drawing a second one.
-' Same 24px line as the chips: a capsule tinted with the status colour and
-' the word in that colour.
+' Same 24px line as the chips and the same rounded rectangle (#246), tinted
+' with the status colour and the word in that colour.
 sub renderStatusPill()
     if m.statusPill <> invalid
         m.badgesGroup.removeChild(m.statusPill)
@@ -1132,9 +1221,7 @@ sub renderStatusPill()
     pill.translation = [m.badgesEndX, 0]
     m.statusPill = pill
     bg = pill.createChild("Poster")
-    ' pill24.9.png is a capsule cut for exactly this height (12px end caps);
-    ' the 64px button pill squashed into elliptical ends at 24px.
-    bg.uri = "pkg:/images/pill24.9.png"
+    bg.uri = b.bg
     bg.height = 24
     bg.blendColor = b.color
     bg.opacity = ShowStatus.TINT_OPACITY
@@ -1310,66 +1397,73 @@ end function
 ' ---------- Action buttons ----------
 
 sub buildButtons()
+    defs = DetailActions.mainRow(actionContext())
+    m.detailButtons.buttonDefs = defs
+    ' A rebuild resets the highlight to Play. Keep it on the button the viewer
+    ' last used (Watched <-> Mark Watched is one button), so toggling
+    ' Mark Season Watched doesn't throw focus back to the start of the row.
+    keep = m.detailButtons.activatedKind
+    if keep = invalid or keep = "" then return
+    for i = 0 to defs.count() - 1
+        k = defs[i].kind
+        if k = keep or (Left(k, 4) = "mark" and Left(keep, 4) = "mark")
+            m.detailButtons.setIndex = -1
+            m.detailButtons.setIndex = i
+            exit for
+        end if
+    end for
+end sub
+
+' What DetailActions needs to know about this screen's item.
+function actionContext() as object
     item = m.item
     isContainer = (m.itemType = "Series" or m.itemType = "Season")
 
     ' The primary button reflects what will actually play: for a container that's
-    ' the resolved episode (m.playTarget) — its progress and S:E number — so the
+    ' the resolved episode (m.playTarget) -- its progress and S:E number -- so the
     ' label reads "Play S1:E1" / "Resume S1:E2". Until the target resolves it's a
     ' plain "Play". Movie/Episode reflect the item itself.
     primary = item
     if isContainer and m.playTarget <> invalid then primary = m.playTarget
-
     hasProgress = false
     if primary.UserData <> invalid and primary.UserData.PlaybackPositionTicks <> invalid
         if primary.UserData.PlaybackPositionTicks > 0 then hasProgress = true
     end if
-
+    ' A fully watched season starts over at E1 (SeasonPage.playTarget), so its
+    ' leftover position does not make the button Resume.
+    if m.itemType = "Season" and m.playTarget <> invalid and m.playTargetAction = "play" then hasProgress = false
     epSuffix = ""
-    if isContainer and m.playTarget <> invalid and m.playTarget.ParentIndexNumber <> invalid and m.playTarget.IndexNumber <> invalid
-        epSuffix = " S" + str(m.playTarget.ParentIndexNumber).Trim() + ":E" + str(m.playTarget.IndexNumber).Trim()
-    end if
+    if isContainer then epSuffix = DetailActions.episodeSuffix(m.playTarget)
 
-    ' Whole-item watched state (the Mark Watched toggle) always reads the detail
-    ' item itself, never the resolved episode.
-    isPlayed = false
-    if item.UserData <> invalid and item.UserData.Played <> invalid then isPlayed = item.UserData.Played
-
-    defs = []
-    if m.pinned <> invalid
-        ' Another server's title cannot play from here (see pinServer).
-        defs.push({ kind: "switchServer", label: "Switch to " + Filmography.serverLabel(m.pinned), primary: true })
-    else if hasProgress
-        defs.push({ kind: "resume", label: "Resume" + epSuffix, primary: true })
-        ' "Start Over" only makes sense for a concrete playable item.
-        if not isContainer then defs.push({ kind: "play", label: "Start Over", primary: false })
-    else
-        defs.push({ kind: "play", label: "Play" + epSuffix, primary: true })
-    end if
-    if isPlayed
-        defs.push({ kind: "markUnplayed", label: "Watched", primary: false })
-    else
-        defs.push({ kind: "markPlayed", label: "Mark Watched", primary: false })
-    end if
-    if m.itemType = "Episode" and item.SeriesId <> invalid
-        defs.push({ kind: "series", label: "Series", primary: false })
-    end if
-    if m.itemType = "Series" and m.pinned = invalid
-        defs.push({ kind: "shuffle", label: "Shuffle", primary: false })
-    end if
-    if item.LocalTrailerCount <> invalid and item.LocalTrailerCount > 0 and m.pinned = invalid
-        defs.push({ kind: "trailer", label: "Trailer", primary: false })
-    end if
-    if channelTarget() <> invalid
-        defs.push({ kind: "addToChannel", label: "Add to Channel", primary: false })
-    end if
-    defs.push({ kind: "more", label: "More", primary: false })
-    m.detailButtons.buttonDefs = defs
-end sub
-
+    pinnedLabel = ""
+    if m.pinned <> invalid then pinnedLabel = Filmography.serverLabel(m.pinned)
+    seasonId = ""
+    if m.itemType = "Episode" and item.SeasonId <> invalid then seasonId = item.SeasonId
+    hasSeries = (item.SeriesId <> invalid and item.SeriesId <> "")
+    return {
+        itemType: m.itemType,
+        pinnedLabel: pinnedLabel,
+        hasProgress: hasProgress,
+        epSuffix: epSuffix,
+        ' Whole-item watched state (the Mark Watched toggle) always reads the
+        ' detail item itself, never the resolved episode.
+        isPlayed: (item.UserData <> invalid and item.UserData.Played = true),
+        seasonPlayed: (m.itemType = "Season" and SeasonPage.fullyPlayed(item, m.selectedEpisodes)),
+        hasTrailer: (item.LocalTrailerCount <> invalid and item.LocalTrailerCount > 0),
+        hasSeries: hasSeries,
+        seasonId: seasonId,
+        seasonNumber: item.ParentIndexNumber,
+        canAddToChannel: (channelTarget() <> invalid),
+        isFavorite: (item.UserData <> invalid and item.UserData.IsFavorite = true)
+    }
+end function
 
 sub onButtonActivated(event as object)
-    kind = event.getData()
+    runAction(event.getData())
+end sub
+
+' One dispatcher for the action row and the More menu, which share kinds.
+sub runAction(kind as string)
     item = m.item
     if item = invalid then return
     if kind = "switchServer"
@@ -1390,8 +1484,14 @@ sub onButtonActivated(event as object)
         end if
     else if kind = "markPlayed" or kind = "markUnplayed"
         enqueue({ action: kind, itemId: item.Id })
+    else if kind = "seasonWatch"
+        ' The Season page's own season.
+        confirmSeasonWatch(item, -1, SeasonPage.fullyPlayed(item, m.selectedEpisodes))
     else if kind = "series"
-        enqueue({ action: "getItem", itemId: item.SeriesId })
+        ' Reloads this screen as the series (Back still leaves the show).
+        if item.SeriesId <> invalid then enqueue({ action: "getItem", itemId: item.SeriesId })
+    else if kind = "season"
+        openSeasonOfEpisode()
     else if kind = "shuffle"
         ' Play a random episode of this series
         enqueue({ action: "getItems", parentId: item.Id, includeItemTypes: "Episode", sortBy: "Random", limit: 1 })
@@ -1401,18 +1501,41 @@ sub onButtonActivated(event as object)
     else if kind = "addToChannel"
         target = channelTarget()
         if target <> invalid then m.top.manageChannels = { mode: "add", target: target }
+    else if kind = "favorite"
+        act = "markFavorite"
+        if item.UserData <> invalid and item.UserData.IsFavorite = true then act = "removeFavorite"
+        enqueue({ action: act, itemId: item.Id })
+        enqueue({ action: "getItem", itemId: item.Id })
     else if kind = "more"
         showMoreDialog()
     end if
 end sub
 
-' More menu: Favorite toggle (Trailer is not portable — Roku channels are
-' sandboxed and cannot launch the YouTube app for remote trailers)
+' Go to Season N: the Season page stacks on top of this episode, so Back
+' comes straight back here.
+sub openSeasonOfEpisode()
+    item = m.item
+    if item.SeasonId = invalid or item.SeasonId = "" then return
+    name = ""
+    if item.SeasonName <> invalid then name = item.SeasonName
+    if name = "" then name = SeasonPage.seasonName({ IndexNumber: item.ParentIndexNumber })
+    openSeason({ Id: item.SeasonId, Type: "Season", Name: name, IndexNumber: item.ParentIndexNumber, SeriesId: item.SeriesId, SeriesName: item.SeriesName })
+end sub
+
+sub openSeason(season as object)
+    data = {}
+    data.append(season)
+    data.Type = "Season"
+    if m.isYouTube then data._forceYouTube = true
+    m.top.selectedItem = withPin(data)
+end sub
+
+' More: the overview in full (the header caps it at 2-4 lines) over
+' DetailActions.moreItems -- navigation first, then the rest. (Trailer is not
+' portable -- Roku channels are sandboxed and cannot launch the YouTube app
+' for remote trailers.)
 sub showMoreDialog()
-    favLabel = "Add to Favorites"
-    if m.item.UserData <> invalid and m.item.UserData.IsFavorite = true then favLabel = "Remove from Favorites"
-    ' Surface the full overview here — the header label is capped at 2-3 lines,
-    ' so this is how the rest of a long description is read.
+    m.moreMenu = DetailActions.moreItems(actionContext())
     overview = ""
     if m.item.Overview <> invalid then overview = m.item.Overview
     dialog = createObject("roSGNode", "StandardMessageDialog")
@@ -1420,7 +1543,9 @@ sub showMoreDialog()
     ' Leave message unset when there is no overview -- [""] renders as a blank
     ' line above the buttons, which looks like a label that failed to load.
     if overview <> "" then dialog.message = [overview]
-    dialog.buttons = [favLabel, "Cancel"]
+    buttons = DetailActions.labels(m.moreMenu)
+    buttons.push("Cancel")
+    dialog.buttons = buttons
     dialog.observeFieldScoped("buttonSelected", "onMoreDialogButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -1430,13 +1555,10 @@ sub onMoreDialogButton()
     if dialog = invalid then return
     idx = dialog.buttonSelected
     dialog.close = true
-    if idx = 0
-        act = "markFavorite"
-        if m.item.UserData <> invalid and m.item.UserData.IsFavorite = true then act = "removeFavorite"
-        enqueue({ action: act, itemId: m.item.Id })
-        enqueue({ action: "getItem", itemId: m.item.Id })
-    end if
+    items = m.moreMenu
+    m.moreMenu = invalid
     focusZone("buttons")
+    if items <> invalid and idx <> invalid and idx >= 0 and idx < items.count() then runAction(items[idx].kind)
 end sub
 
 sub onButtonsGoDown()
@@ -1535,6 +1657,28 @@ sub onEpisodesLoaded(response as object)
 
     buildCastRow(m.item)
     commitRows()
+    updateSeasonState()
+end sub
+
+' The Season page reads its Play target, watched count and Mark Season label
+' off the episode list, so every list it receives -- the first load, a
+' patched refresh after Mark Season Watched or a closed player -- lands here.
+sub updateSeasonState()
+    if m.itemType <> "Season" then return
+    m.metaLabel.text = SeasonPage.metaLine(m.item, m.selectedEpisodes)
+    target = SeasonPage.playTarget(m.selectedEpisodes)
+    if target = invalid
+        m.playTarget = invalid
+        m.playTargetAction = ""
+        buildButtons()
+        if m.pendingPlay
+            m.pendingPlay = false
+            m.global.toastMessage = { message: "No episodes to play" }
+        end if
+        return
+    end if
+    m.playTargetAction = target.action
+    setPlayTarget(target.episode)
 end sub
 
 ' Cast & Crew, ordered like tvOS PersonInfo.sortedForDisplay: actors ahead of
@@ -1721,6 +1865,9 @@ sub onRowItemSelected()
             m.selectedSeasonIndex = itemIndex
             season = m.seasons[itemIndex]
             enqueue({ action: "getEpisodes", seriesId: m.item.Id, seasonId: season.Id })
+        else if itemIndex < m.seasons.count()
+            ' Select on the chip that is already selected opens its Season page.
+            openSeasonChip(itemIndex)
         end if
     else if kind = "episode"
         row = m.rowContent.getChild(rowIndex)
@@ -1788,13 +1935,12 @@ function onKeyEvent(key as string, press as boolean) as boolean
     return false
 end function
 
-' ---------- Season watched toggle (options menu) ----------
-' Options (*) on a Series' season chip — or anywhere in its episode row, which
-' belongs to the selected season — offers Mark Season Watched / Unwatched.
-' POST/DELETE /Users/{uid}/PlayedItems/{seasonId} marks every episode in one
-' server call. The dialog doubles as the confirmation the batch write needs.
-' A Season-type detail (deep link only) already has this as its Mark Watched
-' button, since the item there IS the season.
+' ---------- Season menu and the season-wide watched toggle ----------
+' Options (*) on a Series' season chip -- or anywhere in its episode row, which
+' belongs to the selected season -- offers Open Season and Mark Season Watched
+' / Unwatched (DetailActions.seasonChipMenu). The Season page's own button
+' goes straight to the confirmation. POST/DELETE /UserPlayedItems/{seasonId}
+' marks every episode in one server call; the batch write is confirmed first.
 
 function showSeasonOptions() as boolean
     if m.itemType <> "Series" or m.seasons.count() = 0 then return false
@@ -1814,41 +1960,64 @@ function showSeasonOptions() as boolean
     season = m.seasons[idx]
     episodes = invalid
     if idx = m.selectedSeasonIndex then episodes = m.selectedEpisodes
-    played = isSeasonFullyPlayed(season, episodes)
+    played = SeasonPage.fullyPlayed(season, episodes)
     m.seasonAction = { season: season, index: idx, played: played }
+    m.chipMenu = DetailActions.seasonChipMenu(played)
 
-    name = "this season"
-    if season.Name <> invalid and season.Name <> "" then name = season.Name
-    label = "Mark Season Watched"
-    msg = "Mark every episode in " + name + " as watched?"
-    if played
-        label = "Mark Season Unwatched"
-        msg = "Mark every episode in " + name + " as unwatched?"
-    end if
-
+    buttons = DetailActions.labels(m.chipMenu)
+    buttons.push("Cancel")
     dialog = createObject("roSGNode", "StandardMessageDialog")
-    dialog.title = name
-    dialog.message = [msg]
-    dialog.buttons = Confirm.buttons(label)
-    dialog.observeFieldScoped("buttonSelected", "onSeasonOptionsButton")
+    dialog.title = SeasonPage.seasonName(season)
+    dialog.buttons = buttons
+    dialog.observeFieldScoped("buttonSelected", "onSeasonMenuButton")
     m.top.getScene().dialog = dialog
     return true
 end function
 
-' "Every episode already played" decides Unwatched vs Watched. The loaded
-' episode list is authoritative for the selected season; any other season
-' falls back to the season's own UserData (Jellyfin rolls Played up from its
-' episodes). An empty season offers Mark Watched — the write is idempotent.
-function isSeasonFullyPlayed(season as object, episodes as dynamic) as boolean
-    if episodes <> invalid and episodes.count() > 0
-        for each ep in episodes
-            if ep.UserData = invalid or ep.UserData.Played <> true then return false
-        end for
-        return true
+sub onSeasonMenuButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    dialog.close = true
+    items = m.chipMenu
+    m.chipMenu = invalid
+    pending = m.seasonAction
+    m.seasonAction = invalid
+    kind = ""
+    if items <> invalid and idx <> invalid and idx >= 0 and idx < items.count() then kind = items[idx].kind
+    if pending <> invalid and kind = "openSeason"
+        openSeasonChip(pending.index)
+    else if pending <> invalid and kind = "seasonWatch"
+        confirmSeasonWatch(pending.season, pending.index, pending.played)
+    else
+        focusZone("rows")
     end if
-    if season = invalid or season.UserData = invalid then return false
-    return (season.UserData.Played = true)
-end function
+end sub
+
+sub openSeasonChip(index as integer)
+    season = m.seasons[index]
+    data = {}
+    data.append(season)
+    if data.SeriesId = invalid then data.SeriesId = m.item.Id
+    if data.SeriesName = invalid then data.SeriesName = m.item.Name
+    if data.Name = invalid then data.Name = SeasonPage.seasonName(season)
+    openSeason(data)
+end sub
+
+' index: the season's chip on a Series screen, -1 on the Season page itself.
+sub confirmSeasonWatch(season as object, index as integer, played as boolean)
+    m.seasonAction = { season: season, index: index, played: played }
+    name = SeasonPage.seasonName(season)
+    if name = "" then name = "this season"
+    msg = "Mark every episode in " + name + " as watched?"
+    if played then msg = "Mark every episode in " + name + " as unwatched?"
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = name
+    dialog.message = [msg]
+    dialog.buttons = Confirm.buttons(DetailActions.seasonWatchLabel(played))
+    dialog.observeFieldScoped("buttonSelected", "onSeasonOptionsButton")
+    m.top.getScene().dialog = dialog
+end sub
 
 sub onSeasonOptionsButton()
     dialog = m.top.getScene().dialog
@@ -1862,10 +2031,10 @@ sub onSeasonOptionsButton()
         if pending.played then act = "markUnplayed"
         ' Show the season acted on, so the refreshed episode badges are the
         ' visible confirmation.
-        m.selectedSeasonIndex = pending.index
+        if pending.index >= 0 then m.selectedSeasonIndex = pending.index
         enqueue({ action: act, itemId: pending.season.Id, context: "season" })
     end if
-    focusZone("rows")
+    if m.itemType = "Season" then focusZone("buttons") else focusZone("rows")
 end sub
 
 sub onSeasonWatchResponse(response as object)
@@ -1884,6 +2053,12 @@ sub onSeasonWatchResponse(response as object)
         m.global.watchStateDirty = true
         noteWatchWrite()
         if m.item = invalid then return
+        if m.itemType = "Season"
+            ' The episode checkmarks patch in place (#238's refresh), and
+            ' updateSeasonState flips the label and moves the Play target.
+            refreshWatchState()
+            return
+        end if
         ' Series header (its own Watched button), season UserData + episode
         ' badges, then the Play target — Next Up moves with the season.
         enqueue({ action: "getItem", itemId: m.item.Id, context: "season" })
@@ -1937,8 +2112,8 @@ sub refreshWatchState()
         end if
         enqueue({ action: "getNextUp", seriesId: item.Id, limit: 1, context: "playTargetNextUp" })
     else if m.itemType = "Season"
+        ' The Play target follows the episode list (updateSeasonState).
         if item.SeriesId <> invalid and item.SeriesId <> "" then enqueue({ action: "getEpisodes", seriesId: item.SeriesId, seasonId: item.Id, context: "watch" })
-        enqueue({ action: "getItems", parentId: item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, context: "playTargetUnwatched" })
     else if m.itemType = "Episode"
         if item.SeriesId <> invalid and item.SeasonId <> invalid then enqueue({ action: "getEpisodes", seriesId: item.SeriesId, seasonId: item.SeasonId, context: "watch" })
     end if
@@ -1992,4 +2167,5 @@ sub applyEpisodeRefresh(response as object)
         child.playedPercentage = WatchState.percent(ep)
     end for
     m.selectedEpisodes = response.items
+    updateSeasonState()
 end sub

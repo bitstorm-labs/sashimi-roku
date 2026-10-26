@@ -30,9 +30,14 @@ the theme song readies its stream)
 and `source/utils/ContinueWatching.bs` (the row's merge and order, the
 plugin row, and Remove from Continue Watching: what a removal clears or
 hides, the local hide list and when an entry goes stale, Home's options menu)
-and `source/utils/ShowStatus.bs` (the show-status pill on series, season
+and `source/utils/ShowStatus.bs` (the show-status badge on series, season
 and episode screens: the series' `Status` to Continuing / Ended / Upcoming,
-nothing otherwise) and `source/utils/SeriesMeta.bs` (the series meta line,
+nothing otherwise, drawn as the media chips' rounded rectangle) and
+`source/utils/DetailActions.bs` (the detail action row, the More menu with
+Go to Series / Go to Season N / admin-only Add to Channel, the season chip's
+`*` menu) and `source/utils/SeasonPage.bs` (the Season page: next unwatched
+episode to play or resume, E1 once all are watched, Mark Season Watched vs
+Unwatched, the "Season N • X episodes • Y of X watched" line) and `source/utils/SeriesMeta.bs` (the series meta line,
 "1 Season" vs "7 Seasons") and `source/utils/ImageUrl.bs` (image urls
 carry Jellyfin's `&tag=`, read off the right ImageTags / Parent*ImageTag
 field, so a replaced image gets a new url instead of a cached stale copy)

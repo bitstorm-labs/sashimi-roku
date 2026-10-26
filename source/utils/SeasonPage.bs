@@ -1,0 +1,121 @@
+' The Season page (#246): which episode its Play button launches, whether
+' the season reads as fully watched, and its header lines. Pure functions
+' only, so tests/SeasonPageTests.brs can run them off-device;
+' MediaDetailScreen draws the page. `episodes` is the season's list in
+' IndexNumber order, as getEpisodes returns it.
+namespace SeasonPage
+
+    ' { episode, action }: the first episode not yet watched (resumed if it
+    ' has progress); once every one is watched, the first, from the start.
+    ' invalid for an empty season.
+    function playTarget(episodes as dynamic) as dynamic
+        if episodes = invalid or episodes.count() = 0 then return invalid
+        for each ep in episodes
+            if not isPlayed(ep)
+                act = "play"
+                if positionTicks(ep) > 0 then act = "resume"
+                return { episode: ep, action: act }
+            end if
+        end for
+        return { episode: episodes[0], action: "play" }
+    end function
+
+    ' "Every episode already played" decides Unwatched vs Watched. The loaded
+    ' episode list is authoritative; without one, the season's own UserData
+    ' (Jellyfin rolls Played up from its episodes). An empty season offers
+    ' Mark Watched -- the write is idempotent.
+    function fullyPlayed(season as dynamic, episodes as dynamic) as boolean
+        if episodes <> invalid and episodes.count() > 0
+            for each ep in episodes
+                if not isPlayed(ep) then return false
+            end for
+            return true
+        end if
+        if season = invalid or season.UserData = invalid then return false
+        return (season.UserData.Played = true)
+    end function
+
+    function watchedCount(episodes as dynamic) as integer
+        n = 0
+        if episodes = invalid then return 0
+        for each ep in episodes
+            if isPlayed(ep) then n = n + 1
+        end for
+        return n
+    end function
+
+    ' "Season 2 · 8 episodes · 5 of 8 watched". Before the list loads, just
+    ' the season's name.
+    function metaLine(season as dynamic, episodes as dynamic) as string
+        name = seasonName(season)
+        if episodes = invalid or episodes.count() = 0 then return name
+        total = episodes.count()
+        countText = total.ToStr() + " episodes"
+        if total = 1 then countText = "1 episode"
+        parts = []
+        if name <> "" then parts.push(name)
+        parts.push(countText)
+        parts.push(watchedCount(episodes).ToStr() + " of " + total.ToStr() + " watched")
+        return join(parts)
+    end function
+
+    ' "2026 · TV-MA": the season's year (else the series'), the series' rating.
+    function infoLine(season as dynamic, series as dynamic) as string
+        parts = []
+        year = yearOf(season)
+        if year = "" then year = yearOf(series)
+        if year <> "" then parts.push(year)
+        rating = ""
+        if series <> invalid then rating = text(series.OfficialRating)
+        if rating = "" and season <> invalid then rating = text(season.OfficialRating)
+        if rating <> "" then parts.push(rating)
+        return join(parts)
+    end function
+
+    function seasonName(season as dynamic) as string
+        if season = invalid then return ""
+        name = text(season.Name)
+        if name <> "" then return name
+        n = season.IndexNumber
+        if type(n) = "Integer" or type(n) = "roInt" or type(n) = "roInteger"
+            if n = 0 then return "Specials"
+            return "Season " + n.ToStr()
+        end if
+        return "Season"
+    end function
+
+    function isPlayed(ep as dynamic) as boolean
+        return (ep <> invalid and ep.UserData <> invalid and ep.UserData.Played = true)
+    end function
+
+    function positionTicks(ep as dynamic) as dynamic
+        if ep = invalid or ep.UserData = invalid then return 0
+        t = ep.UserData.PlaybackPositionTicks
+        if t = invalid then return 0
+        return t
+    end function
+
+    function yearOf(item as dynamic) as string
+        if item = invalid then return ""
+        y = item.ProductionYear
+        if type(y) = "Integer" or type(y) = "roInt" or type(y) = "roInteger" then return y.ToStr()
+        d = text(item.PremiereDate)
+        if Len(d) >= 4 then return Left(d, 4)
+        return ""
+    end function
+
+    function text(v as dynamic) as string
+        if type(v) = "String" or type(v) = "roString" then return v.Trim()
+        return ""
+    end function
+
+    function join(parts as object) as string
+        out = ""
+        for i = 0 to parts.count() - 1
+            if i > 0 then out = out + " " + Chr(8226) + " "
+            out = out + parts[i]
+        end for
+        return out
+    end function
+
+end namespace
