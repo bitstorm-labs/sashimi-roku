@@ -72,7 +72,7 @@ Movies use the same layout without seasons.*
   ascending/descending, and filters (All, Unwatched, Watched, Favorites). Press
   `*` for the menu. RIGHT from the grid opens an A-Z jump bar.
 - **Shuffle.** UP from the top row of a Movies or TV library plays a random
-  item. Series screens have their own Shuffle for a random episode.
+  item. Series screens have their own Shuffle (in **More**) for a random episode.
 - **Search** across movies and series, with your last 10 queries.
 - **People.** Open a cast member to see what else they are in, across all your
   saved servers.
@@ -88,16 +88,17 @@ as a **Stations** row on Home and in the sidebar. Select a card to tune in to
 what is airing now. The **Guide** is a scrolling timeline of channels and
 programmes, and you can set a reminder for an upcoming airing.
 
-Jellyfin administrators also get **Add to Channel** on movie and series screens
-and **Manage Channels** on the Guide (rename, logos, remove titles, delete). It
+Jellyfin administrators also get **Add to Channel** in the **More** menu of movie,
+series and episode screens, and **Manage Channels** on the Guide (rename, logos, remove titles, delete). It
 needs Channels plugin 0.11 or newer. Dayparts and rules stay in the Jellyfin
 dashboard.
 
 ### Detail screens
 
-- **Play**, **Resume** (with **Start Over**), **Mark Watched**, **Shuffle**,
-  **Series** (jump from an episode to its show), and a **More** menu with the
-  full overview and the Favorite toggle.
+- **Play**, **Resume** (with **Start Over**), **Trailer**, **Mark Watched** and
+  **More**. More shows the full overview, then **Go to Series** and **Go to
+  Season N** on an episode, **Shuffle** on a series, **Add to Channel** for
+  administrators, and the Favorite toggle.
 - **Trailer button.** Appears when the item has a local trailer on the server,
   for example one downloaded by [Trailarr](https://github.com/nandyalu/trailarr).
   Remote and YouTube trailers are not supported.
@@ -110,9 +111,12 @@ dashboard.
 - **Theme songs.** A show's `theme.mp3` plays on its screens. Turn it off with
   **Play Theme Songs**.
 - **Seasons and episodes.** Season pills, an episode row, a "More Episodes"
-  strip, and a Cast row. Press `*` on a season for **Mark Season Watched /
-  Unwatched**.
-- **Show status** pill (Continuing, Ended, Upcoming), community and critic
+  strip, and a Cast row. Press OK again on the selected season, or `*` on a
+  season for **Open Season** and **Mark Season Watched / Unwatched**.
+- **Season page.** The season's poster, its episode and watched counts, **Play**
+  on the next unwatched episode (resumed if started, Episode 1 once all are
+  watched), **Mark Season Watched / Unwatched**, **Series**, and its episodes.
+- **Show status** badge (Continuing, Ended, Upcoming), community and critic
   ratings, and resolution, codec and Dolby audio badges.
 
 ### Playback
