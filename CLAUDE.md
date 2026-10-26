@@ -39,7 +39,7 @@ field, so a replaced image gets a new url instead of a cached stale copy)
 and `source/utils/RowWindow.bs` (the leftmost visible card of a floatingFocus
 episode row, where focus lands on entering it) and `source/utils/SkipPill.bs`
 (the player's skip pill: label, m:ss left, the fill's share of the segment)
-and `source/utils/AdminDash.bs` (the admin Server dashboard: the play-mode
+and `source/utils/AdminDash.bs` (the admin Dashboard: the play-mode
 badge truth table shared with Apple/Android, plain-words transcode reasons,
 the admin gate, IP redaction, the 85% storage warning, bitrate sums, health
 and activity rows, the cards' stable order, and the OpsDec-style stream
@@ -49,7 +49,10 @@ messages to Stop / DisplayMessage / keep-alive / ignore, keep-alive timing,
 reconnect backoff, the Roku OS 16 gate) and `source/utils/WatchState.bs`
 (watched state: the `/UserPlayedItems` route with its legacy fallback, when a
 detail screen coming back to the front is stale, and whether a re-read episode
-list patches the row in place, rebuilds it, or is ignored).
+list patches the row in place, rebuilds it, or is ignored) and
+`source/utils/RailItems.bs` (Settings > Home & Side Menu: which destinations
+the side menu lists and in what order, Home, Search and Settings always,
+new libraries shown, stale ids ignored, the editor's two columns).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that

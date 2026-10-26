@@ -1,6 +1,7 @@
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/RailItems.bs"
 
 ' Virtual-focus widget (the sidebar node holds focus; rows never do). Up/down
 ' roams the highlight, switching content on the move (Plex behavior); OK/right
@@ -71,6 +72,7 @@ sub init()
     refreshLibraries()
 
     m.top.observeField("focusedChild", "onFocusChanged")
+    m.global.observeFieldScoped("homeRowsVersion", "onHomeRowsChanged")
 
     buildItems()
     syncSelection()
@@ -176,10 +178,12 @@ sub syncSelection()
 end sub
 
 sub buildItems()
-    m.items = [{ id: "home", kind: "home", title: "Home", iconLocal: "pkg:/images/nav_home.png", iconSelected: "pkg:/images/nav_home_selected.png" }]
+    pool = {}
+    pool["home"] = { id: "home", kind: "home", title: "Home", iconLocal: "pkg:/images/nav_home.png", iconSelected: "pkg:/images/nav_home_selected.png" }
     ' Stations sits directly under Home, as it does on the other clients, with the
     ' same broadcast glyph they use — the TV library's icon read as a duplicate.
-    m.items.push({ id: "fintv", kind: "fintv", title: "SashimiTV", iconLocal: "pkg:/images/nav_fintv.png", iconSelected: "pkg:/images/nav_fintv_selected.png" })
+    pool["fintv"] = { id: "fintv", kind: "fintv", title: "SashimiTV", iconLocal: "pkg:/images/nav_fintv.png", iconSelected: "pkg:/images/nav_fintv_selected.png" }
+    libraryIds = []
     for each lib in m.libraries
         ct = ""
         if lib.CollectionType <> invalid then ct = LCase(lib.CollectionType)
@@ -202,10 +206,26 @@ sub buildItems()
             item.iconSelected = "pkg:/images/lib_generic_selected.png"
             if lib.Id <> invalid then item.iconUri = ImageUrl.primary(lib.Id, 120, ImageUrl.primaryTag(lib))
         end if
-        m.items.push(item)
+        pool[item.id] = item
+        libraryIds.push(lib.Id)
     end for
-    m.items.push({ id: "search", kind: "search", title: "Search", iconLocal: "pkg:/images/nav_search.png", iconSelected: "pkg:/images/nav_search_selected.png" })
-    m.items.push({ id: "settings", kind: "settings", title: "Settings", iconLocal: "pkg:/images/nav_settings.png", iconSelected: "pkg:/images/nav_settings_selected.png" })
+    pool["search"] = { id: "search", kind: "search", title: "Search", iconLocal: "pkg:/images/nav_search.png", iconSelected: "pkg:/images/nav_search_selected.png" }
+    pool["settings"] = { id: "settings", kind: "settings", title: "Settings", iconLocal: "pkg:/images/nav_settings.png", iconSelected: "pkg:/images/nav_settings_selected.png" }
+    ' Which of them show, and in what order: Settings > Home & Side Menu.
+    m.items = []
+    for each id in RailItems.ids(libraryIds, Registry.readJson("settings", "homeRowOrder"))
+        if pool.DoesExist(id) then m.items.push(pool[id])
+    end for
+end sub
+
+' Settings > Home & Side Menu saved: rebuild the rail from the new config.
+sub onHomeRowsChanged()
+    if m.libraries = invalid then return
+    buildItems()
+    syncSelection()
+    if m.focusIndex >= m.items.count() then m.focusIndex = m.items.count() - 1
+    buildRows()
+    layout()
 end sub
 
 sub buildRows()

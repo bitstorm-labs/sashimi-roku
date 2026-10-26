@@ -37,6 +37,10 @@ sub init()
 
     initDeviceId()
 
+    ' Bumped when Settings > Home & Side Menu saves; the rail rebuilds from the
+    ' new config. Added before the Sidebar exists, so its init can observe it.
+    m.global.addFields({ homeRowsVersion: 0 })
+
     ' Left pullout sidebar (created up front, shown after login)
     m.sidebar = createObject("roSGNode", "Sidebar")
     m.sidebar.visible = false
@@ -683,7 +687,7 @@ sub onManageChannels(event as object)
     screen.config = config
 end sub
 
-' Settings -> Server Dashboard. Only administrators see the row; this is the
+' Settings -> Dashboard. Only administrators see the row; this is the
 ' second check, and the server (401/403 on its endpoints) is the real one.
 sub onOpenDashboard()
     if not m.global.isAdministrator then return
