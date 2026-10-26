@@ -2,6 +2,7 @@ import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/Servers.bs"
 import "pkg:/source/utils/AppSettings.bs"
 import "pkg:/source/utils/HeroTrailer.bs"
+import "pkg:/source/utils/DetailNav.bs"
 
 ' tvOS-parity navigation: persistent top TabBar (Home/Library/Search/Settings)
 ' with root screens kept alive, plus a push stack for detail/grid screens.
@@ -269,6 +270,7 @@ sub processDeepLink()
     screen.observeFieldScoped("selectedPerson", "onPersonSelected")
     screen.observeFieldScoped("deepLinkFailed", "onDeepLinkFailed")
     screen.observeFieldScoped("manageChannels", "onManageChannels")
+    screen.observeFieldScoped("goToSeries", "onGoToSeries")
     if isDirectPlayType(dl.mediaType)
         screen.autoPlay = true
         if not m.launchBeaconSent then m.awaitingLaunchPlayback = true
@@ -902,6 +904,7 @@ sub showDetailScreen(itemData as object)
     screen.observeFieldScoped("selectedPerson", "onPersonSelected")
     screen.observeFieldScoped("switchServer", "onDetailSwitchServer")
     screen.observeFieldScoped("manageChannels", "onManageChannels")
+    screen.observeFieldScoped("goToSeries", "onGoToSeries")
 
     ' Remember which show this screen counts towards, so popScreen can close the
     ' visit without re-deriving it from an item the screen may have replaced by
@@ -1020,17 +1023,35 @@ sub onPlayerDone()
     popScreen()
 end sub
 
+' A detail screen's Series button (#246). If that series is already on the
+' stack, go back to it -- popping the screens above it -- so Back never shows
+' the same series twice; otherwise the screen reloads as the series.
+sub onGoToSeries(event as object)
+    req = event.getData()
+    screen = event.getRoSGNode()
+    if req = invalid or req.id = invalid or screen = invalid then return
+    if m.navStack.count() = 0 or not m.navStack.peek().isSameNode(screen) then return
+    keys = []
+    for each s in m.navStack
+        k = ""
+        if s.hasField("navKey") then k = s.navKey
+        keys.push(k)
+    end for
+    pops = DetailNav.popsTo(keys, req.key)
+    if pops = 0
+        screen.callFunc("showInPlace", req.id)
+        return
+    end if
+    ' The screens in between go without ever coming back to the front.
+    for i = 1 to pops - 1
+        dropTopScreen()
+    end for
+    popScreen()
+end sub
+
 sub popScreen()
     if m.navStack.count() = 0 then return
-    ' Backing out of a still-resolving deep link must take its cover with it,
-    ' or the app is left staring at an unattached "Loading...".
-    endDeepLinkWait()
-
-    screen = m.navStack.pop()
-    exitTheme(screen)
-    m.top.removeChild(screen)
-    if screen.hasField("heroOwner") then m.heroTrailer.callFunc("screenDismissed", screen.heroOwner)
-    retireScreen(screen)
+    dropTopScreen()
 
     if m.navStack.count() > 0
         m.currentScreen = m.navStack.peek()
@@ -1042,6 +1063,20 @@ sub popScreen()
         m.currentScreen.visible = true
         m.currentScreen.setFocus(true)
     end if
+end sub
+
+' Take the top screen off the stack without bringing up the one beneath.
+sub dropTopScreen()
+    if m.navStack.count() = 0 then return
+    ' Backing out of a still-resolving deep link must take its cover with it,
+    ' or the app is left staring at an unattached "Loading...".
+    endDeepLinkWait()
+
+    screen = m.navStack.pop()
+    exitTheme(screen)
+    m.top.removeChild(screen)
+    if screen.hasField("heroOwner") then m.heroTrailer.callFunc("screenDismissed", screen.heroOwner)
+    retireScreen(screen)
 end sub
 
 ' A reminder tuned in. Whatever is playing gives way first: a second player

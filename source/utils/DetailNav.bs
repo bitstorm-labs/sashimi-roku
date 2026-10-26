@@ -1,0 +1,33 @@
+' Where a detail screen's Series button goes (#246). The series may already
+' be on the screen stack -- the Season page opened from it, or an episode
+' opened from its episode row -- and Back must never show the same series
+' twice, so the button returns to that screen instead of turning the current
+' one into a second copy. Only when the series is nowhere underneath does the
+' current screen reload in place. Pure functions only, so
+' tests/DetailNavTests.brs can run them off-device; MainScene does the pops.
+namespace DetailNav
+
+    ' A detail screen's identity on the stack: the item it shows, on the
+    ' server it shows it from ("" for the active one). The same id on another
+    ' saved server is a different screen.
+    function key(itemId as dynamic, serverId as dynamic) as string
+        if type(itemId) <> "String" and type(itemId) <> "roString" then return ""
+        if itemId = "" then return ""
+        s = ""
+        if type(serverId) = "String" or type(serverId) = "roString" then s = serverId
+        return itemId + "|" + s
+    end function
+
+    ' keys: one per stacked screen, bottom first, the current (asking) screen
+    ' last; "" for screens that aren't detail screens. How many screens to pop
+    ' so the nearest one showing `target` is on top, or 0 to reload in place.
+    function popsTo(keys as object, target as string) as integer
+        if target = "" then return 0
+        n = keys.count()
+        for i = n - 2 to 0 step -1
+            if keys[i] = target then return n - 1 - i
+        end for
+        return 0
+    end function
+
+end namespace

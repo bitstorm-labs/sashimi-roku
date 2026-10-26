@@ -16,6 +16,13 @@
         <!-- Add to Channel (administrators): { mode: "add", target }. MainScene
              pushes ChannelManagerScreen. -->
         <field id="manageChannels" type="assocarray" alwaysNotify="true" />
+        <!-- DetailNav.key of the item on screen, so MainScene can find a
+             series already on the stack. -->
+        <field id="navKey" type="string" value="" />
+        <!-- Series button / Go to Series: { id, key }. MainScene pops back to
+             that series if it is underneath, else calls showInPlace. -->
+        <field id="goToSeries" type="assocarray" alwaysNotify="true" />
+        <function name="showInPlace" />
         <field id="autoPlay" type="boolean" value="false" />
         <!-- Deep link (cert 5.2) could not be resolved: MainScene pops to home
              and shows an error rather than stranding the user on a blank

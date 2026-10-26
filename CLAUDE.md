@@ -37,7 +37,10 @@ nothing otherwise, drawn as the media chips' rounded rectangle) and
 Go to Series / Go to Season N / admin-only Add to Channel, the season chip's
 `*` menu) and `source/utils/SeasonPage.bs` (the Season page: next unwatched
 episode to play or resume, E1 once all are watched, Mark Season Watched vs
-Unwatched, the "Season N • X episodes • Y of X watched" line) and `source/utils/SeriesMeta.bs` (the series meta line,
+Unwatched, the "Season N • X episodes • Y of X watched" line) and
+`source/utils/DetailNav.bs` (a detail screen's Series button pops back to
+that series when it is already on the stack, else reloads in place, so Back
+never shows the same series twice) and `source/utils/SeriesMeta.bs` (the series meta line,
 "1 Season" vs "7 Seasons") and `source/utils/ImageUrl.bs` (image urls
 carry Jellyfin's `&tag=`, read off the right ImageTags / Parent*ImageTag
 field, so a replaced image gets a new url instead of a cached stale copy)
