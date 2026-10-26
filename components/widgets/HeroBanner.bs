@@ -1,9 +1,14 @@
 import "pkg:/source/utils/YouTube.bs"
+import "pkg:/source/utils/Fades.bs"
 
 sub init()
     m.tmdbLogo = m.top.findNode("tmdbLogo")
     m.heroImage = m.top.findNode("heroImage")
     m.heroFadeLeft = m.top.findNode("heroFadeLeft")
+    m.heroFadeBottom = m.top.findNode("heroFadeBottom")
+    m.heroTextScrim = m.top.findNode("heroTextScrim")
+    m.imageLeft = -1          ' fitted image's left edge; -1 until it loads
+    m.textRight = 0           ' right edge of the widest text line (reflowHeroText)
     ' Flush-right the whole (scaleToFit) backdrop and park the left-edge feather
     ' at its actual left edge once the decoded bitmap size is known.
     m.heroImage.observeFieldScoped("loadStatus", "onHeroImageStatus")
@@ -55,7 +60,9 @@ end sub
 sub onHeroImageStatus()
     if m.heroImage.loadStatus <> "ready"
         m.heroImage.translation = [546, 0]
-        m.heroFadeLeft.translation = [546, 0]
+        placeFades(1274, 512)
+        m.imageLeft = -1
+        layoutTextScrim()
         ' Jellyfin 404s an image type an item does not have, which is the normal
         ' way this chain advances — not an error worth surfacing.
         if m.heroImage.loadStatus = "failed" then tryNextHeroUri()
@@ -63,8 +70,40 @@ sub onHeroImageStatus()
     end if
     bw = m.heroImage.bitmapWidth
     if bw = invalid or bw <= 0 or bw > 1274 then bw = 1274
+    bh = m.heroImage.bitmapHeight
+    if bh = invalid or bh <= 0 or bh > 512 then bh = 512
     m.heroImage.translation = [1820 - Int((1274 + bw) / 2), 0]
-    m.heroFadeLeft.translation = [1820 - bw, 0]
+    placeFades(bw, bh)
+    m.imageLeft = 1820 - bw
+    layoutTextScrim()
+end sub
+
+' The left and bottom fades on the fitted image: flush-right, and centred
+' vertically in the 512px banner as scaleToFit draws it.
+sub placeFades(bw as integer, bh as integer)
+    left = 1820 - bw
+    top = Int((512 - bh) / 2)
+    m.heroFadeLeft.translation = [left, top]
+    m.heroFadeLeft.width = Fades.leftWidth(bw)
+    m.heroFadeLeft.height = bh
+    fh = Fades.bottomHeight(bh)
+    m.heroFadeBottom.translation = [left, top + bh - fh]
+    m.heroFadeBottom.width = bw
+    m.heroFadeBottom.height = fh
+end sub
+
+' The title and overview sit over the image only when it is wide enough to
+' reach under them. Then a scrim runs from the image's left edge to 80px past
+' the widest text line, so the words stay on (nearly) page colour; otherwise
+' the image keeps its light fade and nothing else.
+sub layoutTextScrim()
+    if m.imageLeft < 0 or m.textRight <= 0 or m.imageLeft >= m.textRight + 40
+        m.heroTextScrim.visible = false
+        return
+    end if
+    m.heroTextScrim.translation = [m.imageLeft, 0]
+    m.heroTextScrim.width = m.textRight + 80 - m.imageLeft
+    m.heroTextScrim.visible = true
 end sub
 
 ' Advance to the next artwork candidate for the current slide. Terminates two
@@ -236,6 +275,16 @@ sub reflowHeroText()
         y += ovGap
         m.heroOverview.translation = [leftX, y]
     end if
+
+    widest = Int(m.heroTitle.boundingRect().width)
+    for each lbl in [m.heroSubtitle, m.heroOverview]
+        if lbl.text <> ""
+            w = Int(lbl.boundingRect().width)
+            if w > widest then widest = w
+        end if
+    end for
+    m.textRight = leftX + widest
+    layoutTextScrim()
 end sub
 
 ' Width of a Label's TEXT.
