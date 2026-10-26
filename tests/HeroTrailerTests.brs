@@ -77,6 +77,13 @@ sub testSource(t as object)
     eq(t, "unknown length", s.seconds, invalid)
     s = HeroTrailer_source([{ Id: "t1", RunTimeTicks: 0 }])
     eq(t, "zero ticks is unknown", s.seconds, invalid)
+    ' The picture's shape sizes the trailer's rectangle (#257).
+    s = HeroTrailer_source([{ Id: "t1", Width: 640, Height: 360 }])
+    eq(t, "16:9 aspect", Int(s.aspect * 1000 + 0.5), 1778)
+    s = HeroTrailer_source([{ Id: "t1", Width: 1920, Height: 804 }])
+    eq(t, "scope aspect", Int(s.aspect * 100 + 0.5), 239)
+    eq(t, "unknown size", HeroTrailer_source([{ Id: "t1" }]).aspect, invalid)
+    eq(t, "zero height", HeroTrailer_source([{ Id: "t1", Width: 640, Height: 0 }]).aspect, invalid)
 end sub
 
 sub testClip(t as object)
