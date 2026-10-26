@@ -634,6 +634,12 @@ sub onApiResponse()
         onStationGuide(r)
     else if r.action = "getItem" and r.context = "channelRoll"
         onChannelNextItem(r)
+    else if r.action = "reportStopped" or r.action = "markPlayed"
+        ' The detail screen underneath re-reads its episodes when this moves.
+        ' Bumped on the ANSWER, not when the player closes: both writes are
+        ' still queued as the screen pops (they outlive it by the reap delay),
+        ' and a re-read that beat them would fetch the old state again.
+        m.global.watchStateVersion = m.global.watchStateVersion + 1
     end if
 end sub
 
