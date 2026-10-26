@@ -6,6 +6,7 @@ import "pkg:/source/utils/ChannelManagement.bs"
 import "pkg:/source/utils/StreamQuality.bs"
 import "pkg:/source/utils/Throughput.bs"
 import "pkg:/source/utils/ContinueWatching.bs"
+import "pkg:/source/utils/WatchState.bs"
 
 sub init()
     m.top.functionName = "taskLoop"
@@ -2125,15 +2126,21 @@ end sub
 ' The four watch-state writes below used to report success: true no matter what
 ' the server said, so a dead server still toasted "Updated" over a row that had
 ' not moved. postJson returns invalid on any non-2xx or timeout; deleteRequest
-' returns the HTTP code (or -1 when the request never left).
+' returns the HTTP code (or -1 when the request never left). Played/unplayed
+' try the modern route, then the legacy one only if the server lacks it
+' (WatchState.playedPaths / shouldTryLegacy).
 
 sub doMarkPlayed(request as object)
     itemId = request.itemId
     #if DEBUG
         print "[API] Marking played: " + itemId
     #end if
-    url = Http.apiUrl("/Users/" + requestUserId() + "/PlayedItems/" + itemId)
-    ok = (Http.postJson(url, invalid) <> invalid)
+    ok = false
+    for each path in WatchState.playedPaths(requestUserId(), itemId)
+        meta = {}
+        ok = (Http.postJson(Http.apiUrl(path), invalid, meta) <> invalid)
+        if ok or meta.statusCode = invalid or not WatchState.shouldTryLegacy(meta.statusCode) then exit for
+    end for
     m.top.response = { success: ok, action: "markPlayed", itemId: itemId, context: request.context }
 end sub
 
@@ -2142,8 +2149,12 @@ sub doMarkUnplayed(request as object)
     #if DEBUG
         print "[API] Marking unplayed: " + itemId
     #end if
-    url = Http.apiUrl("/Users/" + requestUserId() + "/PlayedItems/" + itemId)
-    ok = isOkStatus(Http.deleteRequest(url))
+    ok = false
+    for each path in WatchState.playedPaths(requestUserId(), itemId)
+        code = Http.deleteRequest(Http.apiUrl(path))
+        ok = isOkStatus(code)
+        if ok or not WatchState.shouldTryLegacy(code) then exit for
+    end for
     m.top.response = { success: ok, action: "markUnplayed", itemId: itemId, context: request.context }
 end sub
 

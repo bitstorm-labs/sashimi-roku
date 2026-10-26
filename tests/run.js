@@ -23,7 +23,8 @@ const suites = {
     'RowWindowTests.brs': ['out/source/utils/RowWindow.brs'],
     'SkipPillTests.brs': ['out/source/utils/SkipPill.brs'],
     'AdminDashTests.brs': ['out/source/utils/AdminDash.brs'],
-    'RemoteControlTests.brs': ['out/source/utils/RemoteControl.brs']
+    'RemoteControlTests.brs': ['out/source/utils/RemoteControl.brs'],
+    'WatchStateTests.brs': ['out/source/utils/WatchState.brs']
 };
 
 // SASHIMI_TEST_MODULE swaps in another build of the module under test, to

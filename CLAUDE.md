@@ -46,7 +46,10 @@ and activity rows, the cards' stable order, and the OpsDec-style stream
 card: state dot, SxxEyy, source → output pills, speed, HW, Local/Remote) and `source/utils/RemoteControl.bs`
 (Jellyfin remote control: the /socket url, the capabilities body, server
 messages to Stop / DisplayMessage / keep-alive / ignore, keep-alive timing,
-reconnect backoff, the Roku OS 16 gate).
+reconnect backoff, the Roku OS 16 gate) and `source/utils/WatchState.bs`
+(watched state: the `/UserPlayedItems` route with its legacy fallback, when a
+detail screen coming back to the front is stale, and whether a re-read episode
+list patches the row in place, rebuilds it, or is ignored).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that
