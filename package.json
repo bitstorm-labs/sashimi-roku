@@ -8,7 +8,7 @@
     "deploy": "roku-deploy --host $ROKU_DEV_TARGET --password $ROKU_DEV_PASSWORD",
     "dev": "npm run package && npm run deploy",
     "lint": "bsc --create-package=false",
-    "test": "bsc --create-package=false && node tests/run.js && node tests/colors.js"
+    "test": "bsc --create-package=false && node tests/run.js && node tests/colors.js && node tests/fades.js"
   },
   "devDependencies": {
     "@rokucommunity/brs": "^0.47.6",

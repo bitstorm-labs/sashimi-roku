@@ -34,18 +34,18 @@
                 translation="[546, 0]"
             />
 
-            <!-- Feather the image's left edge into the page so there is no hard
-                 vertical photo edge (the page shows through, tvOS parity). Repositioned to the image's
-                 actual left edge in onHeroImageStatus. -->
-            <Poster id="heroFadeLeft" uri="pkg:/images/hero_fade_left.png" width="340" height="512" translation="[546, 0]" />
+            <!-- Feather the image's left and bottom edges into the page so there
+                 is no hard photo edge: the "Lightest" fade (Fades.bs, #255), 10%
+                 of the image's width and 8% of its height. Sized and placed on
+                 the fitted image in onHeroImageStatus. -->
+            <Poster id="heroFadeLeft" uri="pkg:/images/hero_fade_left.png" width="127" height="512" translation="[546, 0]" />
+            <Poster id="heroFadeBottom" uri="pkg:/images/hero_fade_bottom.png" width="1274" height="41" translation="[546, 471]" />
 
-            <!-- Bottom fade -->
-            <Poster
-                uri="pkg:/images/hero_fade_bottom.png"
-                width="1820"
-                height="140"
-                translation="[0, 372]"
-            />
+            <!-- Legibility scrim, confined to the text: a wide image runs under
+                 the title and overview, and the light fade alone leaves them on
+                 the picture. Only shown then, from the image's left edge to just
+                 past the text (layoutTextScrim). -->
+            <Poster id="heroTextScrim" uri="pkg:/images/hero_fade_left.png" width="0" height="512" visible="false" />
         </Group>
 
         <!-- Text overlay — left, tvOS type scale -->

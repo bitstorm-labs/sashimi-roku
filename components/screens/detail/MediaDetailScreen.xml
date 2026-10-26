@@ -92,7 +92,7 @@
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="32" />
         </Label>
 
-        <Label id="titleLabel" text="" color="#FFFFFF" width="1000" maxLines="2" translation="[60, 250]">
+        <Label id="titleLabel" text="" color="#FFFFFF" width="1000" maxLines="2" wrap="true" translation="[60, 250]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="38" />
         </Label>
         <Label id="endsAtLabel" text="" color="#8C5CC7" maxLines="1" translation="[60, 312]">

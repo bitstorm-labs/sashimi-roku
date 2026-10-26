@@ -1,0 +1,27 @@
+' How far a backdrop fades into the page ("Lightest", #255): transparent at
+' its left edge to opaque at LEFT of its width, and opaque until 1 - BOTTOM
+' of its height to transparent at its bottom edge. Top and right run off
+' screen and never fade. Every backdrop surface uses these: the home hero
+' (HeroBanner) sizes its fade overlays from them, and
+' scripts/make-detail-fades.sh bakes the same values into the detail
+' screen's backdrop mask and trailer overlay (tests/fades.js checks those
+' PNGs against them). Pure functions only, so tests/FadesTests.brs can run
+' them off-device.
+namespace Fades
+
+    const LEFT = 0.10
+    const BOTTOM = 0.08
+
+    ' Width of the left fade over an image `w` wide.
+    function leftWidth(w as integer) as integer
+        if w <= 0 then return 0
+        return Int(w * LEFT + 0.5)
+    end function
+
+    ' Height of the bottom fade over an image `h` tall.
+    function bottomHeight(h as integer) as integer
+        if h <= 0 then return 0
+        return Int(h * BOTTOM + 0.5)
+    end function
+
+end namespace
