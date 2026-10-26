@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<!-- Server dashboard for administrators (layout A of the approved design):
+<!-- Dashboard for administrators (layout A of the approved design):
      Now playing cards on top, Recent activity and Health side by side below.
      Pushed full-width (the rail is hidden on pushed screens). Everything it
      shows comes from source/utils/AdminDash.bs. -->
@@ -11,11 +11,11 @@
     <children>
         <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
 
-        <Label text="Server" color="#FFFFFF" translation="[90, 56]">
+        <Label text="Dashboard" color="#FFFFFF" translation="[90, 56]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="56" />
         </Label>
         <Label id="serverLabel" text="" color="#A3ADBAFF" width="700" maxLines="1"
-               ellipsizeOnBoundary="true" translation="[320, 80]">
+               ellipsizeOnBoundary="true" translation="[420, 80]">
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
         </Label>
         <!-- Header counts, right-aligned; built in code to size to their text. -->

@@ -2,7 +2,7 @@ import "pkg:/source/utils/AdminDash.bs"
 import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/ImageUrl.bs"
 
-' Server dashboard (sashimi design 2026-10-18, layout A).
+' Dashboard (sashimi design 2026-10-18, layout A).
 '
 ' Focus is virtual, as in the player, Settings and the channel manager: the
 ' screen keeps real focus and m.cardIdx names the highlighted stream. Cards
