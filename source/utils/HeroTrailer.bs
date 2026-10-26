@@ -59,9 +59,11 @@ namespace HeroTrailer
         return ""
     end function
 
-    ' The first of a title's local trailers as { id, seconds }, seconds being
-    ' invalid when the server doesn't know the length; invalid when there are
-    ' no trailers at all.
+    ' The first of a title's local trailers as { id, seconds, aspect }, seconds
+    ' being invalid when the server doesn't know the length and aspect (width
+    ' over height, which sizes the trailer's own rectangle -- #257) invalid
+    ' when it doesn't know the picture's size; invalid when there are no
+    ' trailers at all.
     function source(trailers as dynamic) as dynamic
         if trailers = invalid or GetInterface(trailers, "ifArray") = invalid then return invalid
         if trailers.count() = 0 then return invalid
@@ -71,7 +73,9 @@ namespace HeroTrailer
         ' A LongInteger divisor, like every tick conversion here: CDbl() on
         ' ticks truncates to 32 bits first.
         if first.RunTimeTicks <> invalid and first.RunTimeTicks > 0 then seconds = first.RunTimeTicks / 10000000&
-        return { id: first.Id, seconds: seconds }
+        aspect = invalid
+        if first.Width <> invalid and first.Height <> invalid and first.Width > 0 and first.Height > 0 then aspect = first.Width / (first.Height * 1.0)
+        return { id: first.Id, seconds: seconds, aspect: aspect }
     end function
 
     ' Whether this screen's trailer plays to its natural end. A movie's does:

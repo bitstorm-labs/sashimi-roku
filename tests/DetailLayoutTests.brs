@@ -25,6 +25,25 @@ sub main()
     eq(t, "YouTube channel banner is wider", DetailLayout_heroRegion("Series", true).w, 1152)
     eq(t, "a YouTube episode is not", DetailLayout_heroRegion("Episode", true).w, 1056)
 
+    ' The trailer's own rectangle (#257): a 16:9 trailer on a series whose
+    ' backdrop fits to 1056x648 still gets a 16:9 box, not the backdrop's.
+    b = DetailLayout_trailerBox(1056, 648, 16.0 / 9.0)
+    eq(t, "16:9 trailer in a 1056x648 hero: width", b.w, 1056)
+    eq(t, "16:9 trailer in a 1056x648 hero: height", b.h, 594)
+    eq(t, "flush right", b.x, 864)
+    b = DetailLayout_trailerBox(1056, 648, invalid)
+    eq(t, "unknown aspect is 16:9", b.h, 594)
+    ' The Season page's shorter hero: height-bound.
+    b = DetailLayout_trailerBox(1056, 456, 16.0 / 9.0)
+    eq(t, "season trailer width", b.w, 811)
+    eq(t, "season trailer height", b.h, 456)
+    eq(t, "season trailer flush right", b.x, 1109)
+    ' Scope and 4:3 trailers keep their own shape.
+    eq(t, "2.39:1 trailer", DetailLayout_trailerBox(1056, 648, 2.39).h, 442)
+    b = DetailLayout_trailerBox(1056, 648, 4.0 / 3.0)
+    eq(t, "4:3 trailer height", b.h, 648)
+    eq(t, "4:3 trailer width", b.w, 864)
+
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
 end sub
