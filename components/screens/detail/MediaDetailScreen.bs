@@ -11,6 +11,7 @@ import "pkg:/source/utils/RowWindow.bs"
 import "pkg:/source/utils/WatchState.bs"
 import "pkg:/source/utils/DetailActions.bs"
 import "pkg:/source/utils/SeasonPage.bs"
+import "pkg:/source/utils/DetailNav.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -408,6 +409,7 @@ sub onItemLoaded(response as object)
     item = m.item
     m.itemType = ""
     if item.Type <> invalid then m.itemType = item.Type
+    m.top.navKey = DetailNav.key(item.Id, m.top.pinnedServerId)
 
     ' Cert 5.2: an invalid contentId must show an error and land on home. A
     ' nonexistent id normally 404s and the failure branch above handles it --
@@ -1488,8 +1490,10 @@ sub runAction(kind as string)
         ' The Season page's own season.
         confirmSeasonWatch(item, -1, SeasonPage.fullyPlayed(item, m.selectedEpisodes))
     else if kind = "series"
-        ' Reloads this screen as the series (Back still leaves the show).
-        if item.SeriesId <> invalid then enqueue({ action: "getItem", itemId: item.SeriesId })
+        ' MainScene pops back to the series if it is already underneath (the
+        ' Season page opened from it, an episode from its row), so Back never
+        ' shows it twice; otherwise it calls showInPlace.
+        if item.SeriesId <> invalid and item.SeriesId <> "" then m.top.goToSeries = { id: item.SeriesId, key: DetailNav.key(item.SeriesId, m.top.pinnedServerId) }
     else if kind = "season"
         openSeasonOfEpisode()
     else if kind = "shuffle"
@@ -1510,6 +1514,12 @@ sub runAction(kind as string)
         showMoreDialog()
     end if
 end sub
+
+' Turn this screen into another item (the series, when it is not already on
+' the stack). Back still leaves to whatever opened this screen.
+function showInPlace(itemId as string) as void
+    if itemId <> "" then enqueue({ action: "getItem", itemId: itemId })
+end function
 
 ' Go to Season N: the Season page stacks on top of this episode, so Back
 ' comes straight back here.
