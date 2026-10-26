@@ -156,6 +156,8 @@ sub processRequest()
         doMarkPlayed(request)
     else if action = "markUnplayed"
         doMarkUnplayed(request)
+    else if action = "removeFromContinueWatching"
+        doRemoveFromContinueWatching(request)
     else if action = "markFavorite"
         doMarkFavorite(request)
     else if action = "removeFavorite"
@@ -2143,6 +2145,46 @@ sub doMarkUnplayed(request as object)
     url = Http.apiUrl("/Users/" + requestUserId() + "/PlayedItems/" + itemId)
     ok = isOkStatus(Http.deleteRequest(url))
     m.top.response = { success: ok, action: "markUnplayed", itemId: itemId, context: request.context }
+end sub
+
+' Remove from Continue Watching (ContinueWatching.removalPlan): clear the
+' resume position, then ask the Continue Watching plugin to hide the series
+' from Next Up. hiddenOnServer is false when the plugin is absent (404) or the
+' call failed, and the caller keeps its local hide entry.
+sub doRemoveFromContinueWatching(request as object)
+    plan = request.plan
+    response = { action: "removeFromContinueWatching", plan: plan, success: true, hiddenOnServer: false }
+    if plan = invalid or plan.itemId = invalid or plan.itemId = ""
+        response.success = false
+        m.top.response = response
+        return
+    end if
+    #if DEBUG
+        print "[API] Remove from Continue Watching: " + plan.itemId
+    #end if
+
+    if plan.clearResume = true
+        ' Only the position: the body names nothing else, so Played, PlayCount
+        ' and favourites stay as they are. The /Users/{id}/Items route works on
+        ' 10.x through 12.3 (verified on 12.3); /UserItems is the 10.9+ name,
+        ' tried only if a future server drops the old one.
+        body = { PlaybackPositionTicks: 0 }
+        meta = {}
+        ok = (Http.postJson(Http.apiUrl("/Users/" + requestUserId() + "/Items/" + plan.itemId + "/UserData"), body, meta) <> invalid)
+        if not ok and meta.statusCode = 404
+            ok = (Http.postJson(Http.apiUrl("/UserItems/" + plan.itemId + "/UserData?userId=" + requestUserId()), body) <> invalid)
+        end if
+        response.success = ok
+    end if
+
+    if plan.hide = true
+        meta = {}
+        Http.postJson(Http.apiUrl(ContinueWatching.hiddenPath(plan.episodeId)), invalid, meta)
+        code = 0
+        if meta.statusCode <> invalid then code = meta.statusCode
+        response.hiddenOnServer = ContinueWatching.hiddenOnServer(code)
+    end if
+    m.top.response = response
 end sub
 
 sub doMarkFavorite(request as object)

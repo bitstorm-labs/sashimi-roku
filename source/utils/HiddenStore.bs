@@ -1,0 +1,40 @@
+import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/ContinueWatching.bs"
+
+' The local half of Remove from Continue Watching: the {seriesId, episodeId}
+' hides the Continue Watching plugin is not holding (it is absent, older, or
+' the call failed), per server and user. The rules live in ContinueWatching.bs,
+' where the tests can reach them; this is only the registry I/O around them.
+namespace HiddenStore
+
+    function sectionName() as string
+        return "cwHidden"
+    end function
+
+    function key() as string
+        return ContinueWatching.hiddenStoreKey(m.global.serverUrl, m.global.userId)
+    end function
+
+    function load() as object
+        entries = Registry.readJson(sectionName(), key())
+        if type(entries) <> "roArray" then return []
+        return entries
+    end function
+
+    sub save(entries as object)
+        Registry.writeJson(sectionName(), key(), entries)
+    end sub
+
+    sub hide(seriesId as string, episodeId as string)
+        save(ContinueWatching.addHidden(load(), seriesId, episodeId))
+    end sub
+
+    ' Writes (a flash commit) only when the series was actually hidden, since
+    ' the player calls this on every episode start.
+    sub dropSeries(seriesId as string)
+        entries = load()
+        kept = ContinueWatching.removeHiddenSeries(entries, seriesId)
+        if kept.count() <> entries.count() then save(kept)
+    end sub
+
+end namespace
