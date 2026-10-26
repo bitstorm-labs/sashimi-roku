@@ -1,0 +1,32 @@
+' Where the detail screen's rows start and how big its hero (backdrop image
+' and hero trailer) may be. The hero fades out over its bottom 40%
+' (scripts/make-detail-fades.sh), so the whole of it has to sit above the
+' rows: a hero running under the rows is cut off by the cards mid-fade,
+' which reads as a hard edge. The Season page (#246) starts its rows under
+' the poster, so its hero is shorter (#253). Pure functions only, so
+' tests/DetailLayoutTests.brs can run them off-device.
+namespace DetailLayout
+
+    ' Clear space between the hero's faded-out bottom edge and the rows.
+    const ROW_GAP = 24
+
+    ' The y the RowList (Seasons / Episodes / Cast) starts at.
+    function rowsTop(itemType as dynamic) as integer
+        if itemType = "Season" then return 480
+        return 734
+    end function
+
+    ' The region the backdrop image is fitted into, flush with the top-right
+    ' corner: the Apple app's widths (55% of the screen, 60% for a YouTube
+    ' channel's wide banner), and 648 tall -- a 16:9 picture at 60% -- or less
+    ' when the rows start higher than that.
+    function heroRegion(itemType as dynamic, isYouTube as boolean) as object
+        frac = 0.55
+        if isYouTube and itemType = "Series" then frac = 0.60
+        h = 648
+        room = rowsTop(itemType) - ROW_GAP
+        if room < h then h = room
+        return { w: Int(1920 * frac), h: h }
+    end function
+
+end namespace
