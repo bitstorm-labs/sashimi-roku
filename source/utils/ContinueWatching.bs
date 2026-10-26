@@ -156,4 +156,127 @@ namespace ContinueWatching
         return response.Items
     end function
 
+    ' ---------- Remove from Continue Watching ----------
+    ' The contract every Sashimi client and the plugin share
+    ' (sashimi-apple#742): clear a resume position, and hide an episode's series
+    ' from Next Up while that episode is still its Next Up.
+
+    ' What removing this card has to do. Watched state is never touched.
+    function removalPlan(item as dynamic) as object
+        plan = { itemId: "", clearResume: false, hide: false, seriesId: "", episodeId: "" }
+        if item = invalid or item.Id = invalid or item.Id = "" then return plan
+        plan.itemId = item.Id
+        if item.UserData <> invalid and item.UserData.PlaybackPositionTicks <> invalid
+            plan.clearResume = (item.UserData.PlaybackPositionTicks > 0)
+        end if
+        if item.Type <> invalid and item.Type = "Episode" and item.SeriesId <> invalid and item.SeriesId <> ""
+            plan.hide = true
+            plan.seriesId = item.SeriesId
+            plan.episodeId = item.Id
+        end if
+        return plan
+    end function
+
+    ' The plugin's hide endpoint (POST to hide, DELETE to undo).
+    function hiddenPath(episodeId as string) as string
+        return "/ContinueWatching/Hidden/" + episodeId
+    end function
+
+    ' 2xx means the plugin holds the hide. Anything else -- 404 from a server
+    ' without the plugin (or an older one), an error, a timeout -- keeps the
+    ' local entry, so the card stays gone either way.
+    function hiddenOnServer(statusCode as integer) as boolean
+        return statusCode >= 200 and statusCode < 300
+    end function
+
+    ' Registry key for the local hide list: per server and per user, so one
+    ' household member's hides never leak into another's row.
+    function hiddenStoreKey(serverUrl as string, userId as string) as string
+        return userId + "@" + serverUrl
+    end function
+
+    ' The stored list with this series hidden at this episode. One entry per
+    ' series (a newer hide replaces an older one); the oldest go past the cap.
+    function addHidden(entries as dynamic, seriesId as string, episodeId as string, cap = 500 as integer) as object
+        out = removeHiddenSeries(entries, seriesId)
+        out.push({ seriesId: seriesId, episodeId: episodeId })
+        while out.count() > cap
+            out.shift()
+        end while
+        return out
+    end function
+
+    ' The stored list without this series: the plugin took the hide over, or an
+    ' episode of the series started playing on this device.
+    function removeHiddenSeries(entries as dynamic, seriesId as string) as object
+        out = []
+        if type(entries) <> "roArray" then return out
+        for each e in entries
+            if type(e) = "roAssociativeArray" and e.seriesId <> invalid and e.episodeId <> invalid and e.seriesId <> seriesId
+                out.push({ seriesId: e.seriesId, episodeId: e.episodeId })
+            end if
+        end for
+        return out
+    end function
+
+    ' Drop hidden cards from a list of row items, and the entries that have gone
+    ' stale. A series stays hidden only while the episode it offers is the one
+    ' that was hidden: once a different episode of it turns up (watched
+    ' elsewhere, or a resume moved on), the hide has done its job and the
+    ' series shows again. A series absent from the list says nothing either
+    ' way (the row is capped), so its entry is kept.
+    ' Returns { items, entries, changed } -- changed: entries needs saving.
+    function filterHidden(items as dynamic, entries as dynamic) as object
+        result = { items: [], entries: [], changed: false }
+        if type(items) = "roArray" then result.items = items
+        if type(entries) <> "roArray" or entries.count() = 0 then return result
+
+        hidden = {}
+        for each e in entries
+            if type(e) = "roAssociativeArray" and e.seriesId <> invalid and e.episodeId <> invalid
+                hidden[e.seriesId] = e.episodeId
+            end if
+        end for
+
+        stale = {}
+        kept = []
+        for each item in result.items
+            seriesId = invalid
+            if item <> invalid then seriesId = item.SeriesId
+            if seriesId <> invalid and hidden.DoesExist(seriesId)
+                if item.Id <> invalid and item.Id = hidden[seriesId]
+                    continue for
+                end if
+                stale[seriesId] = true
+                hidden.Delete(seriesId)
+            end if
+            kept.push(item)
+        end for
+        result.items = kept
+
+        for each e in entries
+            if type(e) = "roAssociativeArray" and e.seriesId <> invalid and e.episodeId <> invalid and not stale.DoesExist(e.seriesId)
+                result.entries.push(e)
+            else
+                result.changed = true
+            end if
+        end for
+        return result
+    end function
+
+    ' Home's options (*) menu. On a Continue Watching card it leads with the
+    ' remove action; anywhere else it is Refresh alone, as before.
+    function optionsButtons(onContinueWatchingCard as boolean) as object
+        if onContinueWatchingCard then return [REMOVE_LABEL(), "Refresh", "Cancel"]
+        return ["Refresh", "Cancel"]
+    end function
+
+    function REMOVE_LABEL() as string
+        return "Remove from Continue Watching"
+    end function
+
+    function REMOVED_TOAST() as string
+        return "Removed from Continue Watching"
+    end function
+
 end namespace

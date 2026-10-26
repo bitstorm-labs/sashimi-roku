@@ -8,6 +8,7 @@ import "pkg:/source/utils/StreamQuality.bs"
 import "pkg:/source/utils/Throughput.bs"
 import "pkg:/source/utils/NextEpisode.bs"
 import "pkg:/source/utils/SkipPill.bs"
+import "pkg:/source/utils/HiddenStore.bs"
 
 ' tvOS PlayerViewModel parity on Roku. Design rules learned the hard way:
 '  - The screen NEVER gives remote focus to a child node. Every key lands in
@@ -912,6 +913,9 @@ sub onVideoState()
         if not m.startedReported
             m.startedReported = true
             report("reportStart", currentTicks(), false)
+            ' Watching a show here un-hides it from Continue Watching (a hide
+            ' made without the plugin; see HiddenStore).
+            if m.item <> invalid and m.item.Type <> invalid and m.item.Type = "Episode" and m.item.SeriesId <> invalid then HiddenStore.dropSeries(m.item.SeriesId)
             m.progressTimer.control = "start"
         else
             report("reportProgress", currentTicks(), false)

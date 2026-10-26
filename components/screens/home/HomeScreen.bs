@@ -3,6 +3,7 @@ import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Quality.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/ContinueWatching.bs"
+import "pkg:/source/utils/HiddenStore.bs"
 
 sub init()
     m.rowList = m.top.findNode("rowList")
@@ -19,6 +20,10 @@ sub init()
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
+    m.cwTask = m.top.findNode("cwTask")
+    m.cwTask.observeFieldScoped("response", "onCwTaskResponse")
+    m.cwTask.control = "RUN"
+    m.optionsTarget = invalid
 
     ' Hero banner
     m.heroBanner = m.top.findNode("heroBanner")
@@ -389,7 +394,8 @@ end sub
 sub onResumeItemsLoaded(response as object)
     if response.success and response.ranked = true and response.items <> invalid
         ' Already ranked by the server's Continue Watching plugin: no merge here.
-        m.continueWatchingItems = response.items
+        ' Local hides still apply: the plugin may predate the hide endpoint.
+        m.continueWatchingItems = applyLocalHides(response.items)
         buildHomeRows()
         return
     end if
@@ -397,7 +403,7 @@ sub onResumeItemsLoaded(response as object)
         ' Dedup resume items by series — keep only the most recent per series
         seenSeries = {}
         deduped = []
-        for each item in response.items
+        for each item in applyLocalHides(response.items)
             seriesId = ""
             if item.SeriesId <> invalid then seriesId = item.SeriesId
             if seriesId = ""
@@ -424,10 +430,20 @@ sub onNextUpLoaded(response as object)
         ' Order the row by real activity, newest first (ContinueWatching.bs).
         seriesDates = response.seriesLastPlayed
         if seriesDates = invalid then seriesDates = {}
-        m.continueWatchingItems = ContinueWatching.merge(m.continueWatchingItems, response.items, seriesDates)
+        m.continueWatchingItems = ContinueWatching.merge(m.continueWatchingItems, applyLocalHides(response.items), seriesDates)
     end if
     buildHomeRows()
 end sub
+
+' Drop cards hidden on this device (Remove from Continue Watching without the
+' plugin), and forget hides whose series has moved on to another episode.
+function applyLocalHides(items as object) as object
+    entries = HiddenStore.load()
+    if entries.count() = 0 then return items
+    result = ContinueWatching.filterHidden(items, entries)
+    if result.changed then HiddenStore.save(result.entries)
+    return result.items
+end function
 
 sub buildHomeRows()
     m.rowContent = CreateObject("roSGNode", "ContentNode")
@@ -1484,11 +1500,15 @@ function onKeyEvent(key as string, press as boolean) as boolean
     return false
 end function
 
-' Navigation now lives in the top tab bar (tvOS parity); options = refresh only.
+' Navigation lives in the sidebar, so options is Refresh -- plus, on a focused
+' Continue Watching card, Remove from Continue Watching (every client offers it
+' wherever it shows card actions; on Roku that is the * button).
 sub showOptionsDialog()
+    m.optionsTarget = focusedContinueWatchingCard()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Home Options"
-    dialog.buttons = ["Refresh", "Cancel"]
+    if m.optionsTarget <> invalid and m.optionsTarget.title <> "" then dialog.title = m.optionsTarget.title
+    dialog.buttons = ContinueWatching.optionsButtons(m.optionsTarget <> invalid)
     dialog.observeFieldScoped("buttonSelected", "onOptionsButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -1497,10 +1517,16 @@ sub onOptionsButton()
     dialog = m.top.getScene().dialog
     if dialog = invalid then return
     index = dialog.buttonSelected
+    label = ""
+    if index >= 0 and index < dialog.buttons.count() then label = dialog.buttons[index]
     dialog.close = true
 
-    if index = 0
+    target = m.optionsTarget
+    m.optionsTarget = invalid
+    if label = "Refresh"
         loadHomeData()
+    else if label = ContinueWatching.REMOVE_LABEL() and target <> invalid
+        removeContinueWatchingCard(target)
     end if
 
     ' NEVER take focus from a background refresh — the 30s auto-reload was
@@ -1513,5 +1539,79 @@ sub onOptionsButton()
         else
             m.rowList.setFocus(true)
         end if
+    end if
+end sub
+
+' ---------- Remove from Continue Watching ----------
+
+' The focused card, when focus is on the Continue Watching row and the rows are
+' settled. Not during a load: m.rowContent is being rebuilt, and its indices
+' are not the ones on screen.
+function focusedContinueWatchingCard() as dynamic
+    if m.chainBusy or m.continueWatchingRowIndex = invalid then return invalid
+    if not m.rowList.visible or not m.rowList.isInFocusChain() then return invalid
+    focused = m.rowList.rowItemFocused
+    if focused = invalid or focused.count() < 2 then return invalid
+    if focused[0] <> m.continueWatchingRowIndex then return invalid
+    row = m.rowContent.getChild(focused[0])
+    if row = invalid then return invalid
+    card = row.getChild(focused[1])
+    if card = invalid or card.itemJson = invalid or card.itemJson = "" then return invalid
+    item = ParseJSON(card.itemJson)
+    if item = invalid or item.Id = invalid then return invalid
+    title = ""
+    if card.title <> invalid then title = card.title
+    return { item: item, title: title }
+end function
+
+' Optimistic: the card leaves the row now and the server catches up. The local
+' hide is written first, so a reload that beats the server call cannot bring
+' the card back; it is dropped again once the plugin confirms it holds the hide.
+sub removeContinueWatchingCard(target as object)
+    plan = ContinueWatching.removalPlan(target.item)
+    if plan.itemId = "" then return
+    if plan.hide then HiddenStore.hide(plan.seriesId, plan.episodeId)
+
+    kept = []
+    for each it in m.continueWatchingItems
+        if it.Id = invalid or it.Id <> plan.itemId then kept.push(it)
+    end for
+    m.continueWatchingItems = kept
+
+    ' Found by id, not by the focused index: the row is the same node the
+    ' RowList shows, so removing the child updates the screen in place.
+    emptied = false
+    row = invalid
+    if m.continueWatchingRowIndex <> invalid and m.rowContent <> invalid then row = m.rowContent.getChild(m.continueWatchingRowIndex)
+    if row <> invalid
+        for i = 0 to row.getChildCount() - 1
+            card = ParseJSON(row.getChild(i).itemJson)
+            if card <> invalid and card.Id <> invalid and card.Id = plan.itemId
+                row.removeChildIndex(i)
+                exit for
+            end if
+        end for
+        emptied = (row.getChildCount() = 0)
+    end if
+
+    m.global.toastMessage = { message: ContinueWatching.REMOVED_TOAST() }
+    m.cwTask.request = { action: "removeFromContinueWatching", plan: plan }
+    ' An empty row can't stay on screen; the reload lays Home out without it.
+    if emptied then reloadRows()
+end sub
+
+sub onCwTaskResponse()
+    response = m.cwTask.response
+    if response = invalid or response.plan = invalid then return
+    plan = response.plan
+    if plan.hide and response.hiddenOnServer
+        ' The plugin holds it now, and an Undo on another device has to be able
+        ' to bring the series back here too.
+        HiddenStore.dropSeries(plan.seriesId)
+    else if not plan.hide and not response.success
+        ' A movie whose position could not be cleared is still in Resume: put
+        ' the truth back on screen rather than a card that returns later.
+        m.global.toastMessage = { message: "Couldn't remove it. Check your connection." }
+        reloadRows()
     end if
 end sub
