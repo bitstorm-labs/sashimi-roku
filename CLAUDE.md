@@ -42,7 +42,10 @@ Unwatched, the "Season N • X episodes • Y of X watched" line) and
 that series when it is already on the stack, else reloads in place, so Back
 never shows the same series twice) and `source/utils/DetailLayout.bs` (where a detail
 screen's rows start, and the hero region that must end above them so its
-bottom fade is never cut off) and `source/utils/SeriesMeta.bs` (the series meta line,
+bottom fade is never cut off) and `source/utils/Fades.bs` (the "Lightest" backdrop
+fade: left 0-10% of the image's width, bottom 92-100% of its height; the
+home hero sizes its fades from it, and `tests/fades.js` checks the detail
+screen's baked `backdrop_feather.png` / `trailer_feather.png` against it) and `source/utils/SeriesMeta.bs` (the series meta line,
 "1 Season" vs "7 Seasons") and `source/utils/ImageUrl.bs` (image urls
 carry Jellyfin's `&tag=`, read off the right ImageTags / Parent*ImageTag
 field, so a replaced image gets a new url instead of a cached stale copy)

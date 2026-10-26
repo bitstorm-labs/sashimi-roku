@@ -732,6 +732,8 @@ sub reflowHeader()
         return
     end if
 
+    m.titleLabel.width = textWidth(60, 1000)
+    m.overviewLabel.width = textWidth(60, 940)
     if m.itemType = "Series" and m.logoImage.loadStatus = "ready"
         topY = seriesLogoBottom() + 20
     else
@@ -765,6 +767,7 @@ end sub
 ' full width below that. Measuring the title closes the dead band the fixed
 ' y=172 left under a 1-line title while still clearing a 2-line one.
 sub reflowMovieHeader()
+    m.titleLabel.width = textWidth(360, 1000)
     titleY = 84
     titleH = Int(m.titleLabel.boundingRect().height)
     y = titleY + titleH + 8
@@ -786,9 +789,23 @@ sub reflowMovieHeader()
     applyOverviewLines(overviewY)
 end sub
 
+' The light backdrop fade (Fades.bs, #255) no longer washes out the
+' picture's left side, so text must stop short of it rather than run onto
+' the image: a white title over a bright backdrop simply disappears. The
+' widest a text line starting at x may be, capped at `max`.
+function textWidth(x as integer, max as integer) as integer
+    edge = 1920
+    if m.backdropImage.uri <> "" and m.backdropImage.loadStatus = "ready" then edge = m.backdropMask.translation[0]
+    w = edge - 24 - x
+    if w > max then w = max
+    if w < 300 then w = 300
+    return w
+end function
+
 ' The Season page's text column beside the poster: title, meta line, the
 ' info row with the status badge after its text, then the buttons.
 sub reflowSeasonHeader()
+    m.titleLabel.width = textWidth(360, 1000)
     titleH = Int(m.titleLabel.boundingRect().height)
     y = 84 + titleH + 8
     m.metaLabel.translation = [360, y]
@@ -867,6 +884,8 @@ sub onBackdropStatus()
     m.backdropMask.maskSize = [fw, fh]
     m.backdropMask.translation = [1920 - fw, 0]
     layoutTrailer()
+    ' The text column stops at the image's real left edge (textWidth).
+    if m.item <> invalid then reflowHeader()
 end sub
 
 sub setBackdrop(item as object)
