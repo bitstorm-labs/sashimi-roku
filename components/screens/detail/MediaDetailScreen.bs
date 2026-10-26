@@ -12,6 +12,7 @@ import "pkg:/source/utils/WatchState.bs"
 import "pkg:/source/utils/DetailActions.bs"
 import "pkg:/source/utils/SeasonPage.bs"
 import "pkg:/source/utils/DetailNav.bs"
+import "pkg:/source/utils/DetailLayout.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -650,10 +651,10 @@ end sub
 ' text stack otherwise overlaps the 200x300 poster (title sat at y250 inside
 ' the poster's y60-360 box, squishing everything together).
 sub layoutHeader()
-    ' Every type but the Season page starts its rows at 734 and shows an
-    ' overview; this screen is reused in place (an episode's Go to Series, the
-    ' Season page's Series), so each layout sets them.
-    m.rowList.translation = [60, 734]
+    ' Rows start at DetailLayout.rowsTop (higher on the Season page, which
+    ' has no overview); this screen is reused in place (an episode's Go to
+    ' Series, the Season page's Series), so each layout sets them.
+    m.rowList.translation = [60, DetailLayout.rowsTop(m.itemType)]
     m.overviewLabel.visible = true
     if m.itemType = "Season"
         ' Season page (#246): the season poster on the left, series name,
@@ -666,7 +667,6 @@ sub layoutHeader()
         m.titleLabel.font = m.titleFontBig
         m.titleLabel.translation = [360, 84]
         m.overviewLabel.visible = false
-        m.rowList.translation = [60, 480]
     else if m.itemType = "Movie"
         m.moviePosterMask.maskSize = [260, 390]
         m.moviePoster.width = 260
@@ -870,15 +870,14 @@ sub onBackdropStatus()
 end sub
 
 sub setBackdrop(item as object)
-    ' Region the image fits INTO: the Apple app's widths (55% of the screen,
-    ' 60% for a YouTube channel's wide banner), flush top-right like the home
-    ' hero. 648 = a 16:9 picture at 60%, so 16:9 art always gets the full
-    ' width; anything taller is held above the rows. onBackdropStatus shrinks
-    ' poster + mask to the fitted image once the decoded size is known.
-    frac = 0.55
-    if m.isYouTube and m.itemType = "Series" then frac = 0.60
-    m.backdropRegionW = Int(1920 * frac)
-    m.backdropRegionH = 648
+    ' Region the image fits INTO (DetailLayout.heroRegion): flush top-right
+    ' like the home hero, and ending above the rows so its bottom fade -- and
+    ' the hero trailer's, which follows the same rectangle -- is never cut off
+    ' by them. onBackdropStatus shrinks poster + mask to the fitted image once
+    ' the decoded size is known.
+    region = DetailLayout.heroRegion(m.itemType, m.isYouTube)
+    m.backdropRegionW = region.w
+    m.backdropRegionH = region.h
     m.backdropMask.translation = [1920 - m.backdropRegionW, 0]
     m.backdropMask.maskSize = [m.backdropRegionW, m.backdropRegionH]
     m.backdropImage.width = m.backdropRegionW
