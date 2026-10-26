@@ -1,7 +1,7 @@
 ' Off-device tests for source/utils/DetailActions.bs, run by tests/run.js
-' against the transpiled module. The detail screen's action row keeps to
-' playing and the watched toggle; Go to Series, Go to Season N and the
-' administrators' Add to Channel live in More (#246).
+' against the transpiled module. The detail screen's action row is Apple's:
+' Play, Start Over, Shuffle, Trailer, Watched, More (#250); Go to Series,
+' Go to Season N and the administrators' Add to Channel live in More (#246).
 
 sub main()
     t = { passed: 0, failed: 0 }
@@ -56,16 +56,25 @@ sub testEpisodeRow(t as object)
 
     row = DetailActions_mainRow({ itemType: "Episode", hasSeries: true, hasProgress: true, isPlayed: true })
     eq(t, "part-watched episode", labelsOf(row), "Resume|Start Over|Watched|More")
+    eq(t, "Start Over starts from the beginning", row[1].kind, "startOver")
     eq(t, "Watched toggles off", row[2].kind, "markUnplayed")
+    ' Apple offers no Trailer on an episode.
+    row = DetailActions_mainRow({ itemType: "Episode", hasTrailer: true })
+    eq(t, "no Trailer on an episode", kinds(row), "play|markPlayed|more")
 end sub
 
 sub testMovieAndSeriesRow(t as object)
     row = DetailActions_mainRow({ itemType: "Movie", hasTrailer: true, canAddToChannel: true, hasProgress: true })
-    eq(t, "movie row: Play, Start Over, Trailer, Watched, More", kinds(row), "resume|play|trailer|markPlayed|more")
+    eq(t, "movie row: Play, Start Over, Trailer, Watched, More", kinds(row), "resume|startOver|trailer|markPlayed|more")
 
-    ' Shuffle went to More with Add to Channel; a container never offers Start Over.
+    ' Shuffle, Start Over and Trailer stay in the row on a series (#250);
+    ' Add to Channel is in More.
     row = DetailActions_mainRow({ itemType: "Series", hasTrailer: true, canAddToChannel: true, hasProgress: true, epSuffix: " S1:E2" })
-    eq(t, "series row", labelsOf(row), "Resume S1:E2|Trailer|Mark Watched|More")
+    eq(t, "series row", labelsOf(row), "Resume S1:E2|Start Over|Shuffle|Trailer|Mark Watched|More")
+    row = DetailActions_mainRow({ itemType: "Series", epSuffix: " S1:E1" })
+    eq(t, "unstarted series row", labelsOf(row), "Play S1:E1|Shuffle|Mark Watched|More")
+    row = DetailActions_mainRow({ itemType: "Series", pinnedLabel: "Other", hasTrailer: true })
+    eq(t, "pinned series cannot shuffle or trail", labelsOf(row), "Switch to Other|Mark Watched|More")
 end sub
 
 sub testSeasonRow(t as object)
@@ -108,8 +117,7 @@ end sub
 sub testOtherMore(t as object)
     eq(t, "admin movie More", labelsOf(DetailActions_moreItems({ itemType: "Movie", canAddToChannel: true })), "Add to Channel|Add to Favorites")
     eq(t, "movie More", labelsOf(DetailActions_moreItems({ itemType: "Movie" })), "Add to Favorites")
-    eq(t, "admin series More", labelsOf(DetailActions_moreItems({ itemType: "Series", canAddToChannel: true })), "Shuffle|Add to Channel|Add to Favorites")
-    eq(t, "pinned series cannot shuffle", labelsOf(DetailActions_moreItems({ itemType: "Series", pinnedLabel: "Other" })), "Add to Favorites")
+    eq(t, "admin series More has no Shuffle", labelsOf(DetailActions_moreItems({ itemType: "Series", canAddToChannel: true })), "Add to Channel|Add to Favorites")
 end sub
 
 sub testSeasonChipMenu(t as object)
