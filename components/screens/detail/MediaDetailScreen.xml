@@ -108,6 +108,12 @@
             </Label>
         </Group>
 
+        <!-- Season page info row: "2026 • TV-MA", the status badge after it. -->
+        <Label id="seasonInfoLabel" text="" color="#BFBFBF" maxLines="1" height="24"
+               vertAlign="center" translation="[360, 224]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
+        </Label>
+
         <Group id="badgesGroup" translation="[280, 352]" />
         <Group id="tagsGroup" translation="[60, 446]" />
 

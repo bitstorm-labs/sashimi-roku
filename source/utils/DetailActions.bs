@@ -1,0 +1,130 @@
+' What the detail screen offers and where: the action row under the header,
+' the More menu, and the Options (*) menu on a series' season chip (#246).
+' Navigation (Go to Series / Go to Season) and admin tools (Add to Channel)
+' live in More so the row keeps to playing and the watched toggle. Pure
+' functions only, so tests/DetailActionsTests.brs can run them off-device;
+' MediaDetailScreen turns the defs into buttons and dialogs.
+'
+' ctx (every field optional):
+'   itemType        "Movie" | "Episode" | "Series" | "Season" | ...
+'   pinnedLabel     another saved server's label when the title lives there
+'   hasProgress     the item (or a container's resolved episode) is part-watched
+'   epSuffix        " S2:E6" for a container's resolved episode, else ""
+'   isPlayed        the item's own watched flag
+'   seasonPlayed    a Season page: every episode is watched
+'   hasTrailer      a local trailer exists
+'   hasSeries       an episode / season knows its series
+'   seasonId        an episode's season
+'   seasonNumber    an episode's ParentIndexNumber
+'   canAddToChannel administrator, and the title can go on a channel
+'   isFavorite      the item's favourite flag
+namespace DetailActions
+
+    function mainRow(ctx as object) as object
+        itemType = str_(ctx.itemType)
+        pinned = str_(ctx.pinnedLabel)
+        isContainer = (itemType = "Series" or itemType = "Season")
+        suffix = str_(ctx.epSuffix)
+        defs = []
+        if pinned <> ""
+            ' Another server's title cannot play from here.
+            defs.push({ kind: "switchServer", label: "Switch to " + pinned, primary: true })
+        else if ctx.hasProgress = true
+            defs.push({ kind: "resume", label: "Resume" + suffix, primary: true })
+            ' Start Over only makes sense for a concrete playable item.
+            if not isContainer then defs.push({ kind: "play", label: "Start Over", primary: false })
+        else
+            defs.push({ kind: "play", label: "Play" + suffix, primary: true })
+        end if
+
+        if itemType = "Season"
+            ' The Season page's row is the approved mockup's, and nothing else:
+            ' Play, the season-wide watched toggle, Series.
+            defs.push({ kind: "seasonWatch", label: seasonWatchLabel(ctx.seasonPlayed = true), primary: false })
+            if ctx.hasSeries = true then defs.push({ kind: "series", label: "Series", primary: false })
+            return defs
+        end if
+
+        if ctx.hasTrailer = true and pinned = "" then defs.push({ kind: "trailer", label: "Trailer", primary: false })
+        if ctx.isPlayed = true
+            defs.push({ kind: "markUnplayed", label: "Watched", primary: false })
+        else
+            defs.push({ kind: "markPlayed", label: "Mark Watched", primary: false })
+        end if
+        defs.push({ kind: "more", label: "More", primary: false })
+        return defs
+    end function
+
+    ' More, navigation first. Cancel is the dialog's, not listed here.
+    function moreItems(ctx as object) as object
+        itemType = str_(ctx.itemType)
+        pinned = str_(ctx.pinnedLabel)
+        items = []
+        if itemType = "Episode"
+            if ctx.hasSeries = true then items.push({ kind: "series", label: "Go to Series" })
+            if str_(ctx.seasonId) <> "" then items.push({ kind: "season", label: goToSeasonLabel(ctx.seasonNumber) })
+        end if
+        if itemType = "Series" and pinned = "" then items.push({ kind: "shuffle", label: "Shuffle" })
+        if ctx.canAddToChannel = true then items.push({ kind: "addToChannel", label: "Add to Channel" })
+        if ctx.isFavorite = true
+            items.push({ kind: "favorite", label: "Remove from Favorites" })
+        else
+            items.push({ kind: "favorite", label: "Add to Favorites" })
+        end if
+        return items
+    end function
+
+    ' Options (*) on a series' season chip, or in the episode row that belongs
+    ' to it. The watched item still goes through Confirm before writing.
+    function seasonChipMenu(played as boolean) as object
+        return [
+            { kind: "openSeason", label: "Open Season" },
+            { kind: "seasonWatch", label: seasonWatchLabel(played) }
+        ]
+    end function
+
+    function seasonWatchLabel(played as boolean) as string
+        if played then return "Mark Season Unwatched"
+        return "Mark Season Watched"
+    end function
+
+    ' Season 0 is where Jellyfin files specials.
+    function goToSeasonLabel(seasonNumber as dynamic) as string
+        n = int_(seasonNumber)
+        if n = 0 then return "Go to Specials"
+        if n < 0 then return "Go to Season"
+        return "Go to Season " + n.ToStr()
+    end function
+
+    ' " S2:E6" -- the suffix a container's Play button carries for the episode
+    ' it resolved to; "" when either number is missing.
+    function episodeSuffix(ep as dynamic) as string
+        if ep = invalid then return ""
+        s = int_(ep.ParentIndexNumber)
+        e = int_(ep.IndexNumber)
+        if s < 0 or e < 0 then return ""
+        return " S" + s.ToStr() + ":E" + e.ToStr()
+    end function
+
+    function labels(items as object) as object
+        out = []
+        for each it in items
+            out.push(it.label)
+        end for
+        return out
+    end function
+
+    function str_(v as dynamic) as string
+        if type(v) = "String" or type(v) = "roString" then return v
+        return ""
+    end function
+
+    ' -1 for anything that is not a number.
+    function int_(v as dynamic) as integer
+        t = type(v)
+        if t = "Integer" or t = "roInt" or t = "roInteger" or t = "LongInteger" or t = "roLongInteger" then return v
+        if t = "Float" or t = "roFloat" or t = "Double" or t = "roDouble" then return Int(v)
+        return -1
+    end function
+
+end namespace
