@@ -4,6 +4,7 @@ import "pkg:/source/utils/Quality.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/ContinueWatching.bs"
 import "pkg:/source/utils/HiddenStore.bs"
+import "pkg:/source/utils/RailItems.bs"
 
 sub init()
     m.rowList = m.top.findNode("rowList")
@@ -48,6 +49,7 @@ sub init()
     m.pendingRow = invalid
     m.heroEnabled = true
     m.cwEnabled = true
+    m.stationsEnabled = true
     m.startOnRows = false
     m.chainBusy = false
     m.reloadPending = false
@@ -367,6 +369,10 @@ sub applyHomeRowConfig()
         end if
     end for
 
+    ' SashimiTV has a Home row and a side-menu place of its own; configs saved
+    ' before it was configurable gain its entry, shown in both.
+    merged = RailItems.withFintv(merged)
+
     ' Every load runs this merge, but the result only changes when a library is
     ' added/renamed/removed — writing unconditionally meant a flash commit
     ' (Registry.write Flush()es) on every refresh.
@@ -376,12 +382,15 @@ sub applyHomeRowConfig()
     ' apply: visibility gates + library order
     m.heroEnabled = true
     m.cwEnabled = true
+    m.stationsEnabled = true
     ordered = []
     for each c in merged
         if c.kind = "hero"
             m.heroEnabled = (c.visible = true)
         else if c.kind = "cw"
             m.cwEnabled = (c.visible = true)
+        else if c.kind = "fintv"
+            m.stationsEnabled = RailItems.onHome(c)
         else if c.kind = "library" and c.visible = true
             for each lib in m.libraries
                 if lib.Id = c.libraryId then ordered.push(lib)
@@ -460,7 +469,14 @@ sub buildHomeRows()
     ' Stations sits between Continue Watching and the libraries, as it does on the
     ' other clients. One request assembles the whole row (see doGetChannelCards);
     ' a server without the plugin answers with no cards, and the chain carries on.
-    m.apiTask.request = { action: "getChannelCards" }
+    if m.stationsEnabled
+        m.apiTask.request = { action: "getChannelCards" }
+    else
+        ' Hidden from Home (Settings > Home & Side Menu); its channels stay out
+        ' of the hero rotation too.
+        m.heroChannels = []
+        startLibraryChain()
+    end if
 end sub
 
 sub onChannelCardsLoaded(response as object)

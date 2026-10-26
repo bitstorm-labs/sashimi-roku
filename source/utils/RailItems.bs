@@ -1,0 +1,120 @@
+' Which destinations the side menu (rail) lists, and in what order. The Home
+' rows config (Registry "settings"/"homeRowOrder", edited in Settings > Home &
+' Side Menu) carries a second flag per destination, `rail`, independent of its
+' Home `visible` flag: hiding a row from Home says nothing about the menu, and
+' the other way round. Pure functions only, so tests/RailItemsTests.brs can run
+' them off-device.
+namespace RailItems
+
+    ' Rows that are also rail destinations: a library, and SashimiTV. The hero
+    ' and Continue Watching are Home-only.
+    function isDestination(entry as dynamic) as boolean
+        k = kindOf(entry)
+        return (k = "library" or k = "fintv")
+    end function
+
+    ' Config rows come from the registry; never compare an absent field (invalid
+    ' against a string or boolean is a runtime type mismatch on device).
+    function kindOf(entry as dynamic) as string
+        if entry = invalid or type(entry) <> "roAssociativeArray" then return ""
+        if entry.kind = invalid or GetInterface(entry.kind, "ifString") = invalid then return ""
+        return entry.kind
+    end function
+
+    function flagOn(value as dynamic) as boolean
+        if value = invalid or GetInterface(value, "ifBoolean") = invalid then return true
+        return value
+    end function
+
+    ' A missing flag means shown: configs saved before the menu toggle existed,
+    ' and libraries the server gained since, keep everything in the menu.
+    function inRail(entry as dynamic) as boolean
+        if not isDestination(entry) then return false
+        return flagOn(entry.rail)
+    end function
+
+    function onHome(entry as dynamic) as boolean
+        if kindOf(entry) = "" then return false
+        return flagOn(entry.visible)
+    end function
+
+    ' Hidden from both Home and the menu: Search is the only way back to it.
+    function onlyFromSearch(entry as dynamic) as boolean
+        return isDestination(entry) and not onHome(entry) and not inRail(entry)
+    end function
+
+    ' The rail's ids, top to bottom. Home, Search and Settings are always there
+    ' whatever the config says. SashimiTV keeps its place under Home (as on the
+    ' other clients); libraries follow the Home row order. A library the config
+    ' doesn't know yet is shown, after the known ones, in server order; config
+    ' entries for libraries the server no longer has are ignored.
+    function ids(libraryIds as object, config as dynamic) as object
+        if config = invalid or type(config) <> "roArray" then config = []
+        result = ["home"]
+        fintvShown = true
+        for each c in config
+            if kindOf(c) = "fintv" then fintvShown = inRail(c)
+        end for
+        if fintvShown then result.push("fintv")
+
+        present = {}
+        for each id in libraryIds
+            present[id] = true
+        end for
+        placed = {}
+        for each c in config
+            if kindOf(c) = "library" and c.libraryId <> invalid and GetInterface(c.libraryId, "ifString") <> invalid and present.DoesExist(c.libraryId) and not placed.DoesExist(c.libraryId)
+                placed[c.libraryId] = true
+                if inRail(c) then result.push("lib:" + c.libraryId)
+            end if
+        end for
+        for each id in libraryIds
+            if not placed.DoesExist(id) then result.push("lib:" + id)
+        end for
+
+        result.push("search")
+        result.push("settings")
+        return result
+    end function
+
+    ' The SashimiTV entry, added to a config that predates it, right after
+    ' Continue Watching (where its Home row sits).
+    function withFintv(config as object) as object
+        for each c in config
+            if kindOf(c) = "fintv" then return config
+        end for
+        entry = { id: "fintv", kind: "fintv", name: "SashimiTV", visible: true, rail: true }
+        result = []
+        inserted = false
+        for each c in config
+            result.push(c)
+            if not inserted and kindOf(c) = "cw"
+                result.push(entry)
+                inserted = true
+            end if
+        end for
+        if not inserted then result.unshift(entry)
+        return result
+    end function
+
+    ' The editor's two columns for one row: "on" / "off", and "none" for the
+    ' menu column of a row that is not a destination (drawn as a dash).
+    function marks(entry as dynamic) as object
+        homeMark = "off"
+        if onHome(entry) then homeMark = "on"
+        railMark = "none"
+        if isDestination(entry)
+            railMark = "off"
+            if inRail(entry) then railMark = "on"
+        end if
+        return { home: homeMark, rail: railMark }
+    end function
+
+    ' Options (*) on a row in the editor. Rows that are not destinations have no
+    ' menu column, so the key does nothing there.
+    function toggleRail(entry as object) as object
+        if isDestination(entry) then entry.rail = not inRail(entry)
+        return entry
+    end function
+
+end namespace

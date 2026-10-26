@@ -5,6 +5,7 @@ import "pkg:/source/utils/Servers.bs"
 import "pkg:/source/utils/ViewMode.bs"
 import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/Filmography.bs"
+import "pkg:/source/utils/RailItems.bs"
 
 ' tvOS Settings parity: card rows (maxWidth 800), focus = accent fill + scale.
 ' Pickers cycle values on OK (TV-simple equivalent of tvOS picker subscreens).
@@ -79,8 +80,8 @@ sub init()
 
     m.allItems = [
         { key: "", title: "Servers", kind: "servers" },
-        { key: "", title: "Server Dashboard", kind: "dashboard" },
-        { key: "", title: "Home Screen Rows", kind: "homerows" },
+        { key: "", title: "Dashboard", kind: "dashboard" },
+        { key: "", title: "Home & Side Menu", kind: "homerows" },
         { key: "maxBitrateMbps", title: "Maximum Bitrate", kind: "picker", options: m.bitrateOptions },
         { key: "forceDirectPlay", title: "Always Play Original", kind: "toggle", default: "false" },
         { key: "autoPlayNextEpisode", title: "Auto-Play Next Episode", kind: "toggle", default: "true" },
@@ -110,7 +111,7 @@ sub init()
     m.global.observeFieldScoped("isAdministrator", "onAdministratorChanged")
 end sub
 
-' The Server Dashboard row exists only for administrators.
+' The Dashboard row exists only for administrators.
 function visibleItems() as object
     out = []
     for each item in m.allItems
@@ -368,11 +369,14 @@ function onKeyEvent(key as string, press as boolean) as boolean
 end function
 
 
-' ---------- Home Screen Rows editor ----------
+' ---------- Home & Side Menu editor ----------
 ' Config stored in Registry "settings"/"homeRowOrder" as a JSON array of
-' {id, kind ("hero"/"cw"/"library"), libraryId, name, visible}; array order
-' is row order (tvOS homeScreenRowOrder parity). The Home screen merges in
-' new/removed libraries on load; this editor renders whatever is saved.
+' {id, kind ("hero"/"cw"/"fintv"/"library"), libraryId, name, visible, rail};
+' array order is row order (tvOS homeScreenRowOrder parity). `visible` is the
+' Home row, `rail` the side-menu entry, independent of each other (only
+' destinations -- libraries, SashimiTV -- have one; RailItems.bs). The Home
+' screen merges in new/removed libraries on load; this editor renders whatever
+' is saved. OK toggles Home, Options (*) the side menu, Left/Right move.
 
 sub openHomeRowsEditor()
     cfg = Registry.readJson("settings", "homeRowOrder")
@@ -380,7 +384,7 @@ sub openHomeRowsEditor()
         m.global.toastMessage = { message: "Visit the Home tab first to load your libraries" }
         return
     end if
-    m.hrConfig = cfg
+    m.hrConfig = RailItems.withFintv(cfg)
     m.hrIndex = 0
     m.hrOpen = true
     renderHomeRows()
@@ -398,7 +402,7 @@ sub renderHomeRows()
         bg.opacity = 1.0
         m.hrPanel.appendChild(bg)
         title = CreateObject("roSGNode", "Label")
-        title.text = "Home Screen Rows"
+        title.text = "Home & Side Menu"
         title.color = "#FFFFFF"
         f = CreateObject("roSGNode", "Font")
         f.uri = "pkg:/fonts/Inter-Bold.ttf"
@@ -407,7 +411,7 @@ sub renderHomeRows()
         title.translation = [560, 90]
         m.hrPanel.appendChild(title)
         hint = CreateObject("roSGNode", "Label")
-        hint.text = "Up/Down select" + Chr(8226) + " Left/Right move " + Chr(8226) + " OK show/hide " + Chr(8226) + " Back done"
+        hint.text = "Up/Down select " + Chr(8226) + " Left/Right move " + Chr(8226) + " OK Home " + Chr(8226) + " * Side menu " + Chr(8226) + " Back done"
         hint.color = "#888888"
         f2 = CreateObject("roSGNode", "Font")
         f2.uri = "pkg:/fonts/Inter-Medium.ttf"
@@ -415,9 +419,25 @@ sub renderHomeRows()
         hint.font = f2
         hint.translation = [560, 150]
         m.hrPanel.appendChild(hint)
+        ' Column heads over the two toggles.
+        for each head in [{ text: "Home", x: 1100 }, { text: "Side menu", x: 1220 }]
+            hl = CreateObject("roSGNode", "Label")
+            hl.text = head.text
+            hl.color = "#888888"
+            hl.width = 140
+            hl.horizAlign = "center"
+            hl.font = hrFont("pkg:/fonts/Inter-Medium.ttf", 22)
+            hl.translation = [head.x, 196]
+            m.hrPanel.appendChild(hl)
+        end for
         m.hrRows = CreateObject("roSGNode", "Group")
-        m.hrRows.translation = [560, 210]
+        m.hrRows.translation = [560, 236]
         m.hrPanel.appendChild(m.hrRows)
+        m.hrFooter = CreateObject("roSGNode", "Label")
+        m.hrFooter.text = "Always in the side menu: Home, Search, Settings"
+        m.hrFooter.color = "#888888"
+        m.hrFooter.font = hrFont("pkg:/fonts/Inter-Medium.ttf", 22)
+        m.hrPanel.appendChild(m.hrFooter)
         m.top.appendChild(m.hrPanel)
     end if
     m.hrPanel.visible = true
@@ -439,16 +459,26 @@ sub renderHomeRows()
         end if
         cell.appendChild(bg)
         lbl = CreateObject("roSGNode", "Label")
-        txt = c.name
-        if c.visible = false then txt = txt + "   (hidden)"
-        lbl.text = txt
-        lbl.width = 760
+        lbl.text = c.name
+        lbl.width = 500
         lbl.height = 60
+        onlySearch = RailItems.onlyFromSearch(c)
+        if onlySearch
+            ' Hidden from both: the name moves up to make room for the note.
+            lbl.height = 40
+            note = CreateObject("roSGNode", "Label")
+            note.text = "Only reachable from Search"
+            note.width = 500
+            note.translation = [20, 34]
+            note.font = hrFont("pkg:/fonts/Inter-Medium.ttf", 18)
+            if i = m.hrIndex then note.color = "#444444" else note.color = "#888888"
+            cell.appendChild(note)
+        end if
         lbl.translation = [20, 0]
         lbl.vertAlign = "center"
         if i = m.hrIndex
             lbl.color = "#000000"
-        else if c.visible = false
+        else if not RailItems.onHome(c) and not RailItems.inRail(c)
             lbl.color = "#777777"
         else
             lbl.color = "#FFFFFF"
@@ -458,9 +488,43 @@ sub renderHomeRows()
         f3.size = 26
         lbl.font = f3
         cell.appendChild(lbl)
+        mk = RailItems.marks(c)
+        cols = [{ mark: mk.home, x: 540 }, { mark: mk.rail, x: 660 }]
+        for each col in cols
+            ml = CreateObject("roSGNode", "Label")
+            ml.text = hrMarkText(col.mark)
+            ml.width = 140
+            ml.height = 60
+            ml.horizAlign = "center"
+            ml.vertAlign = "center"
+            ml.translation = [col.x, 0]
+            if i = m.hrIndex
+                ml.color = "#000000"
+            else if col.mark = "on"
+                ml.color = "#FFFFFF"
+            else
+                ml.color = "#777777"
+            end if
+            ml.font = hrFont("pkg:/fonts/Inter-Medium.ttf", 24)
+            cell.appendChild(ml)
+        end for
         m.hrRows.appendChild(cell)
     end for
+    m.hrFooter.translation = [580, 236 + m.hrConfig.count() * 68 + 16]
 end sub
+
+function hrMarkText(mark as string) as string
+    if mark = "on" then return "On"
+    if mark = "off" then return "Off"
+    return Chr(8212)
+end function
+
+function hrFont(uri as string, size as integer) as object
+    f = CreateObject("roSGNode", "Font")
+    f.uri = uri
+    f.size = size
+    return f
+end function
 
 sub saveHomeRows()
     Registry.writeJson("settings", "homeRowOrder", m.hrConfig)
@@ -470,7 +534,9 @@ sub closeHomeRowsEditor()
     saveHomeRows()
     m.hrOpen = false
     if m.hrPanel <> invalid then m.hrPanel.visible = false
-    m.global.toastMessage = { message: "Home rows saved" }
+    m.global.toastMessage = { message: "Saved" }
+    ' The rail rebuilds from the saved config (Sidebar.onHomeRowsChanged).
+    m.global.homeRowsVersion = m.global.homeRowsVersion + 1
 end sub
 
 function handleHomeRowsKey(key as string) as boolean
@@ -498,8 +564,12 @@ function handleHomeRowsKey(key as string) as boolean
         return true
     else if key = "OK"
         c = m.hrConfig[m.hrIndex]
-        c.visible = not (c.visible = true)
+        c.visible = not RailItems.onHome(c)
         m.hrConfig[m.hrIndex] = c
+        renderHomeRows()
+        return true
+    else if key = "options"
+        m.hrConfig[m.hrIndex] = RailItems.toggleRail(m.hrConfig[m.hrIndex])
         renderHomeRows()
         return true
     end if
