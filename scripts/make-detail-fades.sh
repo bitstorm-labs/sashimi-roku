@@ -2,9 +2,10 @@
 # Regenerates the detail-screen hero fade assets (needs ImageMagick 7).
 #
 # The picture sits flush against the top-right corner and fades only on its
-# LEFT 35% (transparent -> opaque, into the title text) and BOTTOM 40% (opaque
-# -> transparent, into the rows) -- the home hero's shape, and the Apple app's
-# MediaDetailView mask.
+# LEFT 10% (transparent -> opaque, into the title text) and BOTTOM 8% (opaque
+# -> transparent, into the rows): the "Lightest" fade shared by every client
+# (#255). LEFT and BOTTOM must match source/utils/Fades.bs; tests/fades.js
+# checks the PNGs against them.
 #
 # backdrop_feather.png  MaskGroup alpha mask for the image. A real mask, so the
 #                       page gradient shows through and no colour has to match.
@@ -18,7 +19,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/../images"
 W=1056 H=594   # 55% of 1920, 16:9 -- the movie/episode size (stretched to fit)
-FX="min(i/(0.35*w),1)*min((h-1-j)/(0.4*h),1)"
+LEFT=0.10      # Fades.LEFT
+BOTTOM=0.08    # Fades.BOTTOM
+FX="min(i/(${LEFT}*w),1)*min((h-1-j)/(${BOTTOM}*h),1)"
 magick -size ${W}x${H} xc:white -alpha set -channel A -fx "$FX" +channel \
     -strip PNG32:backdrop_feather.png
 magick bg_gradient.png -crop 1x297+4+0 +repage -alpha off -filter Triangle \
