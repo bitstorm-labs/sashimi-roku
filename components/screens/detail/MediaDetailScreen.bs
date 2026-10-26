@@ -1484,6 +1484,13 @@ sub runAction(kind as string)
         else
             m.top.playItem = { item: item, action: kind }
         end if
+    else if kind = "startOver"
+        ' From the beginning: a series' resolved episode, else the item.
+        if m.itemType = "Series"
+            if m.playTarget <> invalid then m.top.playItem = { item: m.playTarget, action: "play" }
+        else
+            m.top.playItem = { item: item, action: "play" }
+        end if
     else if kind = "markPlayed" or kind = "markUnplayed"
         enqueue({ action: kind, itemId: item.Id })
     else if kind = "seasonWatch"
@@ -1541,7 +1548,8 @@ sub openSeason(season as object)
 end sub
 
 ' More: the overview in full (the header caps it at 2-4 lines) over
-' DetailActions.moreItems -- navigation first, then the rest. (Trailer is not
+' DetailActions.moreItems -- navigation first, then Add to Channel and the
+' Favorite toggle. (Trailer is not
 ' portable -- Roku channels are sandboxed and cannot launch the YouTube app
 ' for remote trailers.)
 sub showMoreDialog()

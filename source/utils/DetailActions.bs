@@ -1,7 +1,8 @@
 ' What the detail screen offers and where: the action row under the header,
 ' the More menu, and the Options (*) menu on a series' season chip (#246).
 ' Navigation (Go to Series / Go to Season) and admin tools (Add to Channel)
-' live in More so the row keeps to playing and the watched toggle. Pure
+' live in More; everything that plays -- Start Over, Shuffle, Trailer --
+' stays in the row, in the Apple clients' order (#250). Pure
 ' functions only, so tests/DetailActionsTests.brs can run them off-device;
 ' MediaDetailScreen turns the defs into buttons and dialogs.
 '
@@ -20,10 +21,11 @@
 '   isFavorite      the item's favourite flag
 namespace DetailActions
 
+    ' Play, Start Over (with progress), Shuffle (series), Trailer (a local
+    ' trailer, not on episodes), Watched, More -- Apple's DetailRowAction.mainRow.
     function mainRow(ctx as object) as object
         itemType = str_(ctx.itemType)
         pinned = str_(ctx.pinnedLabel)
-        isContainer = (itemType = "Series" or itemType = "Season")
         suffix = str_(ctx.epSuffix)
         defs = []
         if pinned <> ""
@@ -31,8 +33,9 @@ namespace DetailActions
             defs.push({ kind: "switchServer", label: "Switch to " + pinned, primary: true })
         else if ctx.hasProgress = true
             defs.push({ kind: "resume", label: "Resume" + suffix, primary: true })
-            ' Start Over only makes sense for a concrete playable item.
-            if not isContainer then defs.push({ kind: "play", label: "Start Over", primary: false })
+            ' A series starts the episode Resume would continue over; the Season
+            ' page keeps the mockup's row.
+            if itemType <> "Season" then defs.push({ kind: "startOver", label: "Start Over", primary: false })
         else
             defs.push({ kind: "play", label: "Play" + suffix, primary: true })
         end if
@@ -45,7 +48,8 @@ namespace DetailActions
             return defs
         end if
 
-        if ctx.hasTrailer = true and pinned = "" then defs.push({ kind: "trailer", label: "Trailer", primary: false })
+        if itemType = "Series" and pinned = "" then defs.push({ kind: "shuffle", label: "Shuffle", primary: false })
+        if ctx.hasTrailer = true and pinned = "" and itemType <> "Episode" then defs.push({ kind: "trailer", label: "Trailer", primary: false })
         if ctx.isPlayed = true
             defs.push({ kind: "markUnplayed", label: "Watched", primary: false })
         else
@@ -64,7 +68,6 @@ namespace DetailActions
             if ctx.hasSeries = true then items.push({ kind: "series", label: "Go to Series" })
             if str_(ctx.seasonId) <> "" then items.push({ kind: "season", label: goToSeasonLabel(ctx.seasonNumber) })
         end if
-        if itemType = "Series" and pinned = "" then items.push({ kind: "shuffle", label: "Shuffle" })
         if ctx.canAddToChannel = true then items.push({ kind: "addToChannel", label: "Add to Channel" })
         if ctx.isFavorite = true
             items.push({ kind: "favorite", label: "Remove from Favorites" })
