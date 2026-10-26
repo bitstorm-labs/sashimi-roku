@@ -7,9 +7,13 @@
 ' Colours are SceneGraph #RRGGBBAA (alpha LAST). The pill background is the
 ' same colour drawn at TINT_OPACITY, which is what the approved mockup's ~14%
 ' tint over the dark page comes to.
+'
+' The pill is the same rounded rectangle as the media chips beside it (4K,
+' HEVC...), not a capsule (#246): `bg` is the chips' 9-patch.
 namespace ShowStatus
 
     const TINT_OPACITY = 0.14
+    const BG_URI = "pkg:/images/badge_r6.9.png"
 
     ' Series, Season and Episode screens get a pill (the latter two from their
     ' series' status); movies and anything else never do, and an unknown or
@@ -19,10 +23,10 @@ namespace ShowStatus
         if itemType <> "Series" and itemType <> "Season" and itemType <> "Episode" then return invalid
         if type(status) <> "String" and type(status) <> "roString" then return invalid
         s = LCase(status.Trim())
-        if s = "continuing" then return { label: "Continuing", color: "#3FBF7FFF" }
-        if s = "ended" then return { label: "Ended", color: "#B8B6C4FF" }
+        if s = "continuing" then return { label: "Continuing", color: "#3FBF7FFF", bg: BG_URI }
+        if s = "ended" then return { label: "Ended", color: "#B8B6C4FF", bg: BG_URI }
         ' Jellyfin's "Unreleased" reads as "Upcoming" to a viewer.
-        if s = "unreleased" then return { label: "Upcoming", color: "#5CADE6FF" }
+        if s = "unreleased" then return { label: "Upcoming", color: "#5CADE6FF", bg: BG_URI }
         return invalid
     end function
 
