@@ -85,6 +85,11 @@ sub onContentChanged()
         m.castRole.translation = [0, roleY]
         m.castRing.opacity = 0.0
     end if
+    ' Re-apply focus over the resets above. A card's content can change while
+    ' it is focused (the detail screen patches watched state in place on
+    ' return), and the focus fields don't fire again for that -- the ring
+    ' would stay off the very card the viewer is on.
+    onFocusChanged()
 end sub
 
 sub setPulse(active as boolean)

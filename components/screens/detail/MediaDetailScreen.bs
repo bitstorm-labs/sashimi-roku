@@ -8,6 +8,7 @@ import "pkg:/source/utils/HeroTrailer.bs"
 import "pkg:/source/utils/ShowStatus.bs"
 import "pkg:/source/utils/SeriesMeta.bs"
 import "pkg:/source/utils/RowWindow.bs"
+import "pkg:/source/utils/WatchState.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -101,6 +102,9 @@ sub init()
     m.backdropRegionW = 1056
     m.backdropRegionH = 648
 
+    ' The watched-state version this screen's rows and buttons reflect.
+    m.watchSeen = m.global.watchStateVersion
+    m.global.observeFieldScoped("watchStateVersion", "onWatchStateVersion")
     m.top.observeField("focusedChild", "onFocusDelegate")
     ' The administrator flag arrives after launch (MainScene asks the server
     ' on every activation), so a detail already on screen picks it up late.
@@ -198,7 +202,11 @@ sub onApiResponse()
     m.reqActive = false
 
     action = response.action
-    if response.context <> invalid and response.context = "season"
+    if response.context <> invalid and response.context = "watch"
+        ' Back in front after a watched-state write elsewhere (see
+        ' refreshWatchState): repaint in place, never rebuild the screen.
+        onWatchRefreshResponse(response)
+    else if response.context <> invalid and response.context = "season"
         ' Season-level watched toggle and its targeted refresh: kept apart from
         ' the whole-item paths so the screen isn't rebuilt and focus stays on
         ' the season chip.
@@ -233,6 +241,7 @@ sub onApiResponse()
             ' Home must refresh on return even inside its 20s debounce —
             ' the just-toggled show otherwise lingers in Continue Watching.
             m.global.watchStateDirty = true
+            noteWatchWrite()
             enqueue({ action: "getItem", itemId: m.item.Id })
         else if not response.success
             ' These writes used to report success unconditionally, so "Updated"
@@ -296,6 +305,10 @@ end function
 
 sub onFocusDelegate()
     if not m.top.hasFocus() then return
+    ' MainScene.popScreen focuses the screen itself when it comes back to the
+    ' front. A watched-state write since this screen loaded (an episode marked
+    ' on its own page, a closed player) left its rows and buttons stale.
+    if m.item <> invalid and WatchState.isStale(m.watchSeen, m.global.watchStateVersion) then refreshWatchState()
     ' Retry is the only focusable node while the error panel is up (m.item is
     ' invalid there, so focusZone has nothing to focus).
     if m.errorRetry.visible
@@ -1869,6 +1882,7 @@ sub onSeasonWatchResponse(response as object)
         end if
         ' Home refreshes Continue Watching / Next Up on return.
         m.global.watchStateDirty = true
+        noteWatchWrite()
         if m.item = invalid then return
         ' Series header (its own Watched button), season UserData + episode
         ' badges, then the Play target — Next Up moves with the season.
@@ -1889,4 +1903,93 @@ sub onSeasonWatchResponse(response as object)
         ' Unscoped context: the episode reload goes through onEpisodesLoaded.
         enqueue({ action: "getEpisodes", seriesId: m.item.Id, seasonId: m.seasons[m.selectedSeasonIndex].Id })
     end if
+end sub
+
+' ---------- Watched-state refresh on return ----------
+
+' A write that lands while this screen is already in front -- the player's
+' stop report answers after the player has popped -- gets no focus change to
+' notice it by. Screens underneath wait for onFocusDelegate.
+sub onWatchStateVersion()
+    if m.item = invalid or not m.top.isInFocusChain() then return
+    if WatchState.isStale(m.watchSeen, m.global.watchStateVersion) then refreshWatchState()
+end sub
+
+' This screen changed watched state itself: tell every screen underneath, and
+' don't count its own write as news when it next takes focus (it re-reads
+' itself already).
+sub noteWatchWrite()
+    m.global.watchStateVersion = m.global.watchStateVersion + 1
+    m.watchSeen = m.global.watchStateVersion
+end sub
+
+' Re-read what shows watched state -- the item (Watched / Resume buttons), the
+' episode row, the Play target -- without rebuilding the screen, so focus stays
+' where the viewer left it.
+sub refreshWatchState()
+    m.watchSeen = m.global.watchStateVersion
+    item = m.item
+    enqueue({ action: "getItem", itemId: item.Id, context: "watch" })
+    if m.itemType = "Series"
+        enqueue({ action: "getSeasons", seriesId: item.Id, context: "watch" })
+        if m.seasons.count() > 0 and m.selectedSeasonIndex < m.seasons.count()
+            enqueue({ action: "getEpisodes", seriesId: item.Id, seasonId: m.seasons[m.selectedSeasonIndex].Id, context: "watch" })
+        end if
+        enqueue({ action: "getNextUp", seriesId: item.Id, limit: 1, context: "playTargetNextUp" })
+    else if m.itemType = "Season"
+        if item.SeriesId <> invalid and item.SeriesId <> "" then enqueue({ action: "getEpisodes", seriesId: item.SeriesId, seasonId: item.Id, context: "watch" })
+        enqueue({ action: "getItems", parentId: item.Id, includeItemTypes: "Episode", sortBy: "ParentIndexNumber,IndexNumber", limit: 1, isPlayed: false, context: "playTargetUnwatched" })
+    else if m.itemType = "Episode"
+        if item.SeriesId <> invalid and item.SeasonId <> invalid then enqueue({ action: "getEpisodes", seriesId: item.SeriesId, seasonId: item.SeasonId, context: "watch" })
+    end if
+end sub
+
+sub onWatchRefreshResponse(response as object)
+    action = response.action
+    ' A failed re-read changes nothing already on screen; stay quiet.
+    if not response.success then return
+    if action = "getItem"
+        ' The screen may have become another item meanwhile (an episode's
+        ' Series button reloads it as the series).
+        if response.item = invalid or m.item = invalid or response.item.Id <> m.item.Id then return
+        m.item = response.item
+        buildButtons()
+    else if action = "getSeasons"
+        ' Season UserData decides Watched vs Unwatched in the season menu.
+        if response.items <> invalid and response.items.count() = m.seasons.count() then m.seasons = response.items
+    else if action = "getEpisodes"
+        applyEpisodeRefresh(response)
+    end if
+end sub
+
+sub applyEpisodeRefresh(response as object)
+    ' The season shown must still be the one fetched.
+    if m.itemType = "Series"
+        if m.selectedSeasonIndex >= m.seasons.count() or m.seasons[m.selectedSeasonIndex].Id <> response.seasonId then return
+    end if
+    plan = WatchState.episodePlan(m.selectedEpisodes, response.items)
+    if plan.mode = "keep" then return
+    if plan.mode = "rebuild"
+        onEpisodesLoaded(response)
+        return
+    end if
+    rowIndex = -1
+    for i = 0 to m.rowKinds.count() - 1
+        if m.rowKinds[i] = "episode" then rowIndex = i
+    end for
+    row = invalid
+    if rowIndex >= 0 and m.rowContent <> invalid then row = m.rowContent.getChild(rowIndex)
+    if row = invalid or row.getChildCount() <> response.items.count()
+        onEpisodesLoaded(response)
+        return
+    end if
+    for each i in plan.indices
+        ep = response.items[i]
+        if m.isYouTube then ep._forceYouTube = true
+        child = row.getChild(i)
+        child.itemJson = FormatJSON(ep)
+        child.isPlayed = WatchState.played(ep)
+        child.playedPercentage = WatchState.percent(ep)
+    end for
+    m.selectedEpisodes = response.items
 end sub
