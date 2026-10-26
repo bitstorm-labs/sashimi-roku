@@ -27,6 +27,9 @@ and `source/utils/HeroTrailer.bs` (the detail-screen hero trailer: whose
 trailer a screen plays, movies to their end vs the series' 10-40 s clip,
 the fade point, once-per-visit ownership, when a trailer that follows
 the theme song readies its stream)
+and `source/utils/ContinueWatching.bs` (the row's merge and order, the
+plugin row, and Remove from Continue Watching: what a removal clears or
+hides, the local hide list and when an entry goes stale, Home's options menu)
 and `source/utils/ShowStatus.bs` (the show-status pill on series, season
 and episode screens: the series' `Status` to Continuing / Ended / Upcoming,
 nothing otherwise) and `source/utils/SeriesMeta.bs` (the series meta line,

@@ -12,6 +12,12 @@ sub main()
     testStaleNextUpDateUsesSeries(t)
     testServerRowRequest(t)
     testServerRowAnswer(t)
+    testRemovalPlan(t)
+    testHiddenOnServer(t)
+    testHiddenStore(t)
+    testHiddenFilter(t)
+    testHiddenFilterStale(t)
+    testOptionsButtons(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -132,4 +138,129 @@ sub testServerRowAnswer(t as object)
     eq(t, "no plugin", type(ContinueWatching_serverRowItems(invalid)), "Invalid")
     eq(t, "malformed answer", type(ContinueWatching_serverRowItems({ Error: "x" })), "Invalid")
     eq(t, "empty row is still an answer", ContinueWatching_serverRowItems({ Items: [] }).count(), 0)
+end sub
+
+function resumeItem(id as string, series as dynamic, ticks as dynamic, kind = "Episode" as string) as object
+    it = item(id, series, "2026-10-20T20:00:00Z", kind)
+    if ticks <> invalid then it.UserData.PlaybackPositionTicks = ticks
+    return it
+end function
+
+function entryList(entries as object) as string
+    out = ""
+    for each e in entries
+        if out <> "" then out = out + ","
+        out = out + e.seriesId + "=" + e.episodeId
+    end for
+    return out
+end function
+
+' Remove from Continue Watching (sashimi-apple#742 contract): a part-watched
+' episode clears its position AND hides its series; an unstarted Next Up
+' episode only hides; a movie only clears.
+sub testRemovalPlan(t as object)
+    p = ContinueWatching_removalPlan(resumeItem("ep-5", "show", 12000000000&))
+    eq(t, "resume episode clears", p.clearResume, true)
+    eq(t, "resume episode hides", p.hide, true)
+    eq(t, "hides its series", p.seriesId, "show")
+    eq(t, "at this episode", p.episodeId, "ep-5")
+
+    p = ContinueWatching_removalPlan(resumeItem("ep-6", "show", 0))
+    eq(t, "next up episode has nothing to clear", p.clearResume, false)
+    eq(t, "next up episode hides", p.hide, true)
+
+    p = ContinueWatching_removalPlan(item("ep-7", "show", invalid))
+    eq(t, "no user data: nothing to clear", p.clearResume, false)
+
+    p = ContinueWatching_removalPlan(resumeItem("movie-1", invalid, 9000000000&, "Movie"))
+    eq(t, "movie clears", p.clearResume, true)
+    eq(t, "movie never hides", p.hide, false)
+    eq(t, "movie id", p.itemId, "movie-1")
+
+    p = ContinueWatching_removalPlan(resumeItem("video-1", invalid, 5, "Video"))
+    eq(t, "video without a series never hides", p.hide, false)
+
+    ' The hide is for Next Up, which only ever offers episodes: a non-episode
+    ' that happens to carry a SeriesId (an extra, a trailer) is never hidden.
+    p = ContinueWatching_removalPlan(resumeItem("extra-1", "show", 5, "Video"))
+    eq(t, "non-episode with a series never hides", p.hide, false)
+
+    p = ContinueWatching_removalPlan(invalid)
+    eq(t, "no item: nothing to do", p.clearResume or p.hide, false)
+end sub
+
+' The plugin may not be deployed: only a 2xx means it holds the hide.
+sub testHiddenOnServer(t as object)
+    eq(t, "hidden path", ContinueWatching_hiddenPath("ep-5"), "/ContinueWatching/Hidden/ep-5")
+    eq(t, "204 is the plugin", ContinueWatching_hiddenOnServer(204), true)
+    eq(t, "404 is no plugin", ContinueWatching_hiddenOnServer(404), false)
+    eq(t, "error keeps it local", ContinueWatching_hiddenOnServer(500), false)
+    eq(t, "timeout keeps it local", ContinueWatching_hiddenOnServer(0), false)
+    eq(t, "per user and server", ContinueWatching_hiddenStoreKey("http://jf:8096", "u1") <> ContinueWatching_hiddenStoreKey("http://jf:8096", "u2"), true)
+    eq(t, "per server", ContinueWatching_hiddenStoreKey("http://a:8096", "u1") <> ContinueWatching_hiddenStoreKey("http://b:8096", "u1"), true)
+end sub
+
+sub testHiddenStore(t as object)
+    entries = ContinueWatching_addHidden(invalid, "a", "a1")
+    entries = ContinueWatching_addHidden(entries, "b", "b4")
+    eq(t, "added", entryList(entries), "a=a1,b=b4")
+    entries = ContinueWatching_addHidden(entries, "a", "a2")
+    eq(t, "one entry per series, newest last", entryList(entries), "b=b4,a=a2")
+    entries = ContinueWatching_addHidden(entries, "c", "c1", 2)
+    eq(t, "oldest drops past the cap", entryList(entries), "a=a2,c=c1")
+    eq(t, "series removed", entryList(ContinueWatching_removeHiddenSeries(entries, "a")), "c=c1")
+    eq(t, "unknown series is a no-op", entryList(ContinueWatching_removeHiddenSeries(entries, "z")), "a=a2,c=c1")
+    eq(t, "corrupt store reads as empty", ContinueWatching_removeHiddenSeries("junk", "a").count(), 0)
+end sub
+
+' The hidden episode leaves the row; other series, movies and a series with no
+' entry stay, and nothing needs saving.
+sub testHiddenFilter(t as object)
+    row = [
+        item("movie-1", invalid, invalid, "Movie")
+        item("the100-s5e1", "the100", invalid)
+        item("gcn-video", "gcn", invalid)
+    ]
+    r = ContinueWatching_filterHidden(row, [{ seriesId: "the100", episodeId: "the100-s5e1" }])
+    eq(t, "hidden episode filtered", ids(r.items), "movie-1,gcn-video")
+    eq(t, "live entry kept", entryList(r.entries), "the100=the100-s5e1")
+    eq(t, "nothing to save", r.changed, false)
+
+    r = ContinueWatching_filterHidden(row, [])
+    eq(t, "no entries: row untouched", ids(r.items), "movie-1,the100-s5e1,gcn-video")
+
+    ' The series is not in this (capped) row at all: no evidence it moved on.
+    r = ContinueWatching_filterHidden(row, [{ seriesId: "darkmatter", episodeId: "dm-s2e5" }])
+    eq(t, "absent series keeps its entry", entryList(r.entries), "darkmatter=dm-s2e5")
+    eq(t, "absent series: nothing to save", r.changed, false)
+end sub
+
+' Next Up moved on (the hidden episode was watched elsewhere): the series is
+' back with its new episode and the entry is dropped for good.
+sub testHiddenFilterStale(t as object)
+    row = [
+        item("the100-s5e2", "the100", invalid)
+        item("gcn-video", "gcn", invalid)
+    ]
+    entries = [{ seriesId: "the100", episodeId: "the100-s5e1" }, { seriesId: "gcn", episodeId: "gcn-video" }]
+    r = ContinueWatching_filterHidden(row, entries)
+    eq(t, "moved-on series shows again", ids(r.items), "the100-s5e2")
+    eq(t, "stale entry dropped", entryList(r.entries), "gcn=gcn-video")
+    eq(t, "stale entry needs saving", r.changed, true)
+
+    ' Resume and Next Up both offer the series: the hidden episode goes, and a
+    ' different episode of it in play proves the hide stale.
+    r = ContinueWatching_filterHidden([item("the100-s5e1", "the100", invalid), item("the100-s5e3", "the100", invalid)], [{ seriesId: "the100", episodeId: "the100-s5e1" }])
+    eq(t, "other episode of a hidden series shows", ids(r.items), "the100-s5e3")
+    eq(t, "and ends the hide", r.entries.count(), 0)
+end sub
+
+sub testOptionsButtons(t as object)
+    buttons = ContinueWatching_optionsButtons(true)
+    eq(t, "cw card leads with remove", buttons[0], "Remove from Continue Watching")
+    eq(t, "cw card keeps refresh", buttons[1], "Refresh")
+    eq(t, "cw card can cancel", buttons[buttons.count() - 1], "Cancel")
+    eq(t, "elsewhere: refresh only", ContinueWatching_optionsButtons(false).count(), 2)
+    eq(t, "elsewhere: refresh first", ContinueWatching_optionsButtons(false)[0], "Refresh")
+    eq(t, "toast copy", ContinueWatching_REMOVED_TOAST(), "Removed from Continue Watching")
 end sub
