@@ -72,7 +72,7 @@ Movies use the same layout without seasons.*
   ascending/descending, and filters (All, Unwatched, Watched, Favorites). Press
   `*` for the menu. RIGHT from the grid opens an A-Z jump bar.
 - **Shuffle.** UP from the top row of a Movies or TV library plays a random
-  item. Series screens have their own Shuffle (in **More**) for a random episode.
+  item. Series screens have their own Shuffle for a random episode.
 - **Search** across movies and series, with your last 10 queries.
 - **People.** Open a cast member to see what else they are in, across all your
   saved servers.
@@ -95,9 +95,9 @@ dashboard.
 
 ### Detail screens
 
-- **Play**, **Resume** (with **Start Over**), **Trailer**, **Mark Watched** and
-  **More**. More shows the full overview, then **Go to Series** and **Go to
-  Season N** on an episode, **Shuffle** on a series, **Add to Channel** for
+- **Play**, **Resume** (with **Start Over**), **Shuffle** (series), **Trailer**,
+  **Mark Watched** and **More**. More shows the full overview, then **Go to
+  Series** and **Go to Season N** on an episode, **Add to Channel** for
   administrators, and the Favorite toggle.
 - **Trailer button.** Appears when the item has a local trailer on the server,
   for example one downloaded by [Trailarr](https://github.com/nandyalu/trailarr).
