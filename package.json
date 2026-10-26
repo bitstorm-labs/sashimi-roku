@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@rokucommunity/brs": "^0.47.6",
-    "brighterscript": "^0.73.7",
+    "brighterscript": "^0.73.8",
     "roku-deploy": "^3.12.0"
   }
 }
