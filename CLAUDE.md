@@ -74,7 +74,8 @@ and `source/utils/ListsModel.bs` (shared lists between server and screens:
 cards from a list's viewer-filtered entries, counts that never read
 `ItemIds`, a show's first-episode anchor, the duplicate check, the
 DisplayPreferences body that keeps other keys, the 404 prune, creators'
-names, the copy, the list page's buttons and Edit List menu, Home rows for
+names, the copy, the create body that never carries items (12.4 drops the
+self-share otherwise), the list page's buttons and Edit List menu, Home rows for
 subscriptions and where they sit, and the owner's moves).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network

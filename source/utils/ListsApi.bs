@@ -241,9 +241,7 @@ namespace ListsApi
     ' only way anyone else learns who made it. If it cannot be recorded the
     ' list is deleted again rather than left ownerless.
     function create(me as string, name as string, isPublic as boolean, targetId as string) as object
-        ids = []
-        if targetId <> "" then ids.push(targetId)
-        r = Http.send("POST", "/Playlists", { Name: name, Ids: ids, UserId: me, MediaType: "Video", IsPublic: isPublic })
+        r = Http.send("POST", "/Playlists", ListsModel.createBody(name, isPublic, me))
         if not r.ok or type(r.data) <> "roAssociativeArray" or not SharedLists.isStr(r.data.Id)
             return { success: false, statusCode: r.code, listName: name }
         end if
@@ -252,6 +250,10 @@ namespace ListsApi
         if not share.ok
             Http.send("DELETE", "/Items/" + listId)
             return { success: false, statusCode: share.code, listName: name }
+        end if
+        if targetId <> ""
+            added = Http.send("POST", "/Playlists/" + listId + "/Items?ids=" + targetId + "&userId=" + me)
+            if not added.ok then return { success: false, statusCode: added.code, listName: name, listId: listId }
         end if
         return { success: true, listId: listId, listName: name }
     end function

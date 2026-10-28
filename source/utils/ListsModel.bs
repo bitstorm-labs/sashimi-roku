@@ -106,6 +106,13 @@ namespace ListsModel
 
     ' ---------- Subscriptions (DisplayPreferences) ----------
 
+    ' Jellyfin 12.4 re-saves a playlist created with items about 1-3 s later,
+    ' and that save drops the creator's self-share, the only record of who made
+    ' it. So a list is always created empty; its first title goes in after.
+    function createBody(name as string, isPublic as boolean, userId as string) as object
+        return { Name: name, UserId: userId, MediaType: "Video", IsPublic: isPublic }
+    end function
+
     function prefsPath(userId as string) as string
         return "/DisplayPreferences/" + SharedLists.PREFS_ID + "?userId=" + userId + "&client=" + SharedLists.PREFS_CLIENT
     end function
