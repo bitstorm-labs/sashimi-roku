@@ -98,8 +98,19 @@ sub onApiResponse()
             else
                 toast("Couldn't delete the list. Check your connection.")
             end if
+        else if r.op = "setPublic"
+            ' The task re-read the server; the reload shows what it has.
+            if r.success
+                changed()
+                said = ""
+                if r.step <> invalid then said = r.step
+                toast(ListsModel.publicMessage(r.isPublic = true, said))
+            else
+                toast("Couldn't update. Check your connection.")
+            end if
+            load()
         else
-            ' rename / setPublic / remove / move
+            ' rename / remove / move
             if r.success then changed() else toast("Couldn't update. Check your connection.")
             load()
         end if

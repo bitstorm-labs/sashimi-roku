@@ -18,6 +18,20 @@ namespace Fades
         return Int(w * LEFT + 0.5)
     end function
 
+    ' Where a scaleToFit Poster must move so the image it draws (fitted to
+    ' bw x bh inside its rw x rh region) sits flush against the region's top
+    ' and right edges. scaleToFit centres the image, so art wider than the
+    ' region (a 2.39:1 backdrop, a channel banner) used to float down from the
+    ' top and end in an unfaded hard line across the hero; flush, its top edge
+    ' runs off screen like every other backdrop's. Returns [dx, dy].
+    function flushShift(rw as integer, rh as integer, bw as integer, bh as integer) as object
+        dx = 0
+        dy = 0
+        if bw > 0 and bw < rw then dx = Int((rw - bw) / 2)
+        if bh > 0 and bh < rh then dy = -Int((rh - bh) / 2)
+        return [dx, dy]
+    end function
+
     ' Height of the bottom fade over an image `h` tall.
     function bottomHeight(h as integer) as integer
         if h <= 0 then return 0

@@ -120,8 +120,17 @@ sub addCard(row as object, l as object)
     c = row.createChild("ContentNode")
     c.title = l.name
     c.description = ListsModel.cardMeta(l.isMine, l.isPublic, l.ownerName, l.count)
-    if l.imageTag <> "" then c.HDPosterUrl = ImageUrl.primary(l.id, 660, l.imageTag)
-    c.addFields({ listId: l.id, subscribed: l.subscribed = true, isNewTile: false })
+    ' The cover (ListsModel.coverArt): four posters as a 2x2 collage, or one
+    ' full-bleed.
+    urls = []
+    if l.cover <> invalid
+        width = 330
+        if l.cover.count() = 1 then width = 660
+        for each p in l.cover
+            urls.push(ImageUrl.primary(p.id, width, p.tag))
+        end for
+    end if
+    c.addFields({ listId: l.id, subscribed: l.subscribed = true, isNewTile: false, coverUrls: urls })
 end sub
 
 sub onSelected()

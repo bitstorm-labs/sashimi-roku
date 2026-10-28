@@ -20,6 +20,9 @@ sub main()
     testPicker(t)
     testDetailPage(t)
     testCreateBody(t)
+    testPluginOwner(t)
+    testCover(t)
+    testPublicToggle(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -140,19 +143,97 @@ end sub
 
 sub testOwner(t as object)
     users = { u1: "Marge", u2: "Robert" }
-    o = ListsModel_owner({ Shares: [{ UserId: "u1", CanEdit: true }] }, users, "u2")
+    o = ListsModel_resolveOwner(invalid, { Shares: [{ UserId: "u1", CanEdit: true }] }, users, "u2", invalid)
     eq(t, "owner name", o.name, "Marge")
     eq(t, "not mine", o.isMine, false)
-    eq(t, "mine", ListsModel_owner({ Shares: [{ UserId: "u2", CanEdit: true }] }, users, "u2").isMine, true)
+    eq(t, "someone else's: nothing to restore", o.restoreShare, false)
+    mine = ListsModel_resolveOwner(invalid, { Shares: [{ UserId: "u2", CanEdit: true }] }, users, "u2", invalid)
+    eq(t, "mine", mine.isMine, true)
+    eq(t, "mine with its share: nothing to restore", mine.restoreShare, false)
     ' Made outside Sashimi (no self-share), or its creator was deleted.
-    eq(t, "no self-share", ListsModel_owner({ Shares: [] }, users, "u2").name, "")
-    eq(t, "deleted creator", ListsModel_owner({ Shares: [{ UserId: "gone", CanEdit: true }] }, users, "u2").name, "")
+    eq(t, "no self-share", ListsModel_resolveOwner(invalid, { Shares: [] }, users, "u2", false).name, "")
+    eq(t, "no self-share, not mine", ListsModel_resolveOwner(invalid, { Shares: [] }, users, "u2", false).isMine, false)
+    eq(t, "deleted creator", ListsModel_resolveOwner(invalid, { Shares: [{ UserId: "gone", CanEdit: true }] }, users, "u2", invalid).name, "")
     eq(t, "users map from /Users", ListsModel_userNames([{ Id: "u1", Name: "Marge" }, { Name: "no id" }]).u1, "Marge")
 end sub
 
+' Jellyfin 12.4 wipes every public playlist's self-share when ANY user is
+' deleted. The Sashimi Lists plugin knows the owner regardless; without it,
+' the owner's own permission check still says "mine", and the wiped share is
+' put back.
+sub testPluginOwner(t as object)
+    users = { u1: "Marge", u2: "Robert" }
+    wiped = { OpenAccess: true, Shares: [] }
+    o = ListsModel_resolveOwner({ id: "u1", name: "Marge" }, wiped, users, "u2", invalid)
+    eq(t, "plugin names the owner of a wiped list", o.name, "Marge")
+    eq(t, "plugin: someone else's", o.isMine, false)
+    ' The plugin wins over a share someone else holds.
+    o = ListsModel_resolveOwner({ id: "u2", name: "" }, { Shares: [{ UserId: "u1", CanEdit: true }] }, users, "u2", invalid)
+    eq(t, "plugin owner is me", o.isMine, true)
+    eq(t, "plugin name blank: from /Users", o.name, "Robert")
+    eq(t, "plugin owner, share missing: restore it", o.restoreShare, true)
+    eq(t, "plugin owner with share: no restore", ListsModel_resolveOwner({ id: "u2", name: "Robert" }, { Shares: [{ UserId: "u2", CanEdit: true }] }, users, "u2", invalid).restoreShare, false)
+
+    ' No plugin, share wiped: the self-check decides.
+    eq(t, "wiped list needs the self-check", ListsModel_needsSelfCheck(invalid, wiped), true)
+    eq(t, "self-share: no self-check", ListsModel_needsSelfCheck(invalid, { Shares: [{ UserId: "u1", CanEdit: true }] }), false)
+    eq(t, "plugin: no self-check", ListsModel_needsSelfCheck({ id: "u1", name: "" }, wiped), false)
+    o = ListsModel_resolveOwner(invalid, wiped, users, "u2", true)
+    eq(t, "self-check: mine", o.isMine, true)
+    eq(t, "self-check: my name", o.name, "Robert")
+    eq(t, "self-check: restore my share", o.restoreShare, true)
+    eq(t, "owner check 200 CanEdit", ListsModel_isOwnerCheck(200, { UserId: "u2", CanEdit: true }), true)
+    eq(t, "owner check without edit", ListsModel_isOwnerCheck(200, { UserId: "u2", CanEdit: false }), false)
+    eq(t, "owner check 404", ListsModel_isOwnerCheck(404, invalid), false)
+    ' A share that cannot edit is not the self-share.
+    eq(t, "read-only share", ListsModel_resolveOwner(invalid, { Shares: [{ UserId: "u2", CanEdit: false }] }, users, "u2", false).isMine, false)
+
+    ' The plugin's answers.
+    eq(t, "owners path", ListsModel_ownersPath(["a", "b"]), "/SashimiLists/Owners?ids=a,b")
+    eq(t, "owner path", ListsModel_ownerPath("a"), "/SashimiLists/Playlists/a/Owner")
+    batch = ListsModel_pluginOwners(ParseJson("{""p1"":{""OwnerUserId"":""u1"",""OwnerName"":""Marge""},""p2"":{""OwnerUserId"":""""}}"))
+    eq(t, "batch owner", batch["p1"].id, "u1")
+    eq(t, "batch owner name", batch["p1"].name, "Marge")
+    eq(t, "batch entry naming nobody falls back", batch.DoesExist("p2"), false)
+    eq(t, "batch not an object", ListsModel_pluginOwners(invalid).Count(), 0)
+    eq(t, "single owner", ListsModel_pluginOwner({ OwnerUserId: "u1", OwnerName: "Marge" }).id, "u1")
+    eq(t, "single owner missing", ListsModel_pluginOwner({ OwnerName: "x" }), invalid)
+end sub
+
+function coverIds(cover as object) as string
+    out = []
+    for each p in cover
+        out.push(p.id + ":" + p.tag)
+    end for
+    return joined(out)
+end function
+
+sub testCover(t as object)
+    ' Display order, after the S1:E1 and repeat rules; a show's episodes
+    ' draw its poster, so they count once.
+    items = [episode("e1", "s1", 1, 1), movie("m1"), episode("e2", "s1", 1, 2), movie("m1"), episode("e9", "s2", 3, 4), movie("m2"), movie("m3")]
+    eq(t, "collage of the first four different titles", coverIds(ListsModel_coverArt(items)), "s1:sts1,m1:tm1,s2:sts2,m2:tm2")
+    eq(t, "fewer than four: the first, full-bleed", coverIds(ListsModel_coverArt([movie("m1"), episode("e1", "s1", 1, 1), movie("m1"), episode("e3", "s1", 2, 1)])), "m1:tm1")
+    eq(t, "three: the first", ListsModel_coverArt([movie("a"), movie("b"), movie("c")]).count(), 1)
+    eq(t, "exactly four", ListsModel_coverArt([movie("a"), movie("b"), movie("c"), movie("d"), movie("e")]).count(), 4)
+    eq(t, "empty list: no cover", ListsModel_coverArt([]).count(), 0)
+    eq(t, "no items: no cover", ListsModel_coverArt(invalid).count(), 0)
+end sub
+
+sub testPublicToggle(t as object)
+    eq(t, "server agrees", ListsModel_publicStep(true, true, false), "done")
+    eq(t, "server reverted: reapply once", ListsModel_publicStep(true, false, false), "reapply")
+    eq(t, "reverted again: stop", ListsModel_publicStep(true, false, true), "reverted")
+    eq(t, "private agrees after a reapply", ListsModel_publicStep(false, false, true), "done")
+    eq(t, "public message", ListsModel_publicMessage(true, "done"), "It's public now")
+    eq(t, "private message", ListsModel_publicMessage(false, "done"), "It's private now")
+    eq(t, "reverted message", ListsModel_publicMessage(true, "reverted"), "Couldn't change it. Try again.")
+end sub
+
 sub testCopy(t as object)
-    eq(t, "row title", ListsModel_rowTitle("Christmas Movies", "Marge"), "From Marge: Christmas Movies")
-    eq(t, "orphan row title", ListsModel_rowTitle("Christmas Movies", ""), "Christmas Movies")
+    eq(t, "row title", ListsModel_rowTitle("Christmas Movies", "Marge", false), "From Marge: Christmas Movies")
+    eq(t, "orphan row title", ListsModel_rowTitle("Christmas Movies", "", false), "Christmas Movies")
+    eq(t, "own row title", ListsModel_rowTitle("Christmas Movies", "Robert", true), "Your list: Christmas Movies")
     eq(t, "row title with new", ListsModel_rowTitleWithNew("From Marge: X", 3), "From Marge: X  " + Chr(8226) + "  3 new")
     eq(t, "row title nothing new", ListsModel_rowTitleWithNew("From Marge: X", 0), "From Marge: X")
     eq(t, "titles", ListsModel_titles(1), "1 title")

@@ -104,6 +104,43 @@ namespace ListsModel
         return false
     end function
 
+    ' A list's cover: the posters of its first four different titles, in the
+    ' order the list shows them (after the S1:E1 and repeat rules), as a 2x2
+    ' collage. Two cards that draw the same poster (two episodes of one show)
+    ' count once. With fewer than four, the first poster alone, full-bleed.
+    ' Returns [{ id, tag }] of 4, 1 or 0 images. The server's own playlist
+    ' image is never used: it repeats a show per episode and is not filtered
+    ' by the viewer's parental limits.
+    function coverArt(items as dynamic) as object
+        posters = []
+        seen = {}
+        for each c in cards(items)
+            p = posterOf(c)
+            if p = invalid or seen.DoesExist(p.id) then continue for
+            seen[p.id] = true
+            posters.push(p)
+            if posters.count() = 4 then return posters
+        end for
+        if posters.count() = 0 then return []
+        return [posters[0]]
+    end function
+
+    ' The poster a card draws: a series card's or an episode's show, else the
+    ' title's own Primary.
+    function posterOf(card as object) as dynamic
+        item = card.item
+        if card.isSeries or (SharedLists.isStr(item.SeriesId) and item.SeriesId <> "")
+            id = card.id
+            if not card.isSeries then id = item.SeriesId
+            tag = ""
+            if SharedLists.isStr(item.SeriesPrimaryImageTag) then tag = item.SeriesPrimaryImageTag
+            return { id: id, tag: tag }
+        end if
+        tag = ""
+        if type(item.ImageTags) = "roAssociativeArray" and SharedLists.isStr(item.ImageTags.Primary) then tag = item.ImageTags.Primary
+        return { id: card.id, tag: tag }
+    end function
+
     ' ---------- Subscriptions (DisplayPreferences) ----------
 
     ' Jellyfin 12.4 re-saves a playlist created with items about 1-3 s later,
@@ -146,6 +183,25 @@ namespace ListsModel
         return SharedLists.prune(subs, missing)
     end function
 
+    ' ---------- Public / Private ----------
+
+    ' The toggle always shows the server's OpenAccess. A toggle made right
+    ' after an add can be undone about a second later by the server's queued
+    ' refresh of that add (a lost update), so it is re-read ~2 s after it is
+    ' sent: "done" when the server agrees, "reapply" once when it reverted,
+    ' "reverted" when it reverted again.
+    function publicStep(wanted as boolean, serverValue as boolean, reapplied as boolean) as string
+        if serverValue = wanted then return "done"
+        if reapplied then return "reverted"
+        return "reapply"
+    end function
+
+    function publicMessage(isPublic as boolean, outcome as string) as string
+        if outcome = "reverted" then return "Couldn't change it. Try again."
+        if isPublic then return "It's public now"
+        return "It's private now"
+    end function
+
     ' ---------- Who made it ----------
 
     function userNames(users as dynamic) as object
@@ -157,21 +213,102 @@ namespace ListsModel
         return out
     end function
 
-    ' { id, name, isMine }. name is "" when nobody is recorded (a list made
-    ' outside Sashimi) or the creator's account is gone.
-    function owner(playlist as dynamic, names as object, meId as string) as object
+    ' Who made a list. Jellyfin 12.4 wipes the creator's self-share from every
+    ' public playlist whenever ANY user is deleted, so the Sashimi Lists server
+    ' plugin, which reads the owner off the playlist itself, is asked first.
+    ' Without it (plugin is invalid): the self-share, then the viewer's own
+    ' permission (selfCheck: GET /Playlists/{id}/Users/{me} said CanEdit, see
+    ' isOwnerCheck). Returns { id, name, isMine, restoreShare }: name is ""
+    ' when nobody is recorded or the account is gone, and restoreShare says the
+    ' viewer owns the list but their self-share is missing, so it should be
+    ' put back for clients without the plugin.
+    function resolveOwner(plugin as dynamic, playlist as dynamic, names as object, meId as string, selfCheck as dynamic) as object
         shares = invalid
         if type(playlist) = "roAssociativeArray" then shares = playlist.Shares
-        id = SharedLists.owner(shares)
-        if id = invalid then return { id: "", name: "", isMine: false }
+        id = ""
         name = ""
-        if names.DoesExist(id) then name = names[id]
-        return { id: id, name: name, isMine: (meId <> "" and id = meId) }
+        if type(plugin) = "roAssociativeArray" and SharedLists.isStr(plugin.id) and plugin.id <> ""
+            id = plugin.id
+            if SharedLists.isStr(plugin.name) then name = plugin.name
+        else
+            shared = SharedLists.owner(shares)
+            if shared <> invalid
+                id = shared
+            else if selfCheck = true and meId <> ""
+                id = meId
+            end if
+        end if
+        if id = "" then return { id: "", name: "", isMine: false, restoreShare: false }
+        if name = "" and names.DoesExist(id) then name = names[id]
+        isMine = (meId <> "" and id = meId)
+        return { id: id, name: name, isMine: isMine, restoreShare: (isMine and not hasShare(shares, meId)) }
+    end function
+
+    ' The self-check is only worth a request when neither the plugin nor a
+    ' self-share names anyone.
+    function needsSelfCheck(plugin as dynamic, playlist as dynamic) as boolean
+        if type(plugin) = "roAssociativeArray" and SharedLists.isStr(plugin.id) and plugin.id <> "" then return false
+        shares = invalid
+        if type(playlist) = "roAssociativeArray" then shares = playlist.Shares
+        return SharedLists.owner(shares) = invalid
+    end function
+
+    ' GET /Playlists/{id}/Users/{me}: the owner gets 200 with CanEdit true even
+    ' with no share recorded; anyone else 404s. (CanDelete says nothing: an
+    ' admin can delete every list.)
+    function isOwnerCheck(code as integer, data as dynamic) as boolean
+        return code = 200 and type(data) = "roAssociativeArray" and data.CanEdit = true
+    end function
+
+    function hasShare(shares as dynamic, userId as string) as boolean
+        if type(shares) <> "roArray" or userId = "" then return false
+        for each s in shares
+            if type(s) = "roAssociativeArray" and s.UserId = userId and s.CanEdit = true then return true
+        end for
+        return false
+    end function
+
+    ' ---------- The Sashimi Lists plugin ----------
+
+    function ownersPath(ids as object) as string
+        q = ""
+        for each id in ids
+            if q <> "" then q = q + ","
+            q = q + id
+        end for
+        return "/SashimiLists/Owners?ids=" + q
+    end function
+
+    function ownerPath(listId as string) as string
+        return "/SashimiLists/Playlists/" + listId + "/Owner"
+    end function
+
+    ' One plugin answer, { OwnerUserId, OwnerName }, as { id, name }; invalid
+    ' when it names nobody.
+    function pluginOwner(dto as dynamic) as dynamic
+        if type(dto) <> "roAssociativeArray" or not SharedLists.isStr(dto.OwnerUserId) or dto.OwnerUserId = "" then return invalid
+        name = ""
+        if SharedLists.isStr(dto.OwnerName) then name = dto.OwnerName
+        return { id: dto.OwnerUserId, name: name }
+    end function
+
+    ' The batch answer, { "<playlistId>": { OwnerUserId, OwnerName } }, as
+    ' playlist id -> { id, name }. A list it leaves out falls back per list.
+    function pluginOwners(data as dynamic) as object
+        out = {}
+        if type(data) <> "roAssociativeArray" then return out
+        for each listId in data
+            o = pluginOwner(data[listId])
+            if o <> invalid then out[listId] = o
+        end for
+        return out
     end function
 
     ' ---------- Copy ----------
 
-    function rowTitle(listName as string, ownerName as string) as string
+    ' "From Marge: Christmas Movies", or "Your list: ..." for your own.
+    function rowTitle(listName as string, ownerName as string, isMine as boolean) as string
+        if isMine then return "Your list: " + listName
         if ownerName = "" then return listName
         return "From " + ownerName + ": " + listName
     end function
