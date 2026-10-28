@@ -7,6 +7,7 @@ import "pkg:/source/utils/StreamQuality.bs"
 import "pkg:/source/utils/Throughput.bs"
 import "pkg:/source/utils/ContinueWatching.bs"
 import "pkg:/source/utils/WatchState.bs"
+import "pkg:/source/utils/ListsApi.bs"
 
 sub init()
     m.top.functionName = "taskLoop"
@@ -163,6 +164,8 @@ sub processRequest()
         doMarkFavorite(request)
     else if action = "removeFavorite"
         doRemoveFavorite(request)
+    else if action = "lists"
+        doLists(request)
     else
         #if DEBUG
             print "[API] Unknown action: " + action
@@ -2216,6 +2219,19 @@ sub doRemoveFavorite(request as object)
     url = Http.apiUrl("/Users/" + requestUserId() + "/FavoriteItems/" + itemId)
     ok = isOkStatus(Http.deleteRequest(url))
     m.top.response = { success: ok, action: "removeFavorite", itemId: itemId }
+end sub
+
+' Shared lists (ListsApi.handle picks the op). The request's own fields that a
+' screen needs to match the answer to what it asked ride back with it.
+sub doLists(request as object)
+    resp = ListsApi.handle(request, requestUserId())
+    resp.action = "lists"
+    resp.op = request.op
+    resp.context = request.context
+    for each k in ["listId", "listName", "entryId", "isPublic", "name"]
+        if request.DoesExist(k) and not resp.DoesExist(k) then resp[k] = request[k]
+    end for
+    m.top.response = resp
 end sub
 
 function isOkStatus(code as integer) as boolean

@@ -371,7 +371,8 @@ end function
 
 ' ---------- Home & Side Menu editor ----------
 ' Config stored in Registry "settings"/"homeRowOrder" as a JSON array of
-' {id, kind ("hero"/"cw"/"fintv"/"library"), libraryId, name, visible, rail};
+' {id, kind ("hero"/"cw"/"fintv"/"library"/"list"/"lists"), libraryId, listId,
+' name, visible, rail};
 ' array order is row order (tvOS homeScreenRowOrder parity). `visible` is the
 ' Home row, `rail` the side-menu entry, independent of each other (only
 ' destinations -- libraries, SashimiTV -- have one; RailItems.bs). The Home
@@ -384,7 +385,7 @@ sub openHomeRowsEditor()
         m.global.toastMessage = { message: "Visit the Home tab first to load your libraries" }
         return
     end if
-    m.hrConfig = RailItems.withFintv(cfg)
+    m.hrConfig = RailItems.withLists(RailItems.withFintv(cfg))
     m.hrIndex = 0
     m.hrOpen = true
     renderHomeRows()
@@ -563,9 +564,7 @@ function handleHomeRowsKey(key as string) as boolean
         end if
         return true
     else if key = "OK"
-        c = m.hrConfig[m.hrIndex]
-        c.visible = not RailItems.onHome(c)
-        m.hrConfig[m.hrIndex] = c
+        m.hrConfig[m.hrIndex] = RailItems.toggleHome(m.hrConfig[m.hrIndex])
         renderHomeRows()
         return true
     else if key = "options"

@@ -1,0 +1,46 @@
+sub init()
+    m.coverMask = m.top.findNode("coverMask")
+    m.coverBg = m.top.findNode("coverBg")
+    m.cover = m.top.findNode("cover")
+    m.newTileLabel = m.top.findNode("newTileLabel")
+    m.focusRing = m.top.findNode("focusRing")
+    m.subPill = m.top.findNode("subPill")
+    m.subLabel = m.top.findNode("subLabel")
+    m.nameLabel = m.top.findNode("nameLabel")
+    m.metaLabel = m.top.findNode("metaLabel")
+    m.initialized = true
+end sub
+
+sub onContentChanged()
+    if m.initialized = invalid then return
+    c = m.top.itemContent
+    if c = invalid then return
+    isNewTile = (c.doesExist("isNewTile") and c.isNewTile = true)
+    m.newTileLabel.visible = isNewTile
+    m.cover.visible = not isNewTile
+    if isNewTile
+        m.coverBg.color = "#1E1D26"
+        m.cover.uri = ""
+    else
+        m.coverBg.color = "#2A2933"
+        if c.HDPosterUrl <> invalid then m.cover.uri = c.HDPosterUrl else m.cover.uri = ""
+    end if
+    m.nameLabel.text = ""
+    if not isNewTile and c.title <> invalid then m.nameLabel.text = c.title
+    m.metaLabel.text = ""
+    if not isNewTile and c.description <> invalid then m.metaLabel.text = c.description
+    subscribed = (c.doesExist("subscribed") and c.subscribed = true)
+    m.subPill.visible = subscribed
+    m.subLabel.visible = subscribed
+    if subscribed then m.subLabel.text = Chr(10003) + " Subscribed"
+    onFocusChanged()
+end sub
+
+sub onFocusChanged()
+    if m.initialized = invalid then return
+    fp = m.top.focusPercent
+    scale = 1.0 + fp * 0.05
+    m.coverMask.scale = [scale, scale]
+    m.focusRing.scale = [scale, scale]
+    m.focusRing.opacity = fp * 0.9
+end sub

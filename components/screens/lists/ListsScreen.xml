@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Shared lists: the Lists page (side menu destination). "Your lists" with a
+     New List tile, then "From others" (everyone's public lists). -->
+<component name="ListsScreen" extends="Group">
+    <interface>
+        <!-- { listId } : MainScene pushes the list's page. -->
+        <field id="openList" type="assocarray" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="#18171F" />
+        <Label id="titleLabel" text="Lists" color="#FFFFFF" translation="[60, 48]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="52" />
+        </Label>
+        <RowList
+            id="rowList"
+            translation="[60, 150]"
+            itemSize="[1700, 360]"
+            numRows="2"
+            itemSpacing="[0, 24]"
+            rowItemSize="[[330, 280]]"
+            rowItemSpacing="[[40, 0]]"
+            showRowLabel="[true]"
+            showRowCounter="[false]"
+            drawFocusFeedback="false"
+            rowLabelColor="#FFFFFF"
+            rowLabelOffset="[[0, 16]]"
+            rowFocusAnimationStyle="fixedFocus"
+            itemComponentName="ListCard"
+            visible="false"
+        />
+        <Label id="statusLabel" text="Loading..." color="#888888" width="1700" horizAlign="center"
+               translation="[60, 500]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="28" />
+        </Label>
+        <Label id="othersEmpty" text="" color="#888888" translation="[60, 560]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
+        </Label>
+        <JellyfinApi id="apiTask" />
+    </children>
+</component>

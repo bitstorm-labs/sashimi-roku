@@ -5,6 +5,8 @@
         <!-- A Stations card goes straight to the player, so Home needs the same
              play channel the library and detail screens use. -->
         <field id="playItem" type="assocarray" alwaysNotify="true" />
+        <!-- { listId }: "Open List" from a subscribed list's row (* menu). -->
+        <field id="openList" type="assocarray" alwaysNotify="true" />
         <!-- Called by MainScene under memory pressure; no-op while on screen. -->
         <function name="releaseArtwork" />
     </interface>
@@ -84,6 +86,9 @@
              while a home load chain is mid-flight on apiTask, and a second
              write to that task's request field could land in the same tick. -->
         <JellyfinApi id="cwTask" />
+        <!-- Subscribed lists load on their own task, alongside the main chain,
+             so Home never waits on them (shared lists design). -->
+        <JellyfinApi id="listsTask" />
         <!-- Fires one tick after nil-ing the RowList content so recycled item
              components are actually discarded before the new content lands —
              otherwise a reload-on-return reuses a portrait cell for a landscape

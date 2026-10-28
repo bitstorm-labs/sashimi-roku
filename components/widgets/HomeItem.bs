@@ -335,8 +335,12 @@ sub onItemContentChanged()
     ' "X new" badge (tvOS: only when unplayed count > 1; supersedes watched check)
     badgeCount = 0
     if content.doesExist("badgeCount") then badgeCount = content.badgeCount
-    if badgeCount >= 1
-        m.newBadgeLabel.text = str(badgeCount).Trim() + " new"
+    ' A subscribed list's card added since the viewer last opened the list.
+    newText = ""
+    if content.doesExist("newLabel") and content.newLabel <> invalid then newText = content.newLabel
+    if newText <> "" or badgeCount >= 1
+        m.newBadgeLabel.text = newText
+        if newText = "" then m.newBadgeLabel.text = str(badgeCount).Trim() + " new"
         ' Size capsule to text (approx 11px/char at 19pt bold + padding)
         bw = 24 + Len(m.newBadgeLabel.text) * 11
         m.newBadge.width = bw
