@@ -5,6 +5,7 @@ import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/ContinueWatching.bs"
 import "pkg:/source/utils/HiddenStore.bs"
 import "pkg:/source/utils/RailItems.bs"
+import "pkg:/source/utils/ListsModel.bs"
 
 sub init()
     m.rowList = m.top.findNode("rowList")
@@ -25,6 +26,17 @@ sub init()
     m.cwTask.observeFieldScoped("response", "onCwTaskResponse")
     m.cwTask.control = "RUN"
     m.optionsTarget = invalid
+    m.optionsList = invalid
+
+    ' Subscribed lists (shared lists). Loaded per home load on listsTask; the
+    ' answer for the current load (m.listsGen) lands in m.listRows and its rows
+    ' are placed among the others whenever the main chain is done.
+    m.listsTask = m.top.findNode("listsTask")
+    m.listsTask.observeFieldScoped("response", "onListsResponse")
+    m.listsTask.control = "RUN"
+    m.listsGen = 0
+    m.listRows = invalid
+    m.listsSeen = m.global.listsVersion
 
     ' Hero banner
     m.heroBanner = m.top.findNode("heroBanner")
@@ -181,6 +193,7 @@ sub onFocusDelegate()
             dirty = true
             m.channelsDirty = false
         end if
+        if m.listsSeen <> m.global.listsVersion then dirty = true
         if dirty or (m.lastLoadTime <> invalid and (now - m.lastLoadTime) > 20)
             if m.chainBusy
                 m.reloadPending = true
@@ -219,6 +232,11 @@ sub loadHomeData()
     m.ytPrefetchIndex = -1
     m.heroBanner.visible = false
     m.apiTask.request = { action: "getLibraryViews" }
+
+    m.listsGen = m.listsGen + 1
+    m.listRows = invalid
+    m.listsSeen = m.global.listsVersion
+    m.listsTask.request = { action: "lists", op: "home", context: m.listsGen.ToStr() }
 end sub
 
 sub onApiResponse()
@@ -371,7 +389,7 @@ sub applyHomeRowConfig()
 
     ' SashimiTV has a Home row and a side-menu place of its own; configs saved
     ' before it was configurable gain its entry, shown in both.
-    merged = RailItems.withFintv(merged)
+    merged = RailItems.withLists(RailItems.withFintv(merged))
 
     ' Every load runs this merge, but the result only changes when a library is
     ' added/renamed/removed — writing unconditionally meant a flash commit
@@ -558,13 +576,13 @@ sub onLatestMediaLoaded(response as object)
             idList.push(k)
         end for
         if idList.count() > 0
-            m.pendingRow = { title: "Recently Added " + displayName, items: response.items, isYouTube: isYouTube }
+            m.pendingRow = { title: "Recently Added " + displayName, items: response.items, isYouTube: isYouTube, rowKey: "library_" + response.parentId }
             m.apiTask.request = { action: "getItemsByIds", ids: idList }
             return
         end if
 
         ' tvOS row title: "Recently Added {Library}"
-        addRow("Recently Added " + displayName, response.items, isYouTube)
+        addRow("Recently Added " + displayName, response.items, isYouTube, invalid, invalid, "library_" + response.parentId)
     end if
 
     finishLibrary()
@@ -641,7 +659,7 @@ sub onItemsByIdsLoaded(response as object)
         end for
     end if
     if m.pendingRow <> invalid
-        addRow(m.pendingRow.title, m.pendingRow.items, m.pendingRow.isYouTube, badges, ratings)
+        addRow(m.pendingRow.title, m.pendingRow.items, m.pendingRow.isYouTube, badges, ratings, m.pendingRow.rowKey)
         m.pendingRow = invalid
     end if
     finishLibrary()
@@ -714,6 +732,7 @@ sub addChannelsRow(cards as object)
 
     row = m.rowContent.createChild("ContentNode")
     row.title = "SashimiTV"
+    row.addFields({ rowKey: "fintv", rowKind: "channels" })
 
     for each card in cards
         child = row.createChild("ContentNode")
@@ -853,6 +872,7 @@ sub addContinueWatchingRow(items as object)
 
     row = m.rowContent.createChild("ContentNode")
     row.title = "Continue Watching"
+    row.addFields({ rowKey: "cw", rowKind: "cw" })
 
     for each item in items
         child = row.createChild("ContentNode")
@@ -978,7 +998,7 @@ sub addContinueWatchingRow(items as object)
     end for
 end sub
 
-sub addRow(title as string, items as object, isYouTube = false as boolean, badgeMap = invalid as dynamic, ratingMap = invalid as dynamic)
+sub addRow(title as string, items as object, isYouTube = false as boolean, badgeMap = invalid as dynamic, ratingMap = invalid as dynamic, rowKey = "" as string)
     if m.rowContent = invalid then return
 
     rowIndex = m.rowContent.getChildCount()
@@ -990,6 +1010,9 @@ sub addRow(title as string, items as object, isYouTube = false as boolean, badge
 
     row = m.rowContent.createChild("ContentNode")
     row.title = title
+    kind = "poster"
+    if isYouTube then kind = "wide"
+    row.addFields({ rowKey: rowKey, rowKind: kind })
 
     ' tvOS: dedupe by series, cap 20
     seenSeries = {}
@@ -1272,7 +1295,47 @@ sub showRows()
         return
     end if
 
-    ' Set per-row item sizes (tvOS: CW 440x248, posters 220x330, YouTube circles 200x200)
+    ' Subscribed lists that answered before the chain finished.
+    if m.listRows <> invalid then placeListRows()
+
+    sizes = rowSizes()
+    itemSizes = sizes.itemSizes
+    itemSpacings = sizes.itemSpacings
+    rowHeights = sizes.rowHeights
+    ' Force a clean re-layout on reload: nil the content, then set it back on
+    ' the NEXT tick (relayoutTimer). Setting it synchronously right after nil
+    ' doesn't give the RowList a render pass to discard recycled item
+    ' components. Critically, rowItemSize is (re)applied AFTER the content lands
+    ' (in onRelayoutFire), not before — assigning rowItemSize to an already-
+    ' populated RowList is what forces it to re-measure every row, so a recycled
+    ' portrait cell reused for the landscape CW row actually gets the 440 width
+    ' instead of keeping its stale 220 (which rendered the CW card portrait with
+    ' stray quality/rating chips).
+    m.rowList.content = invalid
+    m.pendingRowContent = m.rowContent
+    m.pendingRowItemSizes = itemSizes
+    m.pendingRowSpacings = itemSpacings
+    m.pendingRowHeights = rowHeights
+    m.relayoutTimer.control = "start"
+
+    ' Last thing, deliberately: the load chain is done and the rows are on their
+    ' way to the screen, so this extra request delays nothing the user can see.
+    startNewestVideoPrefetch()
+end sub
+
+' Per-row item sizes (tvOS: CW 440x248, posters 220x330, YouTube circles
+' 200x200), from each row's kind. Also re-derives the row indices the rest of
+' the screen keys on, since a list row placed late shifts every row below it.
+function rowSizes() as object
+    m.continueWatchingRowIndex = invalid
+    m.channelsRowIndex = invalid
+    m.wideRowIndices = {}
+    for i = 0 to m.rowContent.getChildCount() - 1
+        kind = m.rowContent.getChild(i).rowKind
+        if kind = "cw" then m.continueWatchingRowIndex = i
+        if kind = "channels" then m.channelsRowIndex = i
+        if kind = "wide" then m.wideRowIndices[str(i).Trim()] = true
+    end for
     rowCount = m.rowContent.getChildCount()
     itemSizes = []
     itemSpacings = []
@@ -1305,26 +1368,133 @@ sub showRows()
     for i = 0 to itemSizes.count() - 1
         rowHeights.push(itemSizes[i][1] + 70)
     end for
-    ' Force a clean re-layout on reload: nil the content, then set it back on
-    ' the NEXT tick (relayoutTimer). Setting it synchronously right after nil
-    ' doesn't give the RowList a render pass to discard recycled item
-    ' components. Critically, rowItemSize is (re)applied AFTER the content lands
-    ' (in onRelayoutFire), not before — assigning rowItemSize to an already-
-    ' populated RowList is what forces it to re-measure every row, so a recycled
-    ' portrait cell reused for the landscape CW row actually gets the 440 width
-    ' instead of keeping its stale 220 (which rendered the CW card portrait with
-    ' stray quality/rating chips).
-    m.rowList.content = invalid
-    m.pendingRowContent = m.rowContent
-    m.pendingRowItemSizes = itemSizes
-    m.pendingRowSpacings = itemSpacings
-    m.pendingRowHeights = rowHeights
-    m.relayoutTimer.control = "start"
+    return { itemSizes: itemSizes, itemSpacings: itemSpacings, rowHeights: rowHeights }
+end function
 
-    ' Last thing, deliberately: the load chain is done and the rows are on their
-    ' way to the screen, so this extra request delays nothing the user can see.
-    startNewestVideoPrefetch()
+' ---------- Subscribed lists (shared lists) ----------
+
+sub onListsResponse()
+    r = m.listsTask.response
+    if r = invalid or r.action <> "lists" or r.context <> m.listsGen.ToStr() then return
+    rows = []
+    if r.success = true and r.rows <> invalid then rows = r.rows
+    m.listRows = rows
+    syncListConfig(rows)
+    ' The chain finished first: place them into the rows already on screen.
+    if not m.chainBusy and m.rowContent <> invalid and m.rowContent.getChildCount() > 0
+        if placeListRows()
+            sizes = rowSizes()
+            m.pendingRowItemSizes = sizes.itemSizes
+            m.pendingRowSpacings = sizes.itemSpacings
+            m.pendingRowHeights = sizes.rowHeights
+            if m.pendingRowContent = invalid and m.rowList.content <> invalid
+                m.rowList.rowItemSize = sizes.itemSizes
+                m.rowList.rowItemSpacing = sizes.itemSpacings
+                m.rowList.rowHeights = sizes.rowHeights
+            end if
+            m.emptyLabel.visible = false
+        end if
+    end if
 end sub
+
+' One Home & Side Menu entry per subscription (ListsModel.withListRows): a
+' new one lands after Continue Watching, and the editor can move or hide it.
+sub syncListConfig(rows as object)
+    titles = []
+    for each r in rows
+        titles.push({ id: r.id, title: ListsModel.rowTitle(r.name, r.ownerName) })
+    end for
+    config = Registry.readJson("settings", "homeRowOrder")
+    if config = invalid or type(config) <> "roArray" then return
+    updated = ListsModel.withListRows(config, titles)
+    if not ListsModel.sameConfig(config, updated) then Registry.writeJson("settings", "homeRowOrder", updated)
+end sub
+
+' Insert this load's list rows (once) where the config puts them among the
+' rows on screen. Returns whether anything was inserted.
+function placeListRows() as boolean
+    if m.listRows = invalid or m.listRows.count() = 0 or m.rowContent = invalid then return false
+    config = Registry.readJson("settings", "homeRowOrder")
+    if config = invalid or type(config) <> "roArray" then return false
+    shown = []
+    for i = 0 to m.rowContent.getChildCount() - 1
+        key = m.rowContent.getChild(i).rowKey
+        if key = invalid then key = ""
+        if Left(key, 5) = "list_" then return false
+        shown.push(key)
+    end for
+    byId = {}
+    for each r in m.listRows
+        byId[r.id] = r
+    end for
+    inserted = false
+    for each c in config
+        if c.kind <> "list" or not RailItems.onHome(c) or c.listId = invalid or not byId.DoesExist(c.listId) then continue for
+        row = buildListRow(byId[c.listId])
+        if row = invalid then continue for
+        at = ListsModel.rowPosition(config, c.id, shown)
+        m.rowContent.insertChild(row, at)
+        newShown = []
+        for k = 0 to shown.count() - 1
+            if k = at then newShown.push(c.id)
+            newShown.push(shown[k])
+        end for
+        if at >= shown.count() then newShown.push(c.id)
+        shown = newShown
+        inserted = true
+    end for
+    return inserted
+end function
+
+' A subscribed list's row: "From Marge: Christmas Movies  •  3 new", poster
+' cards, NEW on what the viewer has not seen on the list yet.
+function buildListRow(data as object) as dynamic
+    cards = ListsModel.cards(data.items)
+    if cards.count() = 0 then return invalid
+    seen = {}
+    for each id in data.seen
+        seen[id] = true
+    end for
+    row = CreateObject("roSGNode", "ContentNode")
+    row.title = ListsModel.rowTitleWithNew(ListsModel.rowTitle(data.name, data.ownerName), SharedLists.newCount(ListsModel.displayIds(cards), data.seen))
+    row.addFields({ rowKey: "list_" + data.id, rowKind: "list", listId: data.id })
+    count = 0
+    for each card in cards
+        if count >= 20 then exit for
+        count = count + 1
+        item = ListsModel.cardItem(card)
+        child = row.createChild("ContentNode")
+        child.title = ""
+        if item.Name <> invalid then child.title = item.Name
+        if card.isSeries
+            tag = ""
+            if item.ImageTags.Primary <> invalid then tag = item.ImageTags.Primary
+            child.HDPosterUrl = ImageUrl.primary(item.Id, 440, tag)
+        else if item.SeriesId <> invalid and item.SeriesId <> ""
+            if item.SeriesName <> invalid then child.title = item.SeriesName
+            child.HDPosterUrl = ImageUrl.primary(item.SeriesId, 440, ImageUrl.seriesPrimaryTag(item))
+        else if item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
+            child.HDPosterUrl = ImageUrl.primary(item.Id, 440, ImageUrl.primaryTag(item))
+        end if
+        child.description = ""
+        newLabel = ""
+        if not seen.DoesExist(card.id) then newLabel = "NEW"
+        played = (not card.isSeries and item.UserData <> invalid and item.UserData.Played = true)
+        child.addFields({ itemJson: FormatJSON(item), isPlayed: played, playedPercentage: 0, badgeCount: 0, newLabel: newLabel })
+        child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
+    end for
+    return row
+end function
+
+' The subscribed list whose row has focus, for Home's * menu.
+function focusedListRow() as dynamic
+    if m.chainBusy or not m.rowList.visible or not m.rowList.isInFocusChain() then return invalid
+    focused = m.rowList.rowItemFocused
+    if focused = invalid or focused.count() < 1 or m.rowContent = invalid then return invalid
+    row = m.rowContent.getChild(focused[0])
+    if row = invalid or row.rowKind <> "list" then return invalid
+    return { listId: row.listId, title: row.title }
+end function
 
 ' YouTube rows list channels, but a press should open that channel's newest
 ' video (tvOS parity). Resolve them only AFTER the rows are built — the API task
@@ -1521,10 +1691,17 @@ end function
 ' wherever it shows card actions; on Roku that is the * button).
 sub showOptionsDialog()
     m.optionsTarget = focusedContinueWatchingCard()
+    m.optionsList = focusedListRow()
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = "Home Options"
     if m.optionsTarget <> invalid and m.optionsTarget.title <> "" then dialog.title = m.optionsTarget.title
-    dialog.buttons = ContinueWatching.optionsButtons(m.optionsTarget <> invalid)
+    buttons = ContinueWatching.optionsButtons(m.optionsTarget <> invalid)
+    ' A subscribed list's row opens its page (which also clears its "new").
+    if m.optionsList <> invalid
+        dialog.title = m.optionsList.title
+        buttons.unshift(OPEN_LIST_LABEL())
+    end if
+    dialog.buttons = buttons
     dialog.observeFieldScoped("buttonSelected", "onOptionsButton")
     m.top.getScene().dialog = dialog
 end sub
@@ -1539,6 +1716,12 @@ sub onOptionsButton()
 
     target = m.optionsTarget
     m.optionsTarget = invalid
+    listRow = m.optionsList
+    m.optionsList = invalid
+    if label = OPEN_LIST_LABEL() and listRow <> invalid
+        m.top.openList = { listId: listRow.listId }
+        return
+    end if
     if label = "Refresh"
         loadHomeData()
     else if label = ContinueWatching.REMOVE_LABEL() and target <> invalid
@@ -1557,6 +1740,10 @@ sub onOptionsButton()
         end if
     end if
 end sub
+
+function OPEN_LIST_LABEL() as string
+    return "Open List"
+end function
 
 ' ---------- Remove from Continue Watching ----------
 

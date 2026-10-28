@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- A list on the Lists page (shared lists mockup): rounded cover, name,
+     "Marge · 18 titles", a "Subscribed" pill, or the dashed New List tile.
+     RowList item component: recycled, so every field is reset per item. -->
+<component name="ListCard" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="onContentChanged" />
+        <field id="focusPercent" type="float" onChange="onFocusChanged" />
+    </interface>
+    <children>
+        <MaskGroup id="coverMask" maskUri="pkg:/images/wide_mask_r16.png" maskSize="[330, 186]"
+                   scaleRotateCenter="[165, 93]">
+            <Rectangle id="coverBg" width="330" height="186" color="#2A2933" />
+            <Poster id="cover" width="330" height="186" loadWidth="330" loadHeight="186"
+                    loadDisplayMode="scaleToZoom" />
+        </MaskGroup>
+        <Label id="newTileLabel" text="+ New List" color="#C9C7D1" width="330" height="186"
+               horizAlign="center" vertAlign="center" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+        </Label>
+        <Poster id="focusRing" uri="pkg:/images/focus_ring_r16.9.png" width="330" height="186"
+                scaleRotateCenter="[165, 93]" opacity="0.0" />
+        <Poster id="subPill" uri="pkg:/images/badge_r6.9.png" width="150" height="30"
+                translation="[170, 10]" visible="false" />
+        <Label id="subLabel" text="" color="#FFFFFF" width="150" height="30" horizAlign="center"
+               vertAlign="center" translation="[170, 10]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="18" />
+        </Label>
+        <Label id="nameLabel" text="" color="#FFFFFF" width="330" maxLines="1" translation="[0, 200]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="26" />
+        </Label>
+        <Label id="metaLabel" text="" color="#A8A6B3" width="330" maxLines="1" translation="[0, 236]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="21" />
+        </Label>
+    </children>
+</component>

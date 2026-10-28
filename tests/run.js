@@ -31,7 +31,8 @@ const suites = {
     'DetailNavTests.brs': ['out/source/utils/DetailNav.brs'],
     'DetailLayoutTests.brs': ['out/source/utils/DetailLayout.brs'],
     'FadesTests.brs': ['out/source/utils/Fades.brs'],
-    'SharedListsTests.brs': ['out/source/utils/SharedLists.brs']
+    'SharedListsTests.brs': ['out/source/utils/SharedLists.brs'],
+    'ListsModelTests.brs': ['out/source/utils/SharedLists.brs', 'out/source/utils/ListsModel.brs']
 };
 
 // SASHIMI_TEST_MODULE swaps in another build of the module under test, to

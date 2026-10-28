@@ -6,11 +6,17 @@
 ' them off-device.
 namespace RailItems
 
-    ' Rows that are also rail destinations: a library, and SashimiTV. The hero
-    ' and Continue Watching are Home-only.
+    ' Rows that are also rail destinations: a library, and SashimiTV, plus the
+    ' Lists page (shared lists), a destination with no Home row. The hero,
+    ' Continue Watching and subscribed lists ("list") are Home-only.
     function isDestination(entry as dynamic) as boolean
         k = kindOf(entry)
-        return (k = "library" or k = "fintv")
+        return (k = "library" or k = "fintv" or k = "lists")
+    end function
+
+    function hasHomeRow(entry as dynamic) as boolean
+        k = kindOf(entry)
+        return k <> "" and k <> "lists"
     end function
 
     ' Config rows come from the registry; never compare an absent field (invalid
@@ -34,26 +40,29 @@ namespace RailItems
     end function
 
     function onHome(entry as dynamic) as boolean
-        if kindOf(entry) = "" then return false
+        if not hasHomeRow(entry) then return false
         return flagOn(entry.visible)
     end function
 
     ' Hidden from both Home and the menu: Search is the only way back to it.
     function onlyFromSearch(entry as dynamic) as boolean
-        return isDestination(entry) and not onHome(entry) and not inRail(entry)
+        return isDestination(entry) and hasHomeRow(entry) and not onHome(entry) and not inRail(entry)
     end function
 
     ' The rail's ids, top to bottom. Home, Search and Settings are always there
     ' whatever the config says. SashimiTV keeps its place under Home (as on the
-    ' other clients); libraries follow the Home row order. A library the config
+    ' other clients); libraries follow the Home row order, and Lists comes after
+    ' them unless hidden. A library the config
     ' doesn't know yet is shown, after the known ones, in server order; config
     ' entries for libraries the server no longer has are ignored.
     function ids(libraryIds as object, config as dynamic) as object
         if config = invalid or type(config) <> "roArray" then config = []
         result = ["home"]
         fintvShown = true
+        listsShown = true
         for each c in config
             if kindOf(c) = "fintv" then fintvShown = inRail(c)
+            if kindOf(c) = "lists" then listsShown = inRail(c)
         end for
         if fintvShown then result.push("fintv")
 
@@ -71,6 +80,7 @@ namespace RailItems
         for each id in libraryIds
             if not placed.DoesExist(id) then result.push("lib:" + id)
         end for
+        if listsShown then result.push("lists")
 
         result.push("search")
         result.push("settings")
@@ -97,11 +107,24 @@ namespace RailItems
         return result
     end function
 
+    ' The Lists entry, added to a config that predates it, at the end: it has no
+    ' Home row, so where it sits only matters to the editor's list.
+    function withLists(config as object) as object
+        for each c in config
+            if kindOf(c) = "lists" then return config
+        end for
+        result = []
+        result.Append(config)
+        result.push({ id: "lists", kind: "lists", name: "Lists", rail: true })
+        return result
+    end function
+
     ' The editor's two columns for one row: "on" / "off", and "none" for the
     ' menu column of a row that is not a destination (drawn as a dash).
     function marks(entry as dynamic) as object
         homeMark = "off"
         if onHome(entry) then homeMark = "on"
+        if not hasHomeRow(entry) then homeMark = "none"
         railMark = "none"
         if isDestination(entry)
             railMark = "off"
@@ -112,6 +135,12 @@ namespace RailItems
 
     ' Options (*) on a row in the editor. Rows that are not destinations have no
     ' menu column, so the key does nothing there.
+    ' OK on a row in the editor. Lists has no Home row, so OK does nothing there.
+    function toggleHome(entry as object) as object
+        if hasHomeRow(entry) then entry.visible = not onHome(entry)
+        return entry
+    end function
+
     function toggleRail(entry as object) as object
         if isDestination(entry) then entry.rail = not inRail(entry)
         return entry
