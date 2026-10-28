@@ -209,6 +209,7 @@ sub buildItems()
         pool[item.id] = item
         libraryIds.push(lib.Id)
     end for
+    pool["lists"] = { id: "lists", kind: "lists", title: "Lists", iconLocal: "pkg:/images/nav_lists.png", iconSelected: "pkg:/images/nav_lists_selected.png" }
     pool["search"] = { id: "search", kind: "search", title: "Search", iconLocal: "pkg:/images/nav_search.png", iconSelected: "pkg:/images/nav_search_selected.png" }
     pool["settings"] = { id: "settings", kind: "settings", title: "Settings", iconLocal: "pkg:/images/nav_settings.png", iconSelected: "pkg:/images/nav_settings_selected.png" }
     ' Which of them show, and in what order: Settings > Home & Side Menu.

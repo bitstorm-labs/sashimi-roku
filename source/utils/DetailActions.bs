@@ -19,10 +19,13 @@
 '   seasonNumber    an episode's ParentIndexNumber
 '   canAddToChannel administrator, and the title can go on a channel
 '   isFavorite      the item's favourite flag
+'   canAddToList    a movie, series or episode on the active server (shared lists)
 namespace DetailActions
 
     ' Play, Start Over (with progress), Shuffle (series), Trailer (a local
-    ' trailer, not on episodes), Watched, More -- Apple's DetailRowAction.mainRow.
+    ' trailer, not on episodes), Watched, Add to List, More -- Apple's
+    ' DetailRowAction.mainRow. Add to List sits right before More, in the row
+    ' and not in More (the owner's call on the shared lists mockups).
     function mainRow(ctx as object) as object
         itemType = str_(ctx.itemType)
         pinned = str_(ctx.pinnedLabel)
@@ -55,6 +58,7 @@ namespace DetailActions
         else
             defs.push({ kind: "markPlayed", label: "Mark Watched", primary: false })
         end if
+        if ctx.canAddToList = true and pinned = "" then defs.push({ kind: "addToList", label: "Add to List", primary: false })
         defs.push({ kind: "more", label: "More", primary: false })
         return defs
     end function

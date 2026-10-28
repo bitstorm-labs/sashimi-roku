@@ -1,0 +1,390 @@
+import "pkg:/source/utils/SharedLists.bs"
+
+' Shared lists, between the server and the screens: what the API task and the
+' Lists / list / Home screens make of Jellyfin's answers. SharedLists.bs holds
+' the rules every client shares; this is the Roku side of milestone 2 (cards
+' from a list's visible entries, the series anchor, the duplicate check, the
+' DisplayPreferences body, the 404 prune) plus the copy and Home-row
+' placement. Pure functions only, so tests/ListsModelTests.brs runs them
+' off-device.
+'
+' Counts and "new" always come from /Playlists/{id}/Items?userId=, which the
+' server filters by the viewer's parental limits. PlaylistDto.ItemIds is NOT
+' filtered, so nothing here reads it.
+namespace ListsModel
+
+    ' ---------- A list's entries ----------
+
+    ' One card per title, in list order: an S1:E1 entry is its series, and a
+    ' repeat keeps the FIRST entry -- its PlaylistItemId and server position
+    ' are what the owner tools remove and move.
+    function cards(items as dynamic) as object
+        out = []
+        if type(items) <> "roArray" then return out
+        seen = {}
+        for i = 0 to items.count() - 1
+            item = items[i]
+            if type(item) <> "roAssociativeArray" or not SharedLists.isStr(item.Id) then continue for
+            entry = { itemId: item.Id, type: item.Type, seriesId: item.SeriesId, season: item.ParentIndexNumber, episode: item.IndexNumber }
+            d = SharedLists.displayEntries([entry])[0]
+            if seen.DoesExist(d.id) then continue for
+            seen[d.id] = true
+            entryId = ""
+            if SharedLists.isStr(item.PlaylistItemId) then entryId = item.PlaylistItemId
+            out.push({ id: d.id, isSeries: d.isSeries, item: item, entryId: entryId, index: i })
+        end for
+        return out
+    end function
+
+    function displayIds(cardList as object) as object
+        out = []
+        for each c in cardList
+            out.push(c.id)
+        end for
+        return out
+    end function
+
+    ' What a card draws and opens: the series for a series card (built from the
+    ' episode's own Series* fields, so it costs no request), else the entry.
+    function cardItem(card as object) as object
+        if not card.isSeries then return card.item
+        ep = card.item
+        name = ""
+        if SharedLists.isStr(ep.SeriesName) then name = ep.SeriesName
+        tags = {}
+        if SharedLists.isStr(ep.SeriesPrimaryImageTag) then tags.Primary = ep.SeriesPrimaryImageTag
+        return { Id: card.id, Type: "Series", Name: name, ImageTags: tags }
+    end function
+
+    function visibleCount(items as dynamic) as integer
+        return cards(items).count()
+    end function
+
+    ' The playlist dto is taken only to make the point: its ItemIds are not
+    ' the viewer's titles.
+    function listCount(playlist as dynamic, items as dynamic) as integer
+        return visibleCount(items)
+    end function
+
+    function newCountFor(items as dynamic, seen as object) as integer
+        return SharedLists.newCount(displayIds(cards(items)), seen)
+    end function
+
+    ' A show goes on a list as its first episode (adding the series id would
+    ' add every episode): the lowest season >= 1, then the lowest episode.
+    ' Specials (season 0) and episodes without numbers never anchor.
+    function seriesAnchor(episodes as dynamic) as dynamic
+        best = invalid
+        if type(episodes) <> "roArray" then return best
+        for each ep in episodes
+            if type(ep) <> "roAssociativeArray" then continue for
+            if not SharedLists.isNum(ep.ParentIndexNumber) or not SharedLists.isNum(ep.IndexNumber) then continue for
+            if ep.ParentIndexNumber < 1 then continue for
+            if best = invalid
+                best = ep
+            else if ep.ParentIndexNumber < best.ParentIndexNumber or (ep.ParentIndexNumber = best.ParentIndexNumber and ep.IndexNumber < best.IndexNumber)
+                best = ep
+            end if
+        end for
+        return best
+    end function
+
+    ' Is this title already on the list? itemId is what would be added (the
+    ' movie, the episode, a show's anchor); seriesId is set for a show, which
+    ' is also on the list when any of its S1:E1 entries is.
+    function hasTitle(items as dynamic, itemId as string, seriesId as string) as boolean
+        if type(items) <> "roArray" then return false
+        for each item in items
+            if type(item) = "roAssociativeArray" and item.Id = itemId then return true
+        end for
+        if seriesId = "" then return false
+        for each c in cards(items)
+            if c.id = seriesId then return true
+        end for
+        return false
+    end function
+
+    ' ---------- Subscriptions (DisplayPreferences) ----------
+
+    function prefsPath(userId as string) as string
+        return "/DisplayPreferences/" + SharedLists.PREFS_ID + "?userId=" + userId + "&client=" + SharedLists.PREFS_CLIENT
+    end function
+
+    function subsFromPrefs(dto as dynamic) as object
+        if type(dto) <> "roAssociativeArray" or type(dto.CustomPrefs) <> "roAssociativeArray" then return []
+        return SharedLists.decodeSubscriptions(dto.CustomPrefs[SharedLists.PREFS_KEY])
+    end function
+
+    ' The whole dto goes back with only CustomPrefs.subscriptions replaced:
+    ' the server stores what it is sent, and other keys may belong to another
+    ' Sashimi build. Copies, so the dto that was read stays as it was.
+    function prefsBody(dto as dynamic, subs as object) as object
+        body = {}
+        if type(dto) = "roAssociativeArray" then body.Append(dto)
+        if not body.DoesExist("Client") then body.Client = SharedLists.PREFS_CLIENT
+        prefs = {}
+        if type(body.CustomPrefs) = "roAssociativeArray" then prefs.Append(body.CustomPrefs)
+        prefs[SharedLists.PREFS_KEY] = SharedLists.encodeSubscriptions(subs)
+        body.CustomPrefs = prefs
+        return body
+    end function
+
+    ' A subscribed list that answers 404 was deleted or made private. A
+    ' timeout or a server error says nothing about the list, so it stays.
+    function isGone(code as integer) as boolean
+        return code = 404
+    end function
+
+    function afterLoad(subs as object, missing as object) as object
+        return SharedLists.prune(subs, missing)
+    end function
+
+    ' ---------- Who made it ----------
+
+    function userNames(users as dynamic) as object
+        out = {}
+        if type(users) <> "roArray" then return out
+        for each u in users
+            if type(u) = "roAssociativeArray" and SharedLists.isStr(u.Id) and SharedLists.isStr(u.Name) then out[u.Id] = u.Name
+        end for
+        return out
+    end function
+
+    ' { id, name, isMine }. name is "" when nobody is recorded (a list made
+    ' outside Sashimi) or the creator's account is gone.
+    function owner(playlist as dynamic, names as object, meId as string) as object
+        shares = invalid
+        if type(playlist) = "roAssociativeArray" then shares = playlist.Shares
+        id = SharedLists.owner(shares)
+        if id = invalid then return { id: "", name: "", isMine: false }
+        name = ""
+        if names.DoesExist(id) then name = names[id]
+        return { id: id, name: name, isMine: (meId <> "" and id = meId) }
+    end function
+
+    ' ---------- Copy ----------
+
+    function rowTitle(listName as string, ownerName as string) as string
+        if ownerName = "" then return listName
+        return "From " + ownerName + ": " + listName
+    end function
+
+    function rowTitleWithNew(title as string, newCount as integer) as string
+        if newCount < 1 then return title
+        return title + "  " + Chr(8226) + "  " + newCount.ToStr() + " new"
+    end function
+
+    function titles(n as integer) as string
+        if n = 1 then return "1 title"
+        return n.ToStr() + " titles"
+    end function
+
+    function cardMeta(isMine as boolean, isPublic as boolean, ownerName as string, n as integer) as string
+        if isMine
+            lead = "Private"
+            if isPublic then lead = "Public"
+        else
+            lead = ownerName
+            if lead = "" then lead = "Shared list"
+        end if
+        return lead + " " + Chr(183) + " " + titles(n)
+    end function
+
+    function byline(isMine as boolean, ownerName as string) as string
+        if isMine then return "Your list"
+        if ownerName = "" then return "Shared list"
+        return "A list by " + ownerName
+    end function
+
+    function detailLine(isMine as boolean, isPublic as boolean, subscribed as boolean, n as integer, newCount as integer) as string
+        line = titles(n)
+        if isMine
+            if isPublic
+                return line + " " + Chr(183) + " Public: everyone on the server can see and subscribe"
+            end if
+            return line + " " + Chr(183) + " Private: only you can see it"
+        end if
+        if subscribed and newCount > 0 then return line + " " + Chr(183) + " " + newCount.ToStr() + " new since you last looked"
+        return line
+    end function
+
+    function initial(name as string) as string
+        if name = "" then return "?"
+        return UCase(Left(name, 1))
+    end function
+
+    ' ---------- Add to List ----------
+
+    function canAdd(itemType as dynamic) as boolean
+        return itemType = "Movie" or itemType = "Series" or itemType = "Episode"
+    end function
+
+    function pickerTitle(name as string) as string
+        return "Add " + Chr(8220) + name + Chr(8221) + " to" + Chr(8230)
+    end function
+
+    ' One button per own list, then New List. lists: [{ name, isPublic, count, already }].
+    function pickerLabels(lists as object) as object
+        out = []
+        for each l in lists
+            if l.already = true
+                detail = "Already on this list"
+            else
+                detail = "Private"
+                if l.isPublic = true then detail = "Public"
+                detail = detail + " " + Chr(183) + " " + l.count.ToStr()
+            end if
+            out.push(l.name + "  " + Chr(183) + "  " + detail)
+        end for
+        out.push(NEW_LIST_LABEL())
+        return out
+    end function
+
+    function NEW_LIST_LABEL() as string
+        return "+ New List" + Chr(8230)
+    end function
+
+    function publicLabel(isPublic as boolean) as string
+        if isPublic then return "Public: On"
+        return "Public: Off"
+    end function
+
+    function addedMessage(listName as string, already as boolean) as string
+        if already then return "Already on " + listName
+        return "Added to " + listName
+    end function
+
+    ' ---------- Home rows ----------
+
+    ' The Home & Side Menu config with one row per subscription: a new one goes
+    ' after Continue Watching (SharedLists.insertionIndex), an existing one
+    ' keeps its place, visibility and takes the list's current name, and a row
+    ' whose subscription is gone is dropped. rows: [{ id, title }].
+    function withListRows(config as object, rows as object) as object
+        wanted = {}
+        for each r in rows
+            wanted[r.id] = r.title
+        end for
+        out = []
+        present = {}
+        for each c in config
+            if type(c) <> "roAssociativeArray" then continue for
+            copy = {}
+            copy.Append(c)
+            if copy.kind = "list"
+                if not SharedLists.isStr(copy.listId) or not wanted.DoesExist(copy.listId) then continue for
+                copy.name = wanted[copy.listId]
+                present[copy.listId] = true
+            end if
+            out.push(copy)
+        end for
+        for each r in rows
+            if present.DoesExist(r.id) then continue for
+            keys = []
+            for each c in out
+                keys.push(c.id)
+            end for
+            at = SharedLists.insertionIndex(keys, "cw", "hero")
+            entry = { id: "list_" + r.id, kind: "list", listId: r.id, name: r.title, visible: true }
+            moved = []
+            for i = 0 to out.count() - 1
+                if i = at then moved.push(entry)
+                moved.push(out[i])
+            end for
+            if at >= out.count() then moved.push(entry)
+            out = moved
+            present[r.id] = true
+        end for
+        return out
+    end function
+
+    function sameConfig(a as object, b as object) as boolean
+        return FormatJson(a) = FormatJson(b)
+    end function
+
+    ' Where the row keyed `key` goes among the rows on screen (shownKeys, in
+    ' order): after the nearest entry before it in the config that is shown,
+    ' else first.
+    function rowPosition(config as object, key as string, shownKeys as object) as integer
+        at = -1
+        for i = 0 to config.count() - 1
+            if config[i].id = key
+                at = i
+                exit for
+            end if
+        end for
+        if at < 0 then return shownKeys.count()
+        for j = at - 1 to 0 step -1
+            for k = 0 to shownKeys.count() - 1
+                if shownKeys[k] = config[j].id then return k + 1
+            end for
+        end for
+        return 0
+    end function
+
+    ' ---------- The list's page ----------
+
+    ' The approved mockup's row: Subscribe (or the checked Subscribed, which
+    ' unsubscribes), Shuffle when there is something to play, and the owner's
+    ' Edit List. Your own list can be subscribed to like anyone's: that is how
+    ' it gets a Home row.
+    function detailButtons(isMine as boolean, subscribed as boolean, hasItems as boolean) as object
+        defs = []
+        if subscribed
+            defs.push({ kind: "unsubscribe", label: Chr(10003) + " Subscribed", primary: true })
+        else
+            defs.push({ kind: "subscribe", label: "Subscribe", primary: true })
+        end if
+        if hasItems then defs.push({ kind: "shuffle", label: "Shuffle", primary: false })
+        if isMine then defs.push({ kind: "edit", label: "Edit List", primary: false })
+        return defs
+    end function
+
+    ' Edit List, in the mockup's order. Delete goes through Confirm.
+    function editMenu(isPublic as boolean, hasItems as boolean) as object
+        items = [{ kind: "rename", label: "Rename" }]
+        if isPublic
+            items.push({ kind: "private", label: "Make Private" })
+        else
+            items.push({ kind: "public", label: "Make Public" })
+        end if
+        if hasItems
+            items.push({ kind: "reorder", label: "Reorder Titles" })
+            items.push({ kind: "remove", label: "Remove a Title" })
+        end if
+        items.push({ kind: "delete", label: "Delete List" })
+        return items
+    end function
+
+    function moveMenu() as object
+        return [
+            { kind: "first", label: "Move to Start" },
+            { kind: "earlier", label: "Move Earlier" },
+            { kind: "later", label: "Move Later" },
+            { kind: "last", label: "Move to End" }
+        ]
+    end function
+
+    function modeHint(mode as string) as string
+        if mode = "remove" then return "Choose a title to remove  " + Chr(8226) + "  Back when done"
+        if mode = "reorder" then return "Choose a title to move  " + Chr(8226) + "  Back when done"
+        return ""
+    end function
+
+    ' ---------- Owner tools ----------
+
+    ' The server position to move card `from` to, or -1 when it would not move.
+    ' op: "first" | "earlier" | "later" | "last".
+    function moveIndex(cardList as object, from as integer, op as string) as integer
+        n = cardList.count()
+        if from < 0 or from >= n then return -1
+        target = from
+        if op = "first" then target = 0
+        if op = "earlier" then target = from - 1
+        if op = "later" then target = from + 1
+        if op = "last" then target = n - 1
+        if target < 0 or target >= n or target = from then return -1
+        return cardList[target].index
+    end function
+
+end namespace

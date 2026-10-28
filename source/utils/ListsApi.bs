@@ -1,0 +1,276 @@
+import "pkg:/source/utils/Http.bs"
+import "pkg:/source/utils/SharedLists.bs"
+import "pkg:/source/utils/ListsModel.bs"
+
+' Shared lists over the network, on the JellyfinApi task thread (one action,
+' "lists", dispatches here by `op`). Lists are ordinary Jellyfin playlists;
+' the creator is recorded by a self-share, and each viewer's subscriptions
+' live in DisplayPreferences (ListsModel.prefsPath). Every op returns an AA
+' the task hands back as its response; the screens shape it with ListsModel.
+' Verified against Jellyfin 12.4 with throwaway users: a public list reads 200
+' for anyone, a private or deleted one 404s, a non-owner's write 403s, and
+' /Users is readable by every user.
+namespace ListsApi
+
+    function handle(request as object, me as string) as object
+        op = request.op
+        if op = "overview" then return overview(me)
+        if op = "detail" then return detail(request.listId, me)
+        if op = "home" then return homeRows(me)
+        if op = "picker" then return picker(me, request.item)
+        if op = "add" then return add(me, request.listId, request.listName, request.targetId, request.seriesId)
+        if op = "create" then return create(me, request.name, request.isPublic = true, request.targetId)
+        if op = "subscribe" or op = "unsubscribe" then return editSubs(me, request)
+        if op = "rename" then return update(request.listId, { Name: request.name })
+        if op = "setPublic" then return update(request.listId, { IsPublic: request.isPublic = true })
+        if op = "remove" then return result(Http.send("DELETE", "/Playlists/" + request.listId + "/Items?entryIds=" + request.entryId))
+        if op = "move" then return result(Http.send("POST", "/Playlists/" + request.listId + "/Items/" + request.entryId + "/Move/" + request.index.ToStr()))
+        if op = "delete" then return result(Http.send("DELETE", "/Items/" + request.listId))
+        return { success: false }
+    end function
+
+    function result(r as object) as object
+        return { success: r.ok, statusCode: r.code }
+    end function
+
+    function update(listId as string, body as object) as object
+        return result(Http.send("POST", "/Playlists/" + listId, body))
+    end function
+
+    ' ---------- Reads ----------
+
+    function names() as object
+        r = Http.send("GET", "/Users")
+        if not r.ok then return {}
+        return ListsModel.userNames(r.data)
+    end function
+
+    ' Every list this user can see: their own and everyone's public ones.
+    ' Audio playlists are a music player's, not Sashimi's.
+    function allLists(me as string) as object
+        r = Http.send("GET", "/Items?Recursive=true&IncludeItemTypes=Playlist&SortBy=SortName&userId=" + me)
+        out = []
+        if not r.ok or type(r.data) <> "roAssociativeArray" or type(r.data.Items) <> "roArray" then return out
+        for each p in r.data.Items
+            if SharedLists.isStr(p.Id) and p.MediaType <> "Audio" then out.push(p)
+        end for
+        return out
+    end function
+
+    function info(listId as string) as object
+        return Http.send("GET", "/Playlists/" + listId)
+    end function
+
+    ' The viewer's own titles on the list, parental limits applied by the server.
+    function entries(listId as string, me as string) as object
+        path = "/Playlists/" + listId + "/Items?userId=" + me
+        path += "&Fields=PrimaryImageAspectRatio,ProductionYear,CommunityRating,OfficialRating,Overview,MediaStreams,Path"
+        path += "&EnableImageTypes=Primary,Backdrop,Thumb&EnableUserData=true"
+        r = Http.send("GET", path)
+        items = []
+        if r.ok and type(r.data) = "roAssociativeArray" and type(r.data.Items) = "roArray" then items = r.data.Items
+        return { ok: r.ok, code: r.code, items: items }
+    end function
+
+    function readPrefs(me as string) as object
+        r = Http.send("GET", ListsModel.prefsPath(me))
+        dto = invalid
+        if r.ok and type(r.data) = "roAssociativeArray" then dto = r.data
+        return { ok: (dto <> invalid), dto: dto, subs: ListsModel.subsFromPrefs(dto) }
+    end function
+
+    ' Read, change, write back the whole dto: the last write wins, and a fresh
+    ' read right before it keeps a change made on another device a moment ago.
+    function writeSubs(me as string, change as object) as object
+        prefs = readPrefs(me)
+        if not prefs.ok then return { ok: false, subs: [] }
+        subs = prefs.subs
+        if change.op = "subscribe" then subs = SharedLists.subscribe(subs, change.id, change.current)
+        if change.op = "unsubscribe" then subs = SharedLists.unsubscribe(subs, change.id)
+        if change.op = "markSeen" then subs = SharedLists.markSeen(subs, change.id, change.current)
+        if change.op = "prune" then subs = SharedLists.prune(subs, change.missing)
+        r = Http.send("POST", ListsModel.prefsPath(me), ListsModel.prefsBody(prefs.dto, subs))
+        return { ok: r.ok, subs: subs }
+    end function
+
+    ' The Lists page: each list with its creator, the viewer's count, and
+    ' whether they subscribe.
+    function overview(me as string) as object
+        prefs = readPrefs(me)
+        subscribed = {}
+        for each s in prefs.subs
+            subscribed[s.id] = true
+        end for
+        who = names()
+        lists = []
+        for each p in allLists(me)
+            pi = info(p.Id)
+            if not pi.ok then continue for
+            e = entries(p.Id, me)
+            o = ListsModel.owner(pi.data, who, me)
+            imageTag = ""
+            if type(p.ImageTags) = "roAssociativeArray" and SharedLists.isStr(p.ImageTags.Primary) then imageTag = p.ImageTags.Primary
+            lists.push({
+                id: p.Id,
+                name: textOf(p.Name),
+                imageTag: imageTag,
+                isPublic: (pi.data.OpenAccess = true),
+                ownerName: o.name,
+                isMine: o.isMine,
+                count: ListsModel.visibleCount(e.items),
+                subscribed: subscribed.DoesExist(p.Id)
+            })
+        end for
+        return { success: true, lists: lists }
+    end function
+
+    ' One list for its page. Opening it is what clears its "new": seen becomes
+    ' what is shown now. The "new" marks drawn are the ones from before that.
+    function detail(listId as string, me as string) as object
+        pi = info(listId)
+        if not pi.ok
+            return { success: false, gone: ListsModel.isGone(pi.code), statusCode: pi.code }
+        end if
+        e = entries(listId, me)
+        if not e.ok then return { success: false, gone: ListsModel.isGone(e.code), statusCode: e.code }
+        o = ListsModel.owner(pi.data, names(), me)
+        prefs = readPrefs(me)
+        seen = invalid
+        for each s in prefs.subs
+            if s.id = listId then seen = s.seen
+        end for
+        name = ""
+        r = Http.send("GET", "/Items?Ids=" + listId + "&userId=" + me)
+        if r.ok and type(r.data) = "roAssociativeArray" and type(r.data.Items) = "roArray" and r.data.Items.count() > 0 then name = textOf(r.data.Items[0].Name)
+        resp = {
+            success: true,
+            listId: listId,
+            name: name,
+            isPublic: (pi.data.OpenAccess = true),
+            ownerName: o.name,
+            isMine: o.isMine,
+            items: e.items,
+            subscribed: (seen <> invalid),
+            seen: []
+        }
+        if seen <> invalid
+            resp.seen = seen
+            current = ListsModel.displayIds(ListsModel.cards(e.items))
+            if FormatJson(current) <> FormatJson(seen) then writeSubs(me, { op: "markSeen", id: listId, current: current })
+        end if
+        return resp
+    end function
+
+    ' Home's subscribed rows, in subscription order. A list that 404s is left
+    ' out and pruned from the subscriptions; any other failure just skips it
+    ' this time.
+    function homeRows(me as string) as object
+        prefs = readPrefs(me)
+        rows = []
+        if not prefs.ok or prefs.subs.count() = 0 then return { success: prefs.ok, rows: rows }
+        who = names()
+        missing = []
+        for each s in prefs.subs
+            pi = info(s.id)
+            if not pi.ok
+                if ListsModel.isGone(pi.code) then missing.push(s.id)
+                continue for
+            end if
+            e = entries(s.id, me)
+            if not e.ok
+                if ListsModel.isGone(e.code) then missing.push(s.id)
+                continue for
+            end if
+            name = ""
+            r = Http.send("GET", "/Items?Ids=" + s.id + "&userId=" + me)
+            if r.ok and type(r.data) = "roAssociativeArray" and type(r.data.Items) = "roArray" and r.data.Items.count() > 0 then name = textOf(r.data.Items[0].Name)
+            o = ListsModel.owner(pi.data, who, me)
+            rows.push({ id: s.id, name: name, ownerName: o.name, items: e.items, seen: s.seen })
+        end for
+        if missing.count() > 0 then writeSubs(me, { op: "prune", missing: missing })
+        return { success: true, rows: rows }
+    end function
+
+    ' Add to List: what would be added (a show's first episode, never the
+    ' series id), and the viewer's own lists with whether it is already there.
+    function picker(me as string, item as object) as object
+        target = targetFor(me, item)
+        if target = invalid then return { success: false, error: "noAnchor" }
+        lists = []
+        who = {}
+        for each p in allLists(me)
+            pi = info(p.Id)
+            if not pi.ok then continue for
+            if not ListsModel.owner(pi.data, who, me).isMine then continue for
+            e = entries(p.Id, me)
+            lists.push({
+                id: p.Id,
+                name: textOf(p.Name),
+                isPublic: (pi.data.OpenAccess = true),
+                count: ListsModel.visibleCount(e.items),
+                already: ListsModel.hasTitle(e.items, target.targetId, target.seriesId)
+            })
+        end for
+        return { success: true, lists: lists, targetId: target.targetId, seriesId: target.seriesId }
+    end function
+
+    function targetFor(me as string, item as object) as dynamic
+        if item = invalid or not SharedLists.isStr(item.Id) then return invalid
+        if item.Type = "Series"
+            r = Http.send("GET", "/Shows/" + item.Id + "/Episodes?userId=" + me + "&Fields=ParentIndexNumber&EnableImages=false&EnableUserData=false")
+            if not r.ok or type(r.data) <> "roAssociativeArray" then return invalid
+            anchor = ListsModel.seriesAnchor(r.data.Items)
+            if anchor = invalid then return invalid
+            return { targetId: anchor.Id, seriesId: item.Id }
+        end if
+        return { targetId: item.Id, seriesId: "" }
+    end function
+
+    ' Checked again here, not just in the picker: another device may have
+    ' added it since the picker opened.
+    function add(me as string, listId as string, listName as string, targetId as string, seriesId as string) as object
+        e = entries(listId, me)
+        if e.ok and ListsModel.hasTitle(e.items, targetId, seriesId)
+            return { success: true, already: true, listName: listName }
+        end if
+        r = Http.send("POST", "/Playlists/" + listId + "/Items?ids=" + targetId + "&userId=" + me)
+        return { success: r.ok, already: false, listName: listName, statusCode: r.code }
+    end function
+
+    ' A new list, shared with its own creator straight away: that share is the
+    ' only way anyone else learns who made it. If it cannot be recorded the
+    ' list is deleted again rather than left ownerless.
+    function create(me as string, name as string, isPublic as boolean, targetId as string) as object
+        ids = []
+        if targetId <> "" then ids.push(targetId)
+        r = Http.send("POST", "/Playlists", { Name: name, Ids: ids, UserId: me, MediaType: "Video", IsPublic: isPublic })
+        if not r.ok or type(r.data) <> "roAssociativeArray" or not SharedLists.isStr(r.data.Id)
+            return { success: false, statusCode: r.code, listName: name }
+        end if
+        listId = r.data.Id
+        share = Http.send("POST", "/Playlists/" + listId + "/Users/" + me, { CanEdit: true })
+        if not share.ok
+            Http.send("DELETE", "/Items/" + listId)
+            return { success: false, statusCode: share.code, listName: name }
+        end if
+        return { success: true, listId: listId, listName: name }
+    end function
+
+    ' Subscribing starts at nothing new: seen is everything on the list now.
+    function editSubs(me as string, request as object) as object
+        change = { op: request.op, id: request.listId, current: [] }
+        if request.op = "subscribe"
+            e = entries(request.listId, me)
+            if not e.ok then return { success: false, statusCode: e.code }
+            change.current = ListsModel.displayIds(ListsModel.cards(e.items))
+        end if
+        w = writeSubs(me, change)
+        return { success: w.ok, subscribed: (request.op = "subscribe") }
+    end function
+
+    function textOf(v as dynamic) as string
+        if SharedLists.isStr(v) then return v
+        return ""
+    end function
+
+end namespace

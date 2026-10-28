@@ -16,6 +16,9 @@ sub init()
     m.tmdbLogo = m.top.findNode("tmdbLogo")
     m.ratingLabel = m.top.findNode("ratingLabel")
     m.sourcePills = m.top.findNode("sourcePills")
+    m.newBadge = m.top.findNode("newBadge")
+    m.newBadgeLabel = m.top.findNode("newBadgeLabel")
+    m.watchedBadge = m.top.findNode("watchedBadge")
     m.pillFont = CreateObject("roSGNode", "Font")
     m.pillFont.uri = "pkg:/fonts/Inter-Bold.ttf"
     m.pillFont.size = 16
@@ -106,6 +109,15 @@ sub applySourcePills(content as object)
     end for
 end sub
 
+'' Shared lists' cards: NEW wins over the watched check. Only list cards carry
+' these fields; every other cell is reset so a recycled one never keeps them.
+sub applyListMarks(content as object)
+    isNew = (not m.isCircular and content.doesExist("isNew") and content.isNew = true)
+    m.newBadge.visible = isNew
+    m.newBadgeLabel.visible = isNew
+    m.watchedBadge.visible = (not isNew and not m.isCircular and content.doesExist("listPlayed") and content.listPlayed = true)
+end sub
+
 ' 0-10 float to one decimal ("8.0", "7.5") without locale surprises.
 function formatRating(r as float) as string
     r10 = Int(r * 10 + 0.5)
@@ -182,6 +194,7 @@ sub onItemContentChanged()
     applyQualityBadge(content)
     applyRatingBadge(content)
     applySourcePills(content)
+    applyListMarks(content)
 
     ' Re-derive the focus visuals from the cell's ACTUAL focusPercent rather
     ' than leaving the unfocused defaults above. If content is reassigned to the

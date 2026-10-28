@@ -1,0 +1,365 @@
+import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/Quality.bs"
+import "pkg:/source/utils/Confirm.bs"
+import "pkg:/source/utils/ListsModel.bs"
+
+' A list's page. The "detail" request also clears the list's "new" for a
+' subscriber (ListsApi.detail), so the NEW marks drawn here are the ones from
+' before this visit. Owner tools reload the list after each change; every
+' change bumps m.global.listsVersion so Home and the Lists page reload too.
+
+sub init()
+    m.avatar = m.top.findNode("avatar")
+    m.avatarLabel = m.top.findNode("avatarLabel")
+    m.bylineLabel = m.top.findNode("bylineLabel")
+    m.nameLabel = m.top.findNode("nameLabel")
+    m.metaLabel = m.top.findNode("metaLabel")
+    m.buttons = m.top.findNode("buttons")
+    m.modeLabel = m.top.findNode("modeLabel")
+    m.grid = m.top.findNode("grid")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.apiTask = m.top.findNode("apiTask")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.buttons.observeFieldScoped("activatedKind", "onButton")
+    m.buttons.observeFieldScoped("goDown", "onButtonsDown")
+    m.grid.observeFieldScoped("itemSelected", "onGridSelected")
+    m.top.observeField("focusedChild", "onFocusDelegate")
+
+    m.queue = []
+    m.inFlight = false
+    m.list = invalid        ' the last "detail" answer
+    m.cards = []
+    m.mode = ""             ' "" | "remove" | "reorder"
+    m.zone = "buttons"
+    m.menu = invalid        ' items of the dialog on screen
+    m.pendingCard = -1      ' the card a remove / move dialog is about
+    m.loadedVersion = -1
+end sub
+
+sub send(req as object)
+    req.listId = m.top.listId
+    m.queue.push(req)
+    pump()
+end sub
+
+sub pump()
+    if m.inFlight or m.queue.count() = 0 then return
+    m.inFlight = true
+    m.apiTask.request = m.queue.shift()
+end sub
+
+sub onListId()
+    load()
+end sub
+
+sub load()
+    m.loadedVersion = m.global.listsVersion
+    send({ action: "lists", op: "detail" })
+end sub
+
+sub onFocusDelegate()
+    if not m.top.hasFocus() then return
+    ' Back from a title: something may have changed the list meanwhile.
+    if m.list <> invalid and m.loadedVersion <> m.global.listsVersion then load()
+    focusZone(m.zone)
+end sub
+
+sub focusZone(zone as string)
+    if zone = "grid" and m.cards.count() = 0 then zone = "buttons"
+    m.zone = zone
+    if zone = "grid" then m.grid.setFocus(true) else m.buttons.setFocus(true)
+end sub
+
+sub changed()
+    m.global.listsVersion = m.global.listsVersion + 1
+end sub
+
+sub onApiResponse()
+    r = m.apiTask.response
+    if r = invalid then return
+    m.inFlight = false
+    if r.action = "lists"
+        if r.op = "detail"
+            onDetail(r)
+        else if r.op = "subscribe" or r.op = "unsubscribe"
+            if r.success
+                changed()
+                if r.op = "subscribe" then toast("Subscribed. It's on your Home screen now.") else toast("Unsubscribed")
+            else
+                toast("Couldn't update. Check your connection.")
+            end if
+            load()
+        else if r.op = "delete"
+            if r.success
+                changed()
+                toast("Deleted")
+                m.top.closed = true
+            else
+                toast("Couldn't delete the list. Check your connection.")
+            end if
+        else
+            ' rename / setPublic / remove / move
+            if r.success then changed() else toast("Couldn't update. Check your connection.")
+            load()
+        end if
+    else if r.action = "getItems"
+        if r.success and r.items <> invalid and r.items.count() > 0 then m.top.playItem = { item: r.items[0], action: "play" }
+    end if
+    pump()
+end sub
+
+sub toast(text as string)
+    m.global.toastMessage = { message: text }
+end sub
+
+sub onDetail(r as object)
+    if r.success <> true
+        if r.gone = true
+            toast("That list is no longer shared.")
+            changed()
+            m.top.closed = true
+            return
+        end if
+        m.statusLabel.text = "Couldn't load the list. Check your connection."
+        m.statusLabel.visible = true
+        return
+    end if
+    m.list = r
+    m.cards = ListsModel.cards(r.items)
+    m.statusLabel.visible = (m.cards.count() = 0)
+    m.statusLabel.text = "Nothing on this list yet."
+    if r.isMine then m.statusLabel.text = "Nothing on this list yet. Add titles with Add to List on any movie or show."
+
+    m.avatar.visible = not r.isMine and r.ownerName <> ""
+    m.avatarLabel.text = ListsModel.initial(r.ownerName)
+    m.bylineLabel.text = ListsModel.byline(r.isMine, r.ownerName)
+    if m.avatar.visible then m.bylineLabel.translation = [184, 74] else m.bylineLabel.translation = [120, 74]
+    m.nameLabel.text = r.name
+    seen = r.seen
+    newCount = 0
+    if r.subscribed then newCount = SharedLists.newCount(ListsModel.displayIds(m.cards), seen)
+    m.metaLabel.text = ListsModel.detailLine(r.isMine, r.isPublic, r.subscribed, m.cards.count(), newCount)
+
+    keep = m.buttons.activatedKind
+    defs = ListsModel.detailButtons(r.isMine, r.subscribed, m.cards.count() > 0)
+    m.buttons.buttonDefs = defs
+    for i = 0 to defs.count() - 1
+        if defs[i].kind = keep or (keep = "subscribe" and defs[i].kind = "unsubscribe") or (keep = "unsubscribe" and defs[i].kind = "subscribe")
+            m.buttons.setIndex = -1
+            m.buttons.setIndex = i
+        end if
+    end for
+
+    seenSet = {}
+    if r.subscribed
+        for each id in seen
+            seenSet[id] = true
+        end for
+    end if
+    focusedAt = m.grid.itemFocused
+    content = CreateObject("roSGNode", "ContentNode")
+    for each card in m.cards
+        item = ListsModel.cardItem(card)
+        c = content.createChild("ContentNode")
+        c.title = ""
+        if item.Name <> invalid then c.title = item.Name
+        if not card.isSeries and item.Type = "Episode" and item.SeriesName <> invalid then c.title = item.SeriesName
+        ' GridItem reads the caption from shortDescriptionLine1 first, and a
+        ' ContentNode's is "" (not invalid) unless set.
+        c.shortDescriptionLine1 = c.title
+        c.HDPosterUrl = posterFor(card, item)
+        played = (card.item.UserData <> invalid and card.item.UserData.Played = true and not card.isSeries)
+        c.addFields({ isNew: (r.subscribed and not seenSet.DoesExist(card.id)), listPlayed: played })
+        c.addFields({ quality: Quality.badge(card.item), communityRating: Quality.rating(card.item) })
+    end for
+    m.grid.content = content
+    if focusedAt <> invalid and focusedAt >= 0 and content.getChildCount() > 0
+        if focusedAt >= content.getChildCount() then focusedAt = content.getChildCount() - 1
+        m.grid.jumpToItem = focusedAt
+    end if
+    setMode(m.mode)
+    if m.top.isInFocusChain() then focusZone(m.zone)
+end sub
+
+function posterFor(card as object, item as object) as string
+    if card.isSeries
+        tag = ""
+        if item.ImageTags <> invalid and item.ImageTags.Primary <> invalid then tag = item.ImageTags.Primary
+        return ImageUrl.primary(item.Id, 210, tag)
+    end if
+    ' An episode that is not a pilot stays an episode, drawn with its show's
+    ' poster like every other episode card in the app.
+    if item.Type = "Episode" and item.SeriesId <> invalid and item.SeriesId <> ""
+        return ImageUrl.primary(item.SeriesId, 210, ImageUrl.seriesPrimaryTag(item))
+    end if
+    if item.ImageTags <> invalid and item.ImageTags.Primary <> invalid then return ImageUrl.primary(item.Id, 210, ImageUrl.primaryTag(item))
+    return ""
+end function
+
+sub setMode(mode as string)
+    if m.cards.count() = 0 then mode = ""
+    m.mode = mode
+    m.modeLabel.text = ListsModel.modeHint(mode)
+    m.modeLabel.visible = (mode <> "")
+end sub
+
+' ---------- Buttons ----------
+
+sub onButtonsDown()
+    if m.cards.count() > 0 then focusZone("grid")
+end sub
+
+sub onButton(event as object)
+    kind = event.getData()
+    if m.list = invalid then return
+    if kind = "subscribe" or kind = "unsubscribe"
+        send({ action: "lists", op: kind })
+    else if kind = "shuffle"
+        shuffle()
+    else if kind = "edit"
+        showMenu(m.list.name, ListsModel.editMenu(m.list.isPublic, m.cards.count() > 0), "onEditButton")
+    end if
+end sub
+
+sub shuffle()
+    if m.cards.count() = 0 then return
+    card = m.cards[Rnd(m.cards.count()) - 1]
+    if card.isSeries
+        send({ action: "getItems", parentId: card.id, includeItemTypes: "Episode", sortBy: "Random", limit: 1 })
+    else
+        m.top.playItem = { item: card.item, action: "play" }
+    end if
+end sub
+
+sub showMenu(title as string, items as object, handler as string)
+    m.menu = items
+    dialog = CreateObject("roSGNode", "StandardMessageDialog")
+    dialog.title = title
+    labels = []
+    for each it in items
+        labels.push(it.label)
+    end for
+    labels.push("Cancel")
+    dialog.buttons = labels
+    dialog.observeFieldScoped("buttonSelected", handler)
+    m.top.getScene().dialog = dialog
+end sub
+
+function menuPick() as string
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return ""
+    idx = dialog.buttonSelected
+    dialog.close = true
+    items = m.menu
+    m.menu = invalid
+    if items = invalid or idx = invalid or idx < 0 or idx >= items.count() then return ""
+    return items[idx].kind
+end function
+
+sub onEditButton()
+    kind = menuPick()
+    focusZone(m.zone)
+    if kind = "rename"
+        dialog = CreateObject("roSGNode", "StandardKeyboardDialog")
+        dialog.title = "Rename List"
+        dialog.text = m.list.name
+        dialog.buttons = ["Save", "Cancel"]
+        dialog.observeFieldScoped("buttonSelected", "onRenameButton")
+        m.top.getScene().dialog = dialog
+    else if kind = "private" or kind = "public"
+        send({ action: "lists", op: "setPublic", isPublic: (kind = "public") })
+    else if kind = "reorder" or kind = "remove"
+        setMode(kind)
+        focusZone("grid")
+    else if kind = "delete"
+        dialog = CreateObject("roSGNode", "StandardMessageDialog")
+        dialog.title = "Delete " + Chr(8220) + m.list.name + Chr(8221) + "?"
+        dialog.message = ["Everyone subscribed to it loses it too. The titles stay in your library."]
+        dialog.buttons = Confirm.buttons("Delete List")
+        dialog.observeFieldScoped("buttonSelected", "onDeleteButton")
+        m.top.getScene().dialog = dialog
+    end if
+end sub
+
+sub onRenameButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    name = dialog.text.Trim()
+    if idx = 0 and name = "" then return
+    dialog.close = true
+    focusZone(m.zone)
+    if idx = 0 and name <> m.list.name then send({ action: "lists", op: "rename", name: name })
+end sub
+
+sub onDeleteButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
+    dialog.close = true
+    focusZone("buttons")
+    if confirmed then send({ action: "lists", op: "delete" })
+end sub
+
+' ---------- Grid ----------
+
+sub onGridSelected()
+    idx = m.grid.itemSelected
+    if idx < 0 or idx >= m.cards.count() then return
+    card = m.cards[idx]
+    if m.mode = "remove"
+        m.pendingCard = idx
+        item = ListsModel.cardItem(card)
+        dialog = CreateObject("roSGNode", "StandardMessageDialog")
+        dialog.title = "Remove " + Chr(8220) + item.Name + Chr(8221) + "?"
+        dialog.buttons = Confirm.buttons("Remove")
+        dialog.observeFieldScoped("buttonSelected", "onRemoveButton")
+        m.top.getScene().dialog = dialog
+    else if m.mode = "reorder"
+        m.pendingCard = idx
+        showMenu(ListsModel.cardItem(card).Name, ListsModel.moveMenu(), "onMoveButton")
+    else
+        m.top.selectedItem = ListsModel.cardItem(card)
+    end if
+end sub
+
+sub onRemoveButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
+    dialog.close = true
+    focusZone("grid")
+    idx = m.pendingCard
+    m.pendingCard = -1
+    if confirmed and idx >= 0 and idx < m.cards.count() and m.cards[idx].entryId <> ""
+        send({ action: "lists", op: "remove", entryId: m.cards[idx].entryId })
+    end if
+end sub
+
+sub onMoveButton()
+    op = menuPick()
+    focusZone("grid")
+    idx = m.pendingCard
+    m.pendingCard = -1
+    if op = "" or idx < 0 or idx >= m.cards.count() then return
+    target = ListsModel.moveIndex(m.cards, idx, op)
+    if target < 0 or m.cards[idx].entryId = "" then return
+    send({ action: "lists", op: "move", entryId: m.cards[idx].entryId, index: target })
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "back" and m.mode <> ""
+        setMode("")
+        return true
+    end if
+    if key = "up" and m.grid.hasFocus()
+        ' fixedFocus stops the grid wrapping; its top row hands back to the row.
+        if m.grid.itemFocused < 6
+            focusZone("buttons")
+            return true
+        end if
+    end if
+    return false
+end function

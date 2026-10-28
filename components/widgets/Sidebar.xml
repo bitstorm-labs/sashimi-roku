@@ -4,12 +4,12 @@
      server-switch at the foot. Content switches as focus moves (navChoice). -->
 <component name="Sidebar" extends="Group">
     <interface>
-        <!-- {kind:"home"|"library"|"search"|"settings", library?:{id,name,collectionType}} -->
+        <!-- {kind:"home"|"fintv"|"library"|"lists"|"search"|"settings", library?:{id,name,collectionType}} -->
         <field id="navChoice" type="assocarray" alwaysNotify="true" />
         <field id="descend" type="boolean" alwaysNotify="true" />
         <field id="switchServer" type="boolean" alwaysNotify="true" />
         <!-- MainScene -> rail: the id of the root screen actually showing
-             ("home", "fintv", "search", "settings", "lib:<id>"). The rail's
+             ("home", "fintv", "lists", "search", "settings", "lib:<id>"). The rail's
              highlighted row follows this, never the other way round. -->
         <field id="selectedId" type="string" value="home" onChange="onSelectedIdChanged" />
         <!-- MainScene, whenever it enters the main UI with a session in place:

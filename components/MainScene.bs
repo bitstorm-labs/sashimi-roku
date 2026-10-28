@@ -41,6 +41,9 @@ sub init()
     ' Bumped when Settings > Home & Side Menu saves; the rail rebuilds from the
     ' new config. Added before the Sidebar exists, so its init can observe it.
     m.global.addFields({ homeRowsVersion: 0 })
+    ' Shared lists: bumped by any change to a list or a subscription, so Home
+    ' and the Lists page reload when they come back to the front.
+    m.global.addFields({ listsVersion: 0 })
 
     ' Left pullout sidebar (created up front, shown after login)
     m.sidebar = createObject("roSGNode", "Sidebar")
@@ -753,6 +756,10 @@ function getOrCreateRootScreen(choice as object) as object
         screen = createObject("roSGNode", "HomeScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
         screen.observeFieldScoped("playItem", "onPlayItem")
+        screen.observeFieldScoped("openList", "onOpenList")
+    else if kind = "lists"
+        screen = createObject("roSGNode", "ListsScreen")
+        screen.observeFieldScoped("openList", "onOpenList")
     else if kind = "fintv"
         screen = createObject("roSGNode", "GuideScreen")
         screen.observeFieldScoped("playItem", "onPlayItem")
@@ -877,6 +884,24 @@ sub onDetailSwitchServer(event as object)
     restoreSession()
     enterMainUI()
     showDetailScreen(req.item)
+end sub
+
+'' A list's page (shared lists), from the Lists page or a Home row's * menu.
+sub onOpenList(event as object)
+    req = event.getData()
+    if req = invalid or req.listId = invalid or req.listId = "" then return
+    screen = createObject("roSGNode", "ListDetailScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("selectedItem", "onItemSelected")
+    screen.observeFieldScoped("playItem", "onPlayItem")
+    screen.observeFieldScoped("closed", "onListClosed")
+    pushScreen(screen)
+    screen.listId = req.listId
+end sub
+
+sub onListClosed(event as object)
+    screen = event.getRoSGNode()
+    if m.navStack.count() > 0 and screen <> invalid and m.navStack.peek().isSameNode(screen) then popScreen()
 end sub
 
 ' heroSource: whose trailer a detail screen's hero plays, as far as the item

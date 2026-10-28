@@ -14,6 +14,7 @@ sub main()
     testOtherMore(t)
     testSeasonChipMenu(t)
     testEpisodeSuffix(t)
+    testAddToList(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -129,4 +130,29 @@ sub testEpisodeSuffix(t as object)
     eq(t, "suffix", DetailActions_episodeSuffix({ ParentIndexNumber: 2, IndexNumber: 6 }), " S2:E6")
     eq(t, "no index, no suffix", DetailActions_episodeSuffix({ ParentIndexNumber: 2 }), "")
     eq(t, "no episode", DetailActions_episodeSuffix(invalid), "")
+end sub
+
+' Shared lists: Add to List is a main-row button right before More on movie,
+' series and episode pages, never a More entry.
+sub testAddToList(t as object)
+    row = DetailActions_mainRow({ itemType: "Movie", hasTrailer: true, canAddToList: true })
+    eq(t, "movie: Add to List before More", kinds(row), "play|trailer|markPlayed|addToList|more")
+    eq(t, "its label", row[3].label, "Add to List")
+    eq(t, "not primary", row[3].primary, false)
+    row = DetailActions_mainRow({ itemType: "Series", epSuffix: " S1:E1", canAddToList: true })
+    eq(t, "series row", labelsOf(row), "Play S1:E1|Shuffle|Mark Watched|Add to List|More")
+    row = DetailActions_mainRow({ itemType: "Episode", isPlayed: true, canAddToList: true })
+    eq(t, "episode row", kinds(row), "play|markUnplayed|addToList|more")
+    ' Another server's title: the lists belong to the active one.
+    row = DetailActions_mainRow({ itemType: "Movie", pinnedLabel: "Other", canAddToList: true })
+    eq(t, "pinned: no Add to List", kinds(row), "switchServer|markPlayed|more")
+    ' The Season page keeps its mockup row.
+    row = DetailActions_mainRow({ itemType: "Season", hasSeries: true, canAddToList: true })
+    eq(t, "season: no Add to List", kinds(row), "play|seasonWatch|series")
+    more = DetailActions_moreItems({ itemType: "Movie", canAddToList: true })
+    has = false
+    for each it in more
+        if it.kind = "addToList" then has = true
+    end for
+    eq(t, "not in More", has, false)
 end sub

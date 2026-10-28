@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Shared lists: one list's page (approved mockup). Byline, name, count line,
+     Subscribe / Shuffle / owner's Edit List, then the titles as a poster grid
+     with NEW marks for what was added since the viewer last opened it. -->
+<component name="ListDetailScreen" extends="Group">
+    <interface>
+        <field id="listId" type="string" onChange="onListId" />
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+        <field id="playItem" type="assocarray" alwaysNotify="true" />
+        <!-- The list was deleted from here (or is gone): MainScene pops it. -->
+        <field id="closed" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="#18171F" />
+        <Group id="avatar" translation="[120, 66]" visible="false">
+            <Poster uri="pkg:/images/avatar_accent.png" width="48" height="48" />
+            <Label id="avatarLabel" text="" color="#FFFFFF" width="48" height="48" horizAlign="center" vertAlign="center">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="24" />
+            </Label>
+        </Group>
+        <Label id="bylineLabel" text="" color="#C9C7D1" translation="[184, 74]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+        </Label>
+        <Label id="nameLabel" text="" color="#FFFFFF" width="1680" maxLines="1" translation="[120, 124]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="64" />
+        </Label>
+        <Label id="metaLabel" text="" color="#A8A6B3" width="1680" translation="[120, 212]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
+        </Label>
+        <DetailButtons id="buttons" translation="[120, 262]" />
+        <Label id="modeLabel" text="" color="#FFFFFF" translation="[1000, 274]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="24" />
+        </Label>
+        <MarkupGrid
+            id="grid"
+            translation="[105, 350]"
+            itemSize="[240, 380]"
+            itemSpacing="[30, 40]"
+            numColumns="6"
+            numRows="2"
+            vertFocusAnimationStyle="fixedFocus"
+            drawFocusFeedback="false"
+            itemComponentName="GridItem"
+        />
+        <Label id="statusLabel" text="Loading..." color="#888888" width="1920" horizAlign="center" translation="[0, 520]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="28" />
+        </Label>
+        <JellyfinApi id="apiTask" />
+    </children>
+</component>
