@@ -1,0 +1,151 @@
+' The rules every Sashimi client shares for lists (shared lists design,
+' 2026-10-27): who made a list, how its entries show, and each user's
+' subscriptions as stored in Jellyfin DisplayPreferences (id "sashimi-lists",
+' client "sashimi", CustomPrefs "subscriptions" = [{"id","seen"}]). The same
+' literals and test vectors are used by the Apple and Android clients, so a
+' subscription made on one platform reads the same on the others. Pure
+' functions only, so tests/SharedListsTests.brs runs them off-device.
+'
+' Data shapes: shares are the server's { UserId, CanEdit }; entries are
+' { itemId, type, seriesId, season, episode }; display entries { id, isSeries };
+' subscriptions { id, seen }.
+namespace SharedLists
+
+    const PREFS_ID = "sashimi-lists"
+    const PREFS_CLIENT = "sashimi"
+    const PREFS_KEY = "subscriptions"
+
+    ' Jellyfin does not report a playlist's owner; Sashimi shares each list
+    ' it creates with its creator, so the first editable share is the owner.
+    function owner(shares as dynamic) as dynamic
+        if type(shares) <> "roArray" then return invalid
+        for each s in shares
+            if type(s) = "roAssociativeArray" and s.CanEdit = true and isStr(s.UserId) then return s.UserId
+        end for
+        return invalid
+    end function
+
+    ' S1:E1 stands for its series (adding a series adds every episode, so a
+    ' show goes on a list as its first episode); repeats show once.
+    function displayEntries(entries as object) as object
+        shown = []
+        ids = {}
+        for each e in entries
+            if e.type = "Episode" and isNum(e.season) and isNum(e.episode) and isStr(e.seriesId) and e.season = 1 and e.episode = 1
+                d = { id: e.seriesId, isSeries: true }
+            else
+                d = { id: e.itemId, isSeries: false }
+            end if
+            if not ids.DoesExist(d.id)
+                ids[d.id] = true
+                shown.Push(d)
+            end if
+        end for
+        return shown
+    end function
+
+    ' Anything unreadable is no subscriptions; entries without a string id are
+    ' dropped and a repeated id keeps its first entry.
+    function decodeSubscriptions(raw as dynamic) as object
+        subs = []
+        if not isStr(raw) or raw = "" then return subs
+        parsed = ParseJson(raw)
+        if type(parsed) <> "roArray" then return subs
+        ids = {}
+        for each item in parsed
+            if type(item) = "roAssociativeArray" and isStr(item.id)
+                if not ids.DoesExist(item.id)
+                    ids[item.id] = true
+                    seen = []
+                    if type(item.seen) = "roArray"
+                        for each s in item.seen
+                            if isStr(s) then seen.Push(s)
+                        end for
+                    end if
+                    subs.Push({ id: item.id, seen: seen })
+                end if
+            end if
+        end for
+        return subs
+    end function
+
+    function encodeSubscriptions(subs as object) as string
+        out = []
+        for each s in subs
+            out.Push({ id: s.id, seen: s.seen })
+        end for
+        return FormatJson(out)
+    end function
+
+    function newCount(displayIds as object, seen as object) as integer
+        seenSet = {}
+        for each s in seen
+            seenSet[s] = true
+        end for
+        n = 0
+        for each id in displayIds
+            if not seenSet.DoesExist(id) then n = n + 1
+        end for
+        return n
+    end function
+
+    ' A new subscription has seen everything on the list: it starts at 0 new.
+    function subscribe(subs as object, id as string, current as object) as object
+        for each s in subs
+            if s.id = id then return subs
+        end for
+        out = []
+        out.Append(subs)
+        out.Push({ id: id, seen: current })
+        return out
+    end function
+
+    function unsubscribe(subs as object, id as string) as object
+        return prune(subs, [id])
+    end function
+
+    function markSeen(subs as object, id as string, current as object) as object
+        out = []
+        for each s in subs
+            if s.id = id
+                out.Push({ id: id, seen: current })
+            else
+                out.Push(s)
+            end if
+        end for
+        return out
+    end function
+
+    ' Drops lists the server no longer shows this user (deleted or private).
+    function prune(subs as object, missing as object) as object
+        gone = {}
+        for each id in missing
+            gone[id] = true
+        end for
+        out = []
+        for each s in subs
+            if not gone.DoesExist(s.id) then out.Push(s)
+        end for
+        return out
+    end function
+
+    ' A new subscription's row goes after Continue Watching, else after the
+    ' hero, else first.
+    function insertionIndex(rowKeys as object, cwKey as string, heroKey as string) as integer
+        heroAt = -1
+        for i = 0 to rowKeys.Count() - 1
+            if rowKeys[i] = cwKey then return i + 1
+            if rowKeys[i] = heroKey and heroAt < 0 then heroAt = i
+        end for
+        return heroAt + 1
+    end function
+
+    function isStr(v as dynamic) as boolean
+        return v <> invalid and GetInterface(v, "ifString") <> invalid
+    end function
+
+    function isNum(v as dynamic) as boolean
+        return v <> invalid and (GetInterface(v, "ifInt") <> invalid or GetInterface(v, "ifFloat") <> invalid or GetInterface(v, "ifDouble") <> invalid or GetInterface(v, "ifLongInt") <> invalid)
+    end function
+
+end namespace
