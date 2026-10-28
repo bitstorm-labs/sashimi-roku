@@ -4,7 +4,8 @@ import "pkg:/source/utils/ListsModel.bs"
 
 ' Shared lists over the network, on the JellyfinApi task thread (one action,
 ' "lists", dispatches here by `op`). Lists are ordinary Jellyfin playlists;
-' the creator is recorded by a self-share, and each viewer's subscriptions
+' the creator comes from the Sashimi Lists plugin when the server has it, else
+' from a self-share (ownerOf), and each viewer's subscriptions
 ' live in DisplayPreferences (ListsModel.prefsPath). Every op returns an AA
 ' the task hands back as its response; the screens shape it with ListsModel.
 ' Verified against Jellyfin 12.4 with throwaway users: a public list reads 200
@@ -22,7 +23,7 @@ namespace ListsApi
         if op = "create" then return create(me, request.name, request.isPublic = true, request.targetId)
         if op = "subscribe" or op = "unsubscribe" then return editSubs(me, request)
         if op = "rename" then return update(request.listId, { Name: request.name })
-        if op = "setPublic" then return update(request.listId, { IsPublic: request.isPublic = true })
+        if op = "setPublic" then return setPublic(request.listId, request.isPublic = true)
         if op = "remove" then return result(Http.send("DELETE", "/Playlists/" + request.listId + "/Items?entryIds=" + request.entryId))
         if op = "move" then return result(Http.send("POST", "/Playlists/" + request.listId + "/Items/" + request.entryId + "/Move/" + request.index.ToStr()))
         if op = "delete" then return result(Http.send("DELETE", "/Items/" + request.listId))
@@ -35,6 +36,58 @@ namespace ListsApi
 
     function update(listId as string, body as object) as object
         return result(Http.send("POST", "/Playlists/" + listId, body))
+    end function
+
+    ' Public/Private as the server has it (ListsModel.publicStep): sent, re-read
+    ' ~2 s later, re-sent once if a queued refresh undid it, and re-read again.
+    ' isPublic is what the server ended up with; the page reloads from it.
+    function setPublic(listId as string, wanted as boolean) as object
+        r = update(listId, { IsPublic: wanted })
+        if not r.success then return r
+        reapplied = false
+        while true
+            sleep(2000)
+            pi = info(listId)
+            if not pi.ok or type(pi.data) <> "roAssociativeArray" then return { success: true, isPublic: wanted, step: "done" }
+            server = (pi.data.OpenAccess = true)
+            said = ListsModel.publicStep(wanted, server, reapplied)
+            if said <> "reapply" then return { success: true, isPublic: server, step: said }
+            update(listId, { IsPublic: wanted })
+            reapplied = true
+        end while
+        return r
+    end function
+
+    ' ---------- Who made it ----------
+
+    ' The Sashimi Lists plugin's owners for these lists, playlist id ->
+    ' { id, name }. Empty when the plugin is not installed (404) or the call
+    ' fails: every list then falls back (ListsModel.resolveOwner).
+    function pluginOwners(ids as object) as object
+        if ids.count() = 0 then return {}
+        r = Http.send("GET", ListsModel.ownersPath(ids))
+        if not r.ok then return {}
+        return ListsModel.pluginOwners(r.data)
+    end function
+
+    function pluginOwner(listId as string) as dynamic
+        r = Http.send("GET", ListsModel.ownerPath(listId))
+        if not r.ok then return invalid
+        return ListsModel.pluginOwner(r.data)
+    end function
+
+    ' One list's owner: the plugin's answer if any, else its self-share, else
+    ' the viewer's own permission. An owner whose self-share was wiped gets it
+    ' back, so clients without the plugin still know who made it.
+    function ownerOf(listId as string, plugin as dynamic, playlist as dynamic, who as object, me as string) as object
+        selfCheck = invalid
+        if ListsModel.needsSelfCheck(plugin, playlist)
+            r = Http.send("GET", "/Playlists/" + listId + "/Users/" + me)
+            selfCheck = ListsModel.isOwnerCheck(r.code, r.data)
+        end if
+        o = ListsModel.resolveOwner(plugin, playlist, who, me, selfCheck)
+        if o.restoreShare then Http.send("POST", "/Playlists/" + listId + "/Users/" + me, { CanEdit: true })
+        return o
     end function
 
     ' ---------- Reads ----------
@@ -103,17 +156,17 @@ namespace ListsApi
         end for
         who = names()
         lists = []
-        for each p in allLists(me)
+        all = allLists(me)
+        owners = pluginOwners(idsOf(all))
+        for each p in all
             pi = info(p.Id)
             if not pi.ok then continue for
             e = entries(p.Id, me)
-            o = ListsModel.owner(pi.data, who, me)
-            imageTag = ""
-            if type(p.ImageTags) = "roAssociativeArray" and SharedLists.isStr(p.ImageTags.Primary) then imageTag = p.ImageTags.Primary
+            o = ownerOf(p.Id, owners[p.Id], pi.data, who, me)
             lists.push({
                 id: p.Id,
                 name: textOf(p.Name),
-                imageTag: imageTag,
+                cover: ListsModel.coverArt(e.items),
                 isPublic: (pi.data.OpenAccess = true),
                 ownerName: o.name,
                 isMine: o.isMine,
@@ -133,7 +186,7 @@ namespace ListsApi
         end if
         e = entries(listId, me)
         if not e.ok then return { success: false, gone: ListsModel.isGone(e.code), statusCode: e.code }
-        o = ListsModel.owner(pi.data, names(), me)
+        o = ownerOf(listId, pluginOwner(listId), pi.data, names(), me)
         prefs = readPrefs(me)
         seen = invalid
         for each s in prefs.subs
@@ -170,6 +223,11 @@ namespace ListsApi
         if not prefs.ok or prefs.subs.count() = 0 then return { success: prefs.ok, rows: rows }
         who = names()
         missing = []
+        subIds = []
+        for each s in prefs.subs
+            subIds.push(s.id)
+        end for
+        owners = pluginOwners(subIds)
         for each s in prefs.subs
             pi = info(s.id)
             if not pi.ok
@@ -184,8 +242,8 @@ namespace ListsApi
             name = ""
             r = Http.send("GET", "/Items?Ids=" + s.id + "&userId=" + me)
             if r.ok and type(r.data) = "roAssociativeArray" and type(r.data.Items) = "roArray" and r.data.Items.count() > 0 then name = textOf(r.data.Items[0].Name)
-            o = ListsModel.owner(pi.data, who, me)
-            rows.push({ id: s.id, name: name, ownerName: o.name, items: e.items, seen: s.seen })
+            o = ownerOf(s.id, owners[s.id], pi.data, who, me)
+            rows.push({ id: s.id, name: name, ownerName: o.name, isMine: o.isMine, items: e.items, seen: s.seen })
         end for
         if missing.count() > 0 then writeSubs(me, { op: "prune", missing: missing })
         return { success: true, rows: rows }
@@ -198,10 +256,12 @@ namespace ListsApi
         if target = invalid then return { success: false, error: "noAnchor" }
         lists = []
         who = {}
-        for each p in allLists(me)
+        all = allLists(me)
+        owners = pluginOwners(idsOf(all))
+        for each p in all
             pi = info(p.Id)
             if not pi.ok then continue for
-            if not ListsModel.owner(pi.data, who, me).isMine then continue for
+            if not ownerOf(p.Id, owners[p.Id], pi.data, who, me).isMine then continue for
             e = entries(p.Id, me)
             lists.push({
                 id: p.Id,
@@ -268,6 +328,14 @@ namespace ListsApi
         end if
         w = writeSubs(me, change)
         return { success: w.ok, subscribed: (request.op = "subscribe") }
+    end function
+
+    function idsOf(playlists as object) as object
+        out = []
+        for each p in playlists
+            out.push(p.Id)
+        end for
+        return out
     end function
 
     function textOf(v as dynamic) as string

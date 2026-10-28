@@ -44,7 +44,8 @@ never shows the same series twice) and `source/utils/DetailLayout.bs` (where a d
 screen's rows start, and the hero region that must end above them so its
 bottom fade is never cut off) and `source/utils/Fades.bs` (the "Lightest" backdrop
 fade: left 0-10% of the image's width, bottom 92-100% of its height; the
-home hero sizes its fades from it, and `tests/fades.js` checks the detail
+home hero sizes its fades from it and sits flush top-right however wide its
+art is (`flushShift`), and `tests/fades.js` checks the detail
 screen's baked `backdrop_feather.png` / `trailer_feather.png` against it) and `source/utils/SeriesMeta.bs` (the series meta line,
 "1 Season" vs "7 Seasons") and `source/utils/ImageUrl.bs` (image urls
 carry Jellyfin's `&tag=`, read off the right ImageTags / Parent*ImageTag
@@ -74,7 +75,10 @@ and `source/utils/ListsModel.bs` (shared lists between server and screens:
 cards from a list's viewer-filtered entries, counts that never read
 `ItemIds`, a show's first-episode anchor, the duplicate check, the
 DisplayPreferences body that keeps other keys, the 404 prune, creators'
-names, the copy, the create body that never carries items (12.4 drops the
+names, the owner (the Sashimi Lists plugin first, then the self-share, then
+`/Playlists/{id}/Users/{me}`; your own wiped self-share is put back), the 2x2
+cover collage, the Public toggle's re-read and single re-apply, the copy
+("Your list: ..." on your own Home row), the create body that never carries items (12.4 drops the
 self-share otherwise), the list page's buttons and Edit List menu, Home rows for
 subscriptions and where they sit, and the owner's moves).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a

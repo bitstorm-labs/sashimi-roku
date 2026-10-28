@@ -56,7 +56,8 @@ end sub
 ' Show the backdrop WHOLE (scaleToFit, no crop) and flush-right to the banner's
 ' right edge (= the screen edge). scaleToFit CENTERS the fitted image in the
 ' 1274-wide region, so offset by the pillarbox to land the image's right edge on
-' 1820, and put the left-edge feather at the image's actual left edge (1820-bw).
+' 1820, and its top on the banner's top edge (Fades.flushShift), and put the
+' left-edge feather at the image's actual left edge (1820-bw).
 sub onHeroImageStatus()
     if m.heroImage.loadStatus <> "ready"
         m.heroImage.translation = [546, 0]
@@ -72,17 +73,18 @@ sub onHeroImageStatus()
     if bw = invalid or bw <= 0 or bw > 1274 then bw = 1274
     bh = m.heroImage.bitmapHeight
     if bh = invalid or bh <= 0 or bh > 512 then bh = 512
-    m.heroImage.translation = [1820 - Int((1274 + bw) / 2), 0]
+    shift = Fades.flushShift(1274, 512, bw, bh)
+    m.heroImage.translation = [546 + shift[0], shift[1]]
     placeFades(bw, bh)
     m.imageLeft = 1820 - bw
     layoutTextScrim()
 end sub
 
-' The left and bottom fades on the fitted image: flush-right, and centred
-' vertically in the 512px banner as scaleToFit draws it.
+' The left and bottom fades on the fitted image, which onHeroImageStatus puts
+' flush against the banner's top and right edges.
 sub placeFades(bw as integer, bh as integer)
     left = 1820 - bw
-    top = Int((512 - bh) / 2)
+    top = 0
     m.heroFadeLeft.translation = [left, top]
     m.heroFadeLeft.width = Fades.leftWidth(bw)
     m.heroFadeLeft.height = bh
