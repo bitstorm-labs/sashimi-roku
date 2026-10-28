@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<!-- A list on the Lists page (shared lists mockup): rounded cover, name,
+<!-- A list on the Lists page (shared lists mockup): rounded cover (a 2x2
+     collage of its first four titles, or one poster), name,
      "Marge · 18 titles", a "Subscribed" pill, or the dashed New List tile.
      RowList item component: recycled, so every field is reset per item. -->
 <component name="ListCard" extends="Group">
@@ -13,6 +14,15 @@
             <Rectangle id="coverBg" width="330" height="186" color="#2A2933" />
             <Poster id="cover" width="330" height="186" loadWidth="330" loadHeight="186"
                     loadDisplayMode="scaleToZoom" />
+            <!-- The 2x2 collage (ListsModel.coverArt), 2px apart. -->
+            <Poster id="cell0" width="164" height="92" loadWidth="164" loadHeight="92"
+                    loadDisplayMode="scaleToZoom" translation="[0, 0]" visible="false" />
+            <Poster id="cell1" width="164" height="92" loadWidth="164" loadHeight="92"
+                    loadDisplayMode="scaleToZoom" translation="[166, 0]" visible="false" />
+            <Poster id="cell2" width="164" height="92" loadWidth="164" loadHeight="92"
+                    loadDisplayMode="scaleToZoom" translation="[0, 94]" visible="false" />
+            <Poster id="cell3" width="164" height="92" loadWidth="164" loadHeight="92"
+                    loadDisplayMode="scaleToZoom" translation="[166, 94]" visible="false" />
         </MaskGroup>
         <Label id="newTileLabel" text="+ New List" color="#C9C7D1" width="330" height="186"
                horizAlign="center" vertAlign="center" visible="false">

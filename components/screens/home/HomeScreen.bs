@@ -1402,7 +1402,7 @@ end sub
 sub syncListConfig(rows as object)
     titles = []
     for each r in rows
-        titles.push({ id: r.id, title: ListsModel.rowTitle(r.name, r.ownerName) })
+        titles.push({ id: r.id, title: ListsModel.rowTitle(r.name, r.ownerName, r.isMine = true) })
     end for
     config = Registry.readJson("settings", "homeRowOrder")
     if config = invalid or type(config) <> "roArray" then return
@@ -1446,7 +1446,8 @@ function placeListRows() as boolean
     return inserted
 end function
 
-' A subscribed list's row: "From Marge: Christmas Movies  •  3 new", poster
+' A subscribed list's row: "From Marge: Christmas Movies  •  3 new" (or
+' "Your list: ..." for your own), poster
 ' cards, NEW on what the viewer has not seen on the list yet.
 function buildListRow(data as object) as dynamic
     cards = ListsModel.cards(data.items)
@@ -1456,7 +1457,7 @@ function buildListRow(data as object) as dynamic
         seen[id] = true
     end for
     row = CreateObject("roSGNode", "ContentNode")
-    row.title = ListsModel.rowTitleWithNew(ListsModel.rowTitle(data.name, data.ownerName), SharedLists.newCount(ListsModel.displayIds(cards), data.seen))
+    row.title = ListsModel.rowTitleWithNew(ListsModel.rowTitle(data.name, data.ownerName, data.isMine = true), SharedLists.newCount(ListsModel.displayIds(cards), data.seen))
     row.addFields({ rowKey: "list_" + data.id, rowKind: "list", listId: data.id })
     count = 0
     for each card in cards
