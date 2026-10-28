@@ -59,6 +59,16 @@
                width="40" height="30" translation="[56, 277]" visible="false">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
         </Label>
+        <!-- Shared lists: "NEW" (added since the viewer last opened the list)
+             top-right, else the watched check. Both off everywhere else. -->
+        <Poster id="newBadge" uri="pkg:/images/badge_capsule.9.png" width="62" height="28"
+                translation="[140, 8]" visible="false" />
+        <Label id="newBadgeLabel" text="NEW" color="#FFFFFF" horizAlign="center" vertAlign="center"
+               width="62" height="28" translation="[140, 8]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="17" />
+        </Label>
+        <Poster id="watchedBadge" uri="pkg:/images/watched_circle.png" width="29" height="29"
+                translation="[173, 8]" visible="false" />
         <!-- Server source pills (top-left), person filmography across servers
              only: which saved servers have this title. Built per item in
              applySourcePills; empty everywhere else. -->

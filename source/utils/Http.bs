@@ -214,6 +214,74 @@ namespace Http
         return invalid
     end function
 
+    ' One request to an API path, any verb, with the status and the parsed body
+    ' either way. getJson/postJson collapse a refusal to invalid; callers that
+    ' must tell a 404 from a timeout (shared lists prune on 404 only) or show
+    ' the server's own reason (channel management) use this. Some plugin
+    ' routes answer JSON with a UTF-8 BOM and refuse with ProblemDetails, so
+    ' the BOM is stripped and a refusal's `detail` kept. Returns
+    ' { ok, code, data, detail }: data is the parsed body (invalid for 204 or an
+    ' empty body), code 0 for a timeout and -1 when the request never started.
+    function send(method as string, path as string, body = invalid as dynamic) as object
+        result = { ok: false, code: -1, data: invalid, detail: "" }
+        request = CreateObject("roUrlTransfer")
+        port = CreateObject("roMessagePort")
+        request.SetMessagePort(port)
+        request.SetCertificatesFile("common:/certs/ca-bundle.crt")
+        request.InitClientCertificates()
+        request.SetUrl(apiUrl(path))
+        request.AddHeader("Authorization", authHeader())
+        request.AddHeader("Accept", "application/json")
+        request.RetainBodyOnError(true)
+
+        started = false
+        if method = "GET"
+            started = request.AsyncGetToString()
+        else if method = "DELETE"
+            request.SetRequest("DELETE")
+            started = request.AsyncGetToString()
+        else
+            ' POST, and PATCH riding the POST path with the verb swapped:
+            ' roUrlTransfer has no PATCH of its own.
+            if method <> "POST" then request.SetRequest(method)
+            request.AddHeader("Content-Type", "application/json")
+            bodyStr = "{}"
+            if body <> invalid then bodyStr = FormatJSON(body)
+            started = request.AsyncPostFromString(bodyStr)
+        end if
+        if not started then return result
+
+        msg = wait(waitMs(0), port)
+        if msg = invalid or type(msg) <> "roUrlEvent"
+            request.AsyncCancel()
+            result.code = 0
+            return result
+        end if
+
+        result.code = msg.GetResponseCode()
+        text = stripBom(msg.GetString())
+        parsed = invalid
+        if text <> "" then parsed = ParseJSON(text)
+        if result.code >= 200 and result.code < 300
+            result.ok = true
+            result.data = parsed
+        else if parsed <> invalid and type(parsed) = "roAssociativeArray" and parsed.detail <> invalid and GetInterface(parsed.detail, "ifString") <> invalid
+            ' ASP.NET's ProblemDetails puts the reason in `detail`.
+            result.detail = parsed.detail.Trim()
+        end if
+        return result
+    end function
+
+    ' ParseJSON gives up on a body that opens with a byte-order mark. Depending
+    ' on how the bytes were decoded the mark is one character (U+FEFF) or its
+    ' three UTF-8 bytes.
+    function stripBom(text as dynamic) as string
+        if text = invalid then return ""
+        if Len(text) > 0 and Asc(text) = 65279 then return Mid(text, 2)
+        if Left(text, 3) = Chr(239) + Chr(187) + Chr(191) then return Mid(text, 4)
+        return text
+    end function
+
     function deleteRequest(url as string, timeoutMs = 0 as integer) as integer
         request = CreateObject("roUrlTransfer")
         port = CreateObject("roMessagePort")

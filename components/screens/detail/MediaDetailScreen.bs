@@ -13,6 +13,7 @@ import "pkg:/source/utils/DetailActions.bs"
 import "pkg:/source/utils/SeasonPage.bs"
 import "pkg:/source/utils/DetailNav.bs"
 import "pkg:/source/utils/DetailLayout.bs"
+import "pkg:/source/utils/ListsModel.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -211,7 +212,9 @@ sub onApiResponse()
     m.reqActive = false
 
     action = response.action
-    if response.context <> invalid and response.context = "watch"
+    if action = "lists"
+        onListsResponse(response)
+    else if response.context <> invalid and response.context = "watch"
         ' Back in front after a watched-state write elsewhere (see
         ' refreshWatchState): repaint in place, never rebuild the screen.
         onWatchRefreshResponse(response)
@@ -1465,7 +1468,8 @@ function actionContext() as object
         seasonId: seasonId,
         seasonNumber: item.ParentIndexNumber,
         canAddToChannel: (channelTarget() <> invalid),
-        isFavorite: (item.UserData <> invalid and item.UserData.IsFavorite = true)
+        isFavorite: (item.UserData <> invalid and item.UserData.IsFavorite = true),
+        canAddToList: ListsModel.canAdd(m.itemType)
     }
 end function
 
@@ -1526,8 +1530,112 @@ sub runAction(kind as string)
         if item.UserData <> invalid and item.UserData.IsFavorite = true then act = "removeFavorite"
         enqueue({ action: act, itemId: item.Id })
         enqueue({ action: "getItem", itemId: item.Id })
+    else if kind = "addToList"
+        if m.pinned = invalid then enqueue({ action: "lists", op: "picker", item: { Id: item.Id, Type: m.itemType, Name: item.Name } })
     else if kind = "more"
         showMoreDialog()
+    end if
+end sub
+
+' ---------- Add to List (shared lists) ----------
+' The picker lists the viewer's own lists (ListsApi.picker works out what a
+' show adds: its first episode). A list that already has the title says so
+' instead of adding it twice; New List creates one with the title on it.
+
+sub onListsResponse(response as object)
+    if response.op = "picker"
+        if response.success <> true
+            if response.error = "noAnchor"
+                m.global.toastMessage = { message: "This show has no episodes to add yet." }
+            else
+                m.global.toastMessage = { message: "Couldn't load your lists. Check your connection." }
+            end if
+            return
+        end if
+        showListPicker(response)
+    else if response.op = "add"
+        if response.success = true
+            if response.already <> true then m.global.listsVersion = m.global.listsVersion + 1
+            m.global.toastMessage = { message: ListsModel.addedMessage(response.listName, response.already = true) }
+        else
+            m.global.toastMessage = { message: "Couldn't add it. Check your connection." }
+        end if
+    else if response.op = "create"
+        if response.success = true
+            m.global.listsVersion = m.global.listsVersion + 1
+            m.global.toastMessage = { message: ListsModel.addedMessage(response.listName, false) }
+        else
+            m.global.toastMessage = { message: "Couldn't create the list. Check your connection." }
+        end if
+    end if
+end sub
+
+sub showListPicker(response as object)
+    m.listPick = response
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    name = ""
+    if m.item.Name <> invalid then name = m.item.Name
+    dialog.title = ListsModel.pickerTitle(name)
+    buttons = ListsModel.pickerLabels(response.lists)
+    buttons.push("Cancel")
+    dialog.buttons = buttons
+    dialog.observeFieldScoped("buttonSelected", "onListPickerButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onListPickerButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    dialog.close = true
+    pick = m.listPick
+    focusZone("buttons")
+    if pick = invalid or idx = invalid or idx < 0 then return
+    lists = pick.lists
+    if idx < lists.count()
+        l = lists[idx]
+        if l.already = true
+            m.global.toastMessage = { message: ListsModel.addedMessage(l.name, true) }
+        else
+            enqueue({ action: "lists", op: "add", listId: l.id, listName: l.name, targetId: pick.targetId, seriesId: pick.seriesId })
+        end if
+    else if idx = lists.count()
+        m.newListPublic = false
+        showNewListDialog()
+    end if
+end sub
+
+sub showNewListDialog(text = "" as string)
+    dialog = createObject("roSGNode", "StandardKeyboardDialog")
+    dialog.title = "New List"
+    dialog.message = ["Lists are private until you make them public."]
+    dialog.text = text
+    dialog.buttons = ["Create and Add", ListsModel.publicLabel(m.newListPublic), "Cancel"]
+    dialog.observeFieldScoped("buttonSelected", "onNewListButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onNewListButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    if idx = 1
+        ' The Public switch. Reassigning a showing dialog's buttons leaves it
+        ' with no focus at all (the remote goes dead, Back included -- seen on
+        ' device), so it reopens with the new label and what was typed.
+        m.newListPublic = not m.newListPublic
+        typed = dialog.text
+        dialog.close = true
+        showNewListDialog(typed)
+        return
+    end if
+    name = dialog.text.Trim()
+    if idx = 0 and name = "" then return
+    dialog.close = true
+    focusZone("buttons")
+    pick = m.listPick
+    if idx = 0 and pick <> invalid
+        enqueue({ action: "lists", op: "create", name: name, isPublic: m.newListPublic, targetId: pick.targetId })
     end if
 end sub
 

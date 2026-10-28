@@ -1,0 +1,175 @@
+import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/ListsModel.bs"
+
+' The Lists page. Everything comes from one "overview" request (the task fans
+' out per list), reloaded when the page comes back to the front after a list
+' changed anywhere in the app (m.global.listsVersion) or after 20 s.
+
+sub init()
+    m.rowList = m.top.findNode("rowList")
+    rowFont = CreateObject("roSGNode", "Font")
+    rowFont.uri = "pkg:/fonts/Inter-Bold.ttf"
+    rowFont.size = 32
+    m.rowList.rowLabelFont = rowFont
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.othersEmpty = m.top.findNode("othersEmpty")
+    m.apiTask = m.top.findNode("apiTask")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.rowList.observeFieldScoped("rowItemSelected", "onSelected")
+    m.top.observeField("focusedChild", "onFocusDelegate")
+    m.loadedVersion = -1
+    m.loadedAt = 0
+    ' One request in flight at a time (task fields coalesce same-tick writes).
+    m.queue = []
+    m.inFlight = false
+    m.loading = false
+    m.newListPublic = false
+    load()
+end sub
+
+sub send(req as object)
+    m.queue.push(req)
+    pump()
+end sub
+
+sub pump()
+    if m.inFlight or m.queue.count() = 0 then return
+    m.inFlight = true
+    m.apiTask.request = m.queue.shift()
+end sub
+
+sub onFocusDelegate()
+    if not m.top.hasFocus() then return
+    now = CreateObject("roDateTime").AsSeconds()
+    if m.loadedVersion <> m.global.listsVersion or (now - m.loadedAt) > 20 then load()
+    if m.rowList.visible then m.rowList.setFocus(true)
+end sub
+
+sub load()
+    if m.loading then return
+    m.loading = true
+    m.loadedVersion = m.global.listsVersion
+    m.loadedAt = CreateObject("roDateTime").AsSeconds()
+    if not m.rowList.visible then m.statusLabel.visible = true
+    send({ action: "lists", op: "overview" })
+end sub
+
+sub onApiResponse()
+    r = m.apiTask.response
+    if r = invalid then return
+    m.inFlight = false
+    if r.action = "lists" and r.op = "overview"
+        m.loading = false
+        showLists(r)
+    else if r.action = "lists" and r.op = "create"
+        if r.success
+            m.global.toastMessage = { message: "Created " + r.listName }
+            m.global.listsVersion = m.global.listsVersion + 1
+            load()
+        else
+            m.global.toastMessage = { message: "Couldn't create the list. Check your connection." }
+        end if
+    end if
+    pump()
+end sub
+
+sub showLists(r as object)
+    if r.success <> true or r.lists = invalid
+        m.statusLabel.text = "Couldn't load lists. Check your connection."
+        m.statusLabel.visible = true
+        return
+    end if
+    m.statusLabel.visible = false
+    content = CreateObject("roSGNode", "ContentNode")
+    mine = content.createChild("ContentNode")
+    mine.title = "Your lists"
+    others = invalid
+    for each l in r.lists
+        if l.isMine
+            addCard(mine, l)
+        else
+            if others = invalid
+                others = CreateObject("roSGNode", "ContentNode")
+                others.title = "From others"
+            end if
+            addCard(others, l)
+        end if
+    end for
+    tile = mine.createChild("ContentNode")
+    tile.addFields({ isNewTile: true, listId: "" })
+    if others <> invalid then content.appendChild(others)
+    m.othersEmpty.visible = (others = invalid)
+    m.othersEmpty.text = "Nobody else has shared a list yet."
+    m.othersEmpty.translation = [60, 560]
+
+    ' Keep the focused card across a reload.
+    focus = m.rowList.rowItemFocused
+    m.rowList.content = content
+    m.rowList.visible = true
+    if focus <> invalid and focus.count() = 2 and focus[0] < content.getChildCount()
+        row = content.getChild(focus[0])
+        col = focus[1]
+        if col >= row.getChildCount() then col = row.getChildCount() - 1
+        m.rowList.jumpToRowItem = [focus[0], col]
+    end if
+    if m.top.isInFocusChain() then m.rowList.setFocus(true)
+end sub
+
+sub addCard(row as object, l as object)
+    c = row.createChild("ContentNode")
+    c.title = l.name
+    c.description = ListsModel.cardMeta(l.isMine, l.isPublic, l.ownerName, l.count)
+    if l.imageTag <> "" then c.HDPosterUrl = ImageUrl.primary(l.id, 660, l.imageTag)
+    c.addFields({ listId: l.id, subscribed: l.subscribed = true, isNewTile: false })
+end sub
+
+sub onSelected()
+    sel = m.rowList.rowItemSelected
+    if sel = invalid or sel.count() < 2 then return
+    row = m.rowList.content.getChild(sel[0])
+    if row = invalid then return
+    card = row.getChild(sel[1])
+    if card = invalid then return
+    if card.isNewTile = true
+        m.newListPublic = false
+        showNewListDialog()
+    else if card.listId <> invalid and card.listId <> ""
+        m.top.openList = { listId: card.listId }
+    end if
+end sub
+
+' ---------- New List ----------
+
+sub showNewListDialog(text = "" as string)
+    dialog = CreateObject("roSGNode", "StandardKeyboardDialog")
+    dialog.title = "New List"
+    dialog.message = ["Lists are private until you make them public."]
+    dialog.text = text
+    dialog.buttons = ["Create", ListsModel.publicLabel(m.newListPublic), "Cancel"]
+    dialog.observeFieldScoped("buttonSelected", "onNewListButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onNewListButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    if idx = 1
+        ' The Public switch. Reassigning a showing dialog's buttons leaves it
+        ' with no focus at all (the remote goes dead, Back included -- seen on
+        ' device), so it reopens with the new label and what was typed.
+        m.newListPublic = not m.newListPublic
+        typed = dialog.text
+        dialog.close = true
+        showNewListDialog(typed)
+        return
+    end if
+    name = dialog.text.Trim()
+    if idx = 0 and name = "" then return
+    dialog.close = true
+    if idx = 0
+        send({ action: "lists", op: "create", name: name, isPublic: m.newListPublic, targetId: "" })
+    end if
+    if m.rowList.visible then m.rowList.setFocus(true)
+end sub
