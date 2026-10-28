@@ -19,6 +19,7 @@ sub main()
     testMoves(t)
     testPicker(t)
     testDetailPage(t)
+    testCreateBody(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -259,4 +260,16 @@ sub testDetailPage(t as object)
     eq(t, "edit menu private empty", kindsOf(ListsModel_editMenu(false, false)), "rename,public,delete")
     eq(t, "move menu", kindsOf(ListsModel_moveMenu()), "first,earlier,later,last")
     eq(t, "no mode, no hint", ListsModel_modeHint(""), "")
+end sub
+
+' Jellyfin 12.4 re-saves a playlist created with items about 1-3 s later, and
+' that save drops the creator's self-share (the only record of who made it).
+' So a list is created empty; the first title goes in after the share.
+sub testCreateBody(t as object)
+    b = ListsModel_createBody("Holiday Picks", true, "u1")
+    eq(t, "create name", b.Name, "Holiday Picks")
+    eq(t, "create public", b.IsPublic, true)
+    eq(t, "create user", b.UserId, "u1")
+    eq(t, "create media type", b.MediaType, "Video")
+    eq(t, "create carries no items", b.DoesExist("Ids"), false)
 end sub
