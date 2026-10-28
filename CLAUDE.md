@@ -65,7 +65,11 @@ detail screen coming back to the front is stale, and whether a re-read episode
 list patches the row in place, rebuilds it, or is ignored) and
 `source/utils/RailItems.bs` (Settings > Home & Side Menu: which destinations
 the side menu lists and in what order, Home, Search and Settings always,
-new libraries shown, stale ids ignored, the editor's two columns).
+new libraries shown, stale ids ignored, the editor's two columns) and
+`source/utils/SharedLists.bs` (shared lists: a list's creator from its
+self-share, S1:E1 shown as its series, repeats once, the subscriptions codec
+for DisplayPreferences `sashimi-lists`, "N new", subscribe/markSeen/prune, and
+where a new subscription's Home row goes; same vectors as Apple and Android).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that
