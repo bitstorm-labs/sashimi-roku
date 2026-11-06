@@ -195,6 +195,8 @@ namespace StreamQuality
     const SUSTAINED_MIN_BYTES = 16000000
     ' Up only when it pays: the link carries the source, or twice the cap.
     const UPGRADE_MIN_RATIO = 2
+    ' A step-up must raise the cap by at least a quarter.
+    const UPGRADE_MIN_GAIN = 1.25
     ' Quiet time after a rebuffer or stall before stepping back up.
     const RECOVERY_QUIET_SECS = 15
     ' Between automatic quality changes. Each rebuilds the server's stream, so
@@ -338,17 +340,53 @@ namespace StreamQuality
     '   autoCap, activeCap, sourceBps, sustainedBps (bps, 0 = unknown);
     '   secondsSinceRecovery, secondsSinceQualityChange (-1 = never);
     '   failedUpgrades.
+    ' What the link is trusted to carry for a step-up (see sustainedUpgrade).
+    function upgradeCeilingBps(ctx as object) as integer
+        if ctx.isWired
+            ceiling = ctx.autoCap
+            if ctx.sustainedBps < ceiling then ceiling = ctx.sustainedBps
+            return ceiling
+        end if
+        return wirelessCeilingBps(ctx.autoCap, ctx.sustainedBps)
+    end function
+
+    ' The cap a step-up requests: the ceiling, never above the source. The
+    ' restart MUST ask for exactly this. Recomputing Auto's cap instead (from
+    ' the remembered remux throughput, which a re-encode never raises) asked
+    ' for the same cap again: "Raising quality" every two minutes, forever,
+    ' at the same 5 Mbps (sashimi-roku#273).
+    function upgradeTargetBps(ctx as object) as integer
+        target = upgradeCeilingBps(ctx)
+        if ctx.sourceBps > 0 and target > ctx.sourceBps then target = ctx.sourceBps
+        return target
+    end function
+
+    ' A step-up that came back no higher than the cap it replaced bought a
+    ' rebuffer and nothing else; it counts as a failed upgrade.
+    function upgradeWasNoop(capBefore as integer, capAfter as integer) as boolean
+        return capBefore > 0 and capAfter <= capBefore
+    end function
+
+    ' The cap a stream request carries: the viewer's pick or the Settings
+    ' cap, then lowered by a pending step-down. An Auto step-up's target
+    ' stands in for Auto's own computation. 0 = let Auto compute it.
+    function requestCapBps(pickBps as integer, settingsBps as integer, stepDownBps as integer, upgradeBps as integer) as integer
+        cap = pickBps
+        if cap <= 0 then cap = settingsBps
+        if cap <= 0 and upgradeBps > 0 then cap = upgradeBps
+        if stepDownBps > 0 and (cap <= 0 or stepDownBps < cap) then cap = stepDownBps
+        return cap
+    end function
+
     function sustainedUpgrade(ctx as object) as integer
         if not ctx.isAuto or not ctx.isTranscoding then return -1
         if ctx.sourceBps <= 0 or ctx.activeCap <= 0 or ctx.sustainedBps <= 0 then return -1
         if ctx.activeCap >= ctx.sourceBps then return -1
-        if ctx.isWired
-            ceiling = ctx.autoCap
-            if ctx.sustainedBps < ceiling then ceiling = ctx.sustainedBps
-        else
-            ceiling = wirelessCeilingBps(ctx.autoCap, ctx.sustainedBps)
-        end if
+        ceiling = upgradeCeilingBps(ctx)
         if ceiling < ctx.sourceBps and ceiling < ctx.activeCap * UPGRADE_MIN_RATIO then return -1
+        ' The restart is what the viewer sees (a few seconds of buffering), so
+        ' it has to buy a real step up. Close to the source is not worth one.
+        if upgradeTargetBps(ctx) < ctx.activeCap * UPGRADE_MIN_GAIN then return -1
         wait = 0
         if ctx.isBusy then wait = RECOVERY_QUIET_SECS
         if ctx.secondsSinceRecovery >= 0 and RECOVERY_QUIET_SECS - ctx.secondsSinceRecovery > wait then wait = RECOVERY_QUIET_SECS - ctx.secondsSinceRecovery

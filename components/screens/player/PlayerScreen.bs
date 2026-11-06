@@ -311,14 +311,9 @@ sub requestStream(item as object)
     if AppSettings.forceDirectPlay() then req.forceDirectPlay = true
     req.subtitleStreamIndex = m.curSubIdx
     if m.curAudIdx >= 0 then req.audioStreamIndex = m.curAudIdx
-    cap = 0
-    if m.qualityBps > 0
-        cap = m.qualityBps
-    else
-        cap = AppSettings.maxBitrateBps()
-    end if
-    ' A pending step-down caps below the user/settings choice
-    if m.stepDownBps > 0 and (cap = 0 or m.stepDownBps < cap) then cap = m.stepDownBps
+    ' A pending step-down caps below the user/settings choice; an Auto
+    ' step-up asks for exactly the cap it decided on (#273).
+    cap = StreamQuality.requestCapBps(m.qualityBps, AppSettings.maxBitrateBps(), m.stepDownBps, m.upgradeBps)
     if cap > 0
         req.maxBitrate = cap
         ' The tier's width goes with it, or the server keeps the source
@@ -379,6 +374,7 @@ function stepDown(linkIsSlow as boolean) as boolean
     nextBps = StreamQuality.nextStepDownBps(currentRateBps())
     if nextBps = 0 then return false
     m.stepDownBps = nextBps
+    m.upgradeBps = 0
     ' The step-down is Auto's own when the viewer is on Auto (m.qualityBps
     ' stays 0), so Auto may undo it later. An upgrade that stalls straight
     ' back down makes the next one wait twice as long.
@@ -415,6 +411,8 @@ sub resetAdaptive()
     m.lastRecoveryAt = -1      ' last rebuffer or stall
     m.failedUpgrades = 0       ' upgrades that stalled straight back down
     m.sessionSamples = []
+    m.upgradeBps = 0           ' the cap an Auto step-up asked for (#273)
+    m.capBeforeUpgrade = 0     ' the cap that step-up replaced
 end sub
 
 ' Every 16 MB of segments is one reading of the link. A remux's reading is
@@ -468,6 +466,8 @@ sub considerSustainedUpgrade()
     m.lastQualityChangeAt = now
     m.lastUpgradeAt = now
     m.stepDownBps = 0
+    m.upgradeBps = StreamQuality.upgradeTargetBps(ctx)
+    m.capBeforeUpgrade = m.activeCapBps
     ' A stall lowered the measurement so the next item would not start too
     ' high; playback has since shown the link carries more.
     if probed > m.global.measuredBitrate then m.global.measuredBitrate = probed
@@ -786,6 +786,12 @@ sub onStreamReady(r as object)
     end if
     m.activeCapBps = 0
     if r.capBps <> invalid then m.activeCapBps = r.capBps
+    ' A step-up that came back no higher is a failed one: the next try waits
+    ' twice as long instead of rebuffering every two minutes (#273).
+    if m.capBeforeUpgrade > 0
+        if StreamQuality.upgradeWasNoop(m.capBeforeUpgrade, m.activeCapBps) then m.failedUpgrades = m.failedUpgrades + 1
+        m.capBeforeUpgrade = 0
+    end if
     m.sourceBps = 0
     if r.sourceBitrate <> invalid then m.sourceBps = r.sourceBitrate
     m.isWired = (r.isWired <> invalid and r.isWired = true)
@@ -1605,6 +1611,7 @@ sub applyMenuSelection()
             ' An explicit pick replaces an automatic step-down, in either
             ' direction; a stall at the new rate steps down again.
             m.stepDownBps = 0
+            m.upgradeBps = 0
             m.pendingNotice = ""
             m.rebufferTimes = []
             if value = 0
