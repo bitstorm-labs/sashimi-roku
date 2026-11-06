@@ -26,6 +26,7 @@ sub main()
     testWirelessCeiling(t)
     testCooldown(t)
     testSustainedUpgrade(t)
+    testUpgradeRequestsItsTarget(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -406,6 +407,42 @@ sub testSustainedUpgrade(t as object)
     eq(t, "cooldown over", StreamQuality_sustainedUpgrade(c), 0)
     c = upgradeCtx() : c.secondsSinceQualityChange = 130 : c.failedUpgrades = 1
     eq(t, "cooldown doubled", StreamQuality_sustainedUpgrade(c), 110)
+end sub
+
+' Production 2026-11-05 (#273): Wi-Fi, a 10.6 Mbps episode transcoded at
+' 5.64 Mbps, this item's readings far above it, the remembered remux
+' throughput low. The step-up fired every ~2 min and re-requested 5.64 Mbps.
+function remoteUpgradeCtx() as object
+    return {
+        isAuto: true, isWired: false, isTranscoding: true, isBusy: false,
+        autoCap: 34000000, activeCap: 5640000, sourceBps: 10600000, sustainedBps: 30000000,
+        secondsSinceRecovery: -1, secondsSinceQualityChange: -1, failedUpgrades: 0
+    }
+end function
+
+sub testUpgradeRequestsItsTarget(t as object)
+    c = remoteUpgradeCtx()
+    eq(t, "remote upgrade fires", StreamQuality_sustainedUpgrade(c), 0)
+    eq(t, "target is the source", StreamQuality_upgradeTargetBps(c), 10600000)
+    eq(t, "target under a low ceiling", StreamQuality_upgradeTargetBps(upgradeCtx()), 44000000)
+    c = remoteUpgradeCtx() : c.sustainedBps = 16000000
+    eq(t, "target is the wifi ceiling", StreamQuality_upgradeTargetBps(c), 8000000)
+    ' The request carries the target, not a recomputed Auto cap.
+    eq(t, "auto request uses the target", StreamQuality_requestCapBps(0, 0, 0, 10600000), 10600000)
+    eq(t, "plain auto", StreamQuality_requestCapBps(0, 0, 0, 0), 0)
+    eq(t, "pick beats target", StreamQuality_requestCapBps(8000000, 0, 0, 10600000), 8000000)
+    eq(t, "settings cap beats target", StreamQuality_requestCapBps(0, 3000000, 0, 10600000), 3000000)
+    eq(t, "step-down beats target", StreamQuality_requestCapBps(0, 0, 4000000, 10600000), 4000000)
+    ' No restart for a step too small to see.
+    c = remoteUpgradeCtx() : c.activeCap = 9000000
+    eq(t, "too small a gain", StreamQuality_sustainedUpgrade(c), -1)
+    c = remoteUpgradeCtx() : c.activeCap = 8000000
+    eq(t, "a third more", StreamQuality_sustainedUpgrade(c), 0)
+    ' A restart that came back no higher failed.
+    eq(t, "same cap is a noop", StreamQuality_upgradeWasNoop(5640000, 5640000), true)
+    eq(t, "lower cap is a noop", StreamQuality_upgradeWasNoop(5640000, 5000000), true)
+    eq(t, "higher cap worked", StreamQuality_upgradeWasNoop(5640000, 10600000), false)
+    eq(t, "no upgrade pending", StreamQuality_upgradeWasNoop(0, 5640000), false)
 end sub
 
 ' Only a remux's readings measure the link; a re-encode's are the encoder's.
