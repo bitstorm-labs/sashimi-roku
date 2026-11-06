@@ -31,6 +31,7 @@ const suites = {
     'DetailNavTests.brs': ['out/source/utils/DetailNav.brs'],
     'DetailLayoutTests.brs': ['out/source/utils/DetailLayout.brs'],
     'FadesTests.brs': ['out/source/utils/Fades.brs'],
+    'LanguagePrefsTests.brs': ['out/source/utils/LanguagePrefs.brs'],
     'SharedListsTests.brs': ['out/source/utils/SharedLists.brs'],
     'ListsModelTests.brs': ['out/source/utils/SharedLists.brs', 'out/source/utils/ListsModel.brs']
 };

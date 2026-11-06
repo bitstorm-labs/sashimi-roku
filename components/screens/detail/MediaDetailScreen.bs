@@ -9,6 +9,8 @@ import "pkg:/source/utils/ShowStatus.bs"
 import "pkg:/source/utils/SeriesMeta.bs"
 import "pkg:/source/utils/RowWindow.bs"
 import "pkg:/source/utils/WatchState.bs"
+import "pkg:/source/utils/LanguagePrefs.bs"
+import "pkg:/source/utils/AppSettings.bs"
 import "pkg:/source/utils/DetailActions.bs"
 import "pkg:/source/utils/SeasonPage.bs"
 import "pkg:/source/utils/DetailNav.bs"
@@ -1343,29 +1345,17 @@ sub buildBadges(src as object)
         end if
     end for
 
+    ' The language that will play, "+N" others (#271). After the audio chip
+    ' or logo, so it is collected now and drawn last.
+    audTracks = []
+    for each st in src.MediaStreams
+        if st.Type = "Audio" then audTracks.push({ index: st.Index, language: st.Language, isDefault: st.IsDefault })
+    end for
+    langChip = LanguagePrefs.audioChipLabel(audTracks, AppSettings.preferredAudioLanguage())
+
     x = 0
     for each text in badges
-        bw = 22 + Len(text) * 10
-        bg = CreateObject("roSGNode", "Poster")
-        bg.uri = "pkg:/images/badge_r6.9.png"
-        bg.width = bw
-        bg.height = 24
-        bg.translation = [x, 0]
-        m.badgesGroup.appendChild(bg)
-        lbl = CreateObject("roSGNode", "Label")
-        lbl.text = text
-        lbl.width = bw
-        lbl.height = 24
-        lbl.horizAlign = "center"
-        lbl.vertAlign = "center"
-        lbl.color = "#FFFFFF"
-        f = CreateObject("roSGNode", "Font")
-        f.uri = "pkg:/fonts/Inter-Bold.ttf"
-        f.size = 15
-        lbl.font = f
-        lbl.translation = [x, 0]
-        m.badgesGroup.appendChild(lbl)
-        x += bw + 14
+        x = addTextBadge(text, x)
     end for
     if audioLogo <> ""
         ' tvOS: real Dolby wordmark instead of a text capsule (assets are
@@ -1381,10 +1371,36 @@ sub buildBadges(src as object)
         m.badgesGroup.appendChild(logo)
         x += lw + 14
     end if
+    if langChip <> "" then x = addTextBadge(langChip, x)
     m.badgesEndX = x
     m.statusPill = invalid
     renderStatusPill()
 end sub
+
+' One white capsule chip on the badges line at x; returns the next x.
+function addTextBadge(text as string, x as integer) as integer
+    bw = 22 + Len(text) * 10
+    bg = CreateObject("roSGNode", "Poster")
+    bg.uri = "pkg:/images/badge_r6.9.png"
+    bg.width = bw
+    bg.height = 24
+    bg.translation = [x, 0]
+    m.badgesGroup.appendChild(bg)
+    lbl = CreateObject("roSGNode", "Label")
+    lbl.text = text
+    lbl.width = bw
+    lbl.height = 24
+    lbl.horizAlign = "center"
+    lbl.vertAlign = "center"
+    lbl.color = "#FFFFFF"
+    f = CreateObject("roSGNode", "Font")
+    f.uri = "pkg:/fonts/Inter-Bold.ttf"
+    f.size = 15
+    lbl.font = f
+    lbl.translation = [x, 0]
+    m.badgesGroup.appendChild(lbl)
+    return x + bw + 14
+end function
 
 function formatCodec(codec as string) as string
     c = UCase(codec)

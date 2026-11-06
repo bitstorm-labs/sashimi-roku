@@ -100,4 +100,64 @@ namespace LanguagePrefs
         return ordered[0].index
     end function
 
+    ' English names for the languages a server realistically tags, keyed by
+    ' the 639-1 code normalize() returns. Roku has no locale display names.
+    function languageName(code as dynamic) as string
+        n = normalize(code)
+        if n = "" then return ""
+        names = {
+            en: "English", es: "Spanish", fr: "French", de: "German", it: "Italian"
+            pt: "Portuguese", ru: "Russian", ja: "Japanese", ko: "Korean", zh: "Chinese"
+            ar: "Arabic", hi: "Hindi", nl: "Dutch", sv: "Swedish", no: "Norwegian"
+            da: "Danish", fi: "Finnish", pl: "Polish", tr: "Turkish", cs: "Czech"
+            el: "Greek", he: "Hebrew", hu: "Hungarian", th: "Thai", vi: "Vietnamese"
+            uk: "Ukrainian", ro: "Romanian", id: "Indonesian", ms: "Malay"
+        }
+        if names.DoesExist(n) then return names[n]
+        return UCase(n)
+    end function
+
+    ' The detail page's audio-language chip (#271): the language that will
+    ' play and "+N" other audio languages, e.g. "English  +1". The track that
+    ' will play follows the player: the preferred language when a track has
+    ' it, else the default-flagged track, else the first. "" (no chip) when
+    ' that track carries no language tag: naming another track's language
+    ' would claim something the player will not do. Untagged tracks never
+    ' count as "others"; eng/en/... count once.
+    function audioChipLabel(tracks as object, preferred as string) as string
+        if tracks = invalid or tracks.count() = 0 then return ""
+        playing = invalid
+        if preferred <> ""
+            for each t in tracks
+                if matches(t.language, preferred)
+                    playing = t
+                    exit for
+                end if
+            end for
+        end if
+        if playing = invalid
+            for each t in tracks
+                if t.isDefault <> invalid and t.isDefault = true
+                    playing = t
+                    exit for
+                end if
+            end for
+        end if
+        if playing = invalid then playing = tracks[0]
+        key = normalize(playing.language)
+        if key = "" then return ""
+        seen = {}
+        others = 0
+        for each t in tracks
+            k = normalize(t.language)
+            if k <> "" and k <> key and not seen.DoesExist(k)
+                seen[k] = true
+                others += 1
+            end if
+        end for
+        label = languageName(playing.language)
+        if others > 0 then label += "  +" + others.ToStr()
+        return label
+    end function
+
 end namespace
