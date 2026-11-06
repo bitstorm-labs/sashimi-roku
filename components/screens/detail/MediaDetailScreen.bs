@@ -1241,6 +1241,9 @@ sub renderStatusPill()
     bg.height = 24
     bg.blendColor = b.color
     bg.opacity = ShowStatus.TINT_OPACITY
+    ring = pill.createChild("Poster")
+    ring.uri = b.ring
+    ring.height = 24
     lbl = pill.createChild("Label")
     lbl.text = b.label
     lbl.height = 24
@@ -1253,6 +1256,7 @@ sub renderStatusPill()
     lbl.translation = [12, 0]
     ' Measured: a per-character estimate drifts between "Continuing" and "Ended".
     bg.width = 12 + Int(lbl.boundingRect().width) + 12
+    ring.width = bg.width
 end sub
 
 ' Outlined chips: certification + up to 3 genres (tvOS tags row)

@@ -43,6 +43,8 @@ sub isBadge(t as object, name as string, b as dynamic, label as string, color as
     eq(t, name + " colour", b.color, color)
     ' A rounded rectangle like the media chips beside it, not a capsule (#246).
     eq(t, name + " shape", b.bg, "pkg:/images/badge_r6.9.png")
+    ' Outlined like those chips too, drawn untinted over the tint (#276).
+    eq(t, name + " outline", b.ring, "pkg:/images/badge_ring_r6.9.png")
 end sub
 
 sub testKnownStatuses(t as object)
