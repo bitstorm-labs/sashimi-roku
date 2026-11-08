@@ -12,7 +12,8 @@ import "pkg:/source/utils/ImageUrl.bs"
 '
 ' Polling: sessions every 8 s, everything else every 30 s, only while the
 ' screen is on screen. Back stops both timers before MainScene pops the
-' screen, and each tick re-checks that the screen is still showing.
+' screen (or, as the side menu's root screen, hiding it does), and each tick
+' re-checks that the screen is still showing.
 
 const CARDS_PER_PAGE = 3
 const CARD_W = 560
@@ -629,6 +630,8 @@ end sub
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     if key = "back"
+        ' A root screen: MainScene goes Home and `visible` stops the polling.
+        if m.top.embedded then return false
         ' Stop polling now; MainScene pops the screen.
         close()
         return true

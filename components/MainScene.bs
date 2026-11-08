@@ -3,6 +3,7 @@ import "pkg:/source/utils/Servers.bs"
 import "pkg:/source/utils/AppSettings.bs"
 import "pkg:/source/utils/HeroTrailer.bs"
 import "pkg:/source/utils/DetailNav.bs"
+import "pkg:/source/utils/SeerrStore.bs"
 
 ' tvOS-parity navigation: persistent top TabBar (Home/Library/Search/Settings)
 ' with root screens kept alive, plus a push stack for detail/grid screens.
@@ -44,6 +45,24 @@ sub init()
     ' Shared lists: bumped by any change to a list or a subscription, so Home
     ' and the Lists page reload when they come back to the front.
     m.global.addFields({ listsVersion: 0 })
+    ' The active server's Policy.IsAdministrator. Gates every SashimiTV
+    ' channel-management entry point and the side menu's Dashboard. Added
+    ' before the Sidebar exists, so its init can observe it.
+    m.global.addFields({ isAdministrator: false })
+    ' The Seerr account (SeerrStore): no account, no request UI anywhere. A
+    ' saved account shows at once and the launch check (SeerrTask "restore")
+    ' confirms it, expires it on a 401/403, or keeps it while offline.
+    seerrState = "none"
+    seerrUser = {}
+    saved = SeerrStore.savedUser()
+    if saved <> invalid and SeerrStore.cookie() <> ""
+        seerrState = "signedIn"
+        seerrUser = SeerrStore.userInfo(saved)
+    end if
+    m.global.addFields({ seerrState: seerrState, seerrUser: seerrUser, seerrServer: SeerrStore.server(), seerrTitle: SeerrStore.title(), seerrPartial: true, seerrVersion: 0 })
+    m.seerrTask = createObject("roSGNode", "SeerrTask")
+    m.seerrTask.control = "RUN"
+    m.seerrTask.request = { action: "restore" }
 
     ' Left pullout sidebar (created up front, shown after login)
     m.sidebar = createObject("roSGNode", "Sidebar")
@@ -144,9 +163,6 @@ sub init()
     ' Set by any screen that gets a 401/403 back: the stored token is no longer
     ' valid, so the only correct move is to sign out and re-authenticate.
     m.global.addFields({ sessionExpired: false })
-    ' The active server's Policy.IsAdministrator. Gates every SashimiTV
-    ' channel-management entry point (Add to Channel, Manage Channels).
-    m.global.addFields({ isAdministrator: false })
     ' Channel management: a screen that changed a channel bumps
     ' channelsChanged; MainScene answers with channelsRefresh now and again
     ' once the plugin has rebuilt the schedule (~30 s), and the guide and the
@@ -692,20 +708,49 @@ sub onManageChannels(event as object)
     screen.config = config
 end sub
 
-' Settings -> Dashboard. Only administrators see the row; this is the
-' second check, and the server (401/403 on its endpoints) is the real one.
-sub onOpenDashboard()
-    if not m.global.isAdministrator then return
-    screen = createObject("roSGNode", "AdminDashboardScreen")
+' The side menu's Dashboard (administrators only; the server's 401/403 is
+' the real check) was refused: drop it and go Home.
+sub onEmbeddedDashboardDone(event as object)
+    screen = event.getRoSGNode()
+    if m.rootScreens.DoesExist("dashboard") and m.rootScreens["dashboard"].isSameNode(screen)
+        m.rootScreens.Delete("dashboard")
+        m.top.removeChild(screen)
+    end if
+    switchSelection({ kind: "home" })
+    home = m.rootScreens["home"]
+    if home <> invalid then home.setFocus(true)
+end sub
+
+' Settings > Requests: the Seerr account.
+sub onOpenSeerr()
+    screen = createObject("roSGNode", "SeerrAccountScreen")
     if screen = invalid then return
-    screen.observeFieldScoped("done", "onDashboardDone")
+    screen.observeFieldScoped("closed", "onPushedClosed")
     pushScreen(screen)
 end sub
 
-sub onDashboardDone()
-    top = invalid
-    if m.navStack.count() > 0 then top = m.navStack.peek()
-    if top <> invalid and top.subtype() = "AdminDashboardScreen" then popScreen()
+' A Seerr title's request page. Once the title is on the server and the
+' library has it, the page hands over to the library's own detail screen.
+sub showSeerrDetail(target as object)
+    screen = createObject("roSGNode", "SeerrDetailScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("openLibraryItem", "onSeerrOpenLibrary")
+    screen.observeFieldScoped("closed", "onPushedClosed")
+    pushScreen(screen)
+    screen.target = target
+end sub
+
+sub onSeerrOpenLibrary(event as object)
+    item = event.getData()
+    screen = event.getRoSGNode()
+    if item = invalid or item.Id = invalid then return
+    if m.navStack.count() > 0 and m.navStack.peek().isSameNode(screen) then popScreen()
+    showDetailScreen(item)
+end sub
+
+sub onPushedClosed(event as object)
+    screen = event.getRoSGNode()
+    if m.navStack.count() > 0 and screen <> invalid and m.navStack.peek().isSameNode(screen) then popScreen()
 end sub
 
 sub onChannelManagerDone()
@@ -770,7 +815,19 @@ function getOrCreateRootScreen(choice as object) as object
     else if kind = "settings"
         screen = createObject("roSGNode", "SettingsScreen")
         screen.observeFieldScoped("signOut", "onSignOut")
-        screen.observeFieldScoped("openDashboard", "onOpenDashboard")
+        screen.observeFieldScoped("openSeerr", "onOpenSeerr")
+    else if kind = "requests"
+        screen = createObject("roSGNode", "RequestsScreen")
+        screen.observeFieldScoped("selectedItem", "onItemSelected")
+        screen.observeFieldScoped("openSeerr", "onOpenSeerr")
+    else if kind = "dashboard"
+        ' A side-menu destination now (menu-only, after Lists): the same
+        ' screen, kept as a root screen, scaled into the space beside the rail.
+        if not m.global.isAdministrator then return invalid
+        screen = createObject("roSGNode", "AdminDashboardScreen")
+        screen.embedded = true
+        screen.scale = [0.929, 0.929]
+        screen.observeFieldScoped("done", "onEmbeddedDashboardDone")
     else if kind = "library"
         screen = createObject("roSGNode", "LibraryScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")
@@ -845,6 +902,12 @@ end sub
 
 sub onItemSelected(event as object)
     item = event.getData()
+    ' A Seerr title (Home's requests row, Search's "Not in your library" row,
+    ' the Requests page) opens its request page.
+    if item <> invalid and item._seerr <> invalid
+        showSeerrDetail(item._seerr)
+        return
+    end if
     if item <> invalid and item.Name <> invalid
         ' Item titles are the user's personal library — debug builds only
         #if DEBUG

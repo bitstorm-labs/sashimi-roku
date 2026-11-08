@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- The side menu's Requests page (Apple's RequestsPageView), modelled on
+     Seerr's website: Discover (poster rows with status pills, paging) and
+     Requests (the request list: filter, Everyone / Mine, count summary,
+     approve / decline / cancel / delete), plus a Search of Seerr. A root
+     screen beside the rail. -->
+<component name="RequestsScreen" extends="Group">
+    <interface>
+        <!-- { _seerr: target }: MainScene opens the title's request page. -->
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+        <!-- Signed out or expired: Settings > Requests. -->
+        <field id="openSeerr" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+        <Label id="heading" text="Requests" color="#FFFFFF" translation="[60, 40]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="48" />
+        </Label>
+        <Group id="tabs" translation="[60, 116]" />
+        <Group id="chips" translation="[60, 196]" visible="false" />
+        <Label id="summaryLabel" text="" color="#BFBFBF" width="1640" translation="[60, 256]" visible="false">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
+        </Label>
+        <Label id="messageLabel" text="" color="#BFBFBF" width="1600" wrap="true" maxLines="4" translation="[60, 300]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="30" />
+        </Label>
+        <RowList
+            id="discoverRows"
+            translation="[46, 196]"
+            itemSize="[1720, 440]"
+            numRows="2"
+            itemSpacing="[0, 10]"
+            rowItemSize="[[240, 380]]"
+            rowItemSpacing="[[10, 0]]"
+            showRowLabel="[true]"
+            showRowCounter="[false]"
+            drawFocusFeedback="false"
+            rowLabelColor="#FFFFFF"
+            rowLabelOffset="[[14, 8]]"
+            rowFocusAnimationStyle="fixedFocus"
+            itemComponentName="GridItem"
+            visible="false"
+        >
+            <Font role="rowLabelFont" uri="pkg:/fonts/Inter-Bold.ttf" size="32" />
+        </RowList>
+        <MarkupGrid
+            id="requestList"
+            translation="[60, 300]"
+            itemSize="[1640, 132]"
+            itemSpacing="[0, 12]"
+            numColumns="1"
+            numRows="5"
+            drawFocusFeedback="false"
+            vertFocusAnimationStyle="fixedFocus"
+            itemComponentName="SeerrRequestItem"
+            visible="false"
+        />
+        <FocusSink id="keySink" />
+        <SeerrTask id="seerrTask" />
+    </children>
+</component>

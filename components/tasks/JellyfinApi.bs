@@ -1450,7 +1450,8 @@ sub doGetItem(request as object)
     url = Http.apiUrl("/Users/" + requestUserId() + "/Items/" + itemId)
     ' A Series' Status (the detail screen's status pill) is not an ItemFields
     ' value: the server always sends it, so it has no place in Fields.
-    url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags,Path,LocalTrailerCount"
+    ' ProviderIds: a series' TMDB id, for Request Missing Seasons (Seerr).
+    url += "?Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,Taglines,People,UserData,Chapters,ParentBackdropImageTags,Path,LocalTrailerCount,ProviderIds"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     result = Http.getJson(url)
     if result <> invalid and result.Id <> invalid
@@ -1603,7 +1604,9 @@ sub doSearch(request as object)
     url = Http.apiUrl("/Users/" + requestUserId() + "/Items")
     url += "?SearchTerm=" + Http.escape(query)
     url += "&Limit=" + str(limit).Trim()
-    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path,MediaStreams"
+    ' ProviderIds: Search's Seerr row leaves out what this row already shows,
+    ' matched on the TMDB id.
+    url += "&Fields=Overview,PrimaryImageAspectRatio,CommunityRating,OfficialRating,Genres,UserData,Path,MediaStreams,ProviderIds"
     url += "&EnableImageTypes=Primary,Backdrop,Thumb"
     url += "&IncludeItemTypes=Movie,Series"
     url += "&Recursive=true"

@@ -1,0 +1,359 @@
+import "pkg:/source/utils/Seerr.bs"
+import "pkg:/source/utils/SeerrSeasons.bs"
+
+' A Seerr title's request page. The rules (the main button, the season plan,
+' the quota line) are Seerr.bs / SeerrSeasons.bs; this draws them. Focus is
+' virtual: the screen keeps it, m.btnIdx (the page's buttons) and m.pickIdx
+' (the season picker's lines) say what is highlighted.
+
+const PICKER_ROWS = 10
+
+sub init()
+    m.backdrop = m.top.findNode("backdrop")
+    m.poster = m.top.findNode("poster")
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.metaLabel = m.top.findNode("metaLabel")
+    m.overviewLabel = m.top.findNode("overviewLabel")
+    m.buttonsGroup = m.top.findNode("buttons")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.quotaLabel = m.top.findNode("quotaLabel")
+    m.errorLabel = m.top.findNode("errorLabel")
+    m.picker = m.top.findNode("picker")
+    m.pickerTitle = m.top.findNode("pickerTitle")
+    m.pickerRows = m.top.findNode("pickerRows")
+    m.task = m.top.findNode("seerrTask")
+    m.task.observeFieldScoped("response", "onResponse")
+    m.task.control = "RUN"
+
+    m.details = invalid
+    m.plan = invalid
+    m.action = { kind: "loading", text: "" }
+    m.libraryItem = invalid
+    m.busy = false
+    m.buttons = []
+    m.btnIdx = 0
+    m.pickerOpen = false
+    m.pickIdx = 0
+    m.top.observeField("focusedChild", "drawButtons")
+end sub
+
+sub onTarget()
+    t = m.top.target
+    if t = invalid then return
+    m.titleLabel.text = t.title
+    m.poster.uri = Seerr.posterUrl(t.posterPath, 500)
+    load()
+end sub
+
+sub load()
+    if not Seerr.isActive(m.global.seerrState)
+        m.action = { kind: "status", text: "" }
+        m.errorLabel.text = "Sign in to " + m.global.seerrTitle + " in Settings > Requests."
+        render()
+        return
+    end if
+    t = m.top.target
+    m.statusLabel.text = "Loading..."
+    m.task.request = { action: "detail", kind: t.kind, tmdbId: t.tmdbId }
+end sub
+
+function myUserId() as integer
+    u = m.global.seerrUser
+    if u = invalid or u.id = invalid then return -1
+    return u.id
+end function
+
+sub onResponse()
+    r = m.task.response
+    if r = invalid then return
+    if r.action = "detail"
+        if r.success <> true
+            if m.details = invalid then m.action = { kind: "status", text: "" }
+            m.errorLabel.text = r.error
+            render()
+            return
+        end if
+        m.details = r.details
+        m.plan = invalid
+        now = CreateObject("roDateTime").AsSeconds()
+        if m.details.kind = "tv" then m.plan = SeerrSeasons.plan(m.details, now, m.global.seerrPartial <> false)
+        m.action = Seerr.detailAction(m.details, m.plan, myUserId())
+        m.quotaLabel.text = r.quota
+        m.libraryItem = r.libraryItem
+        ' On the server, all of it: the page becomes the library's page.
+        if m.libraryItem <> invalid and Seerr.mediaStatus(m.details.mediaInfo) = 5
+            m.top.openLibraryItem = m.libraryItem
+            return
+        end if
+        render()
+    else if r.action = "requestMovie" or r.action = "requestShow"
+        m.busy = false
+        if r.success = true
+            m.global.toastMessage = { message: "Requested" }
+            closePicker()
+            load()
+        else
+            m.errorLabel.text = r.error
+            render()
+        end if
+    end if
+end sub
+
+sub render()
+    d = m.details
+    if d <> invalid
+        m.titleLabel.text = d.title
+        if d.posterPath <> "" then m.poster.uri = Seerr.posterUrl(d.posterPath, 500)
+        m.backdrop.uri = Seerr.backdropUrl(d.backdropPath)
+        parts = []
+        if d.year > 0 then parts.push(Str(d.year).Trim())
+        if d.kind = "movie" then parts.push("Movie") else parts.push("Series")
+        if d.contentRating <> "" then parts.push(d.contentRating)
+        status = Seerr.seriesStatus(d.tmdbStatus)
+        if status <> "" then parts.push(status)
+        genres = ""
+        for i = 0 to d.genres.count() - 1
+            if i >= 3 then exit for
+            if genres <> "" then genres = genres + ", "
+            genres = genres + d.genres[i]
+        end for
+        if genres <> "" then parts.push(genres)
+        meta = ""
+        for each p in parts
+            if meta <> "" then meta = meta + "  " + Chr(183) + "  "
+            meta = meta + p
+        end for
+        m.metaLabel.text = meta
+        m.overviewLabel.text = d.overview
+    end if
+
+    defs = []
+    m.statusLabel.text = ""
+    if m.busy
+        m.statusLabel.text = "Requesting..."
+    else if m.action.kind = "request"
+        defs.push({ kind: "request", label: "Request" })
+    else if m.action.kind = "chooseSeasons"
+        defs.push({ kind: "seasons", label: "Request Seasons" + Chr(8230) })
+    else if m.action.kind = "status"
+        m.statusLabel.text = m.action.text
+    end if
+    if m.libraryItem <> invalid then defs.push({ kind: "library", label: "Open in Library" })
+    m.buttons = defs
+    if m.btnIdx >= defs.count() then m.btnIdx = 0
+    ' A status line and buttons share the row: buttons move down under it.
+    if m.statusLabel.text <> "" and defs.count() > 0 then m.buttonsGroup.translation = [480, 700] else m.buttonsGroup.translation = [480, 640]
+    if m.statusLabel.text <> "" and defs.count() > 0 then m.quotaLabel.translation = [480, 800] else m.quotaLabel.translation = [480, 740]
+    drawButtons()
+end sub
+
+sub drawButtons()
+    while m.buttonsGroup.getChildCount() > 0
+        m.buttonsGroup.removeChildIndex(0)
+    end while
+    focused = m.top.isInFocusChain() and not m.pickerOpen
+    x = 0
+    for i = 0 to m.buttons.count() - 1
+        b = m.buttons[i]
+        w = 120 + Len(b.label) * 16
+        isOn = focused and i = m.btnIdx
+        bg = CreateObject("roSGNode", "Poster")
+        bg.translation = [x, 0]
+        bg.width = w
+        bg.height = 76
+        if isOn then bg.uri = "pkg:/images/btn_white_focus.9.png" else bg.uri = "pkg:/images/btn_dark.9.png"
+        m.buttonsGroup.appendChild(bg)
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = b.label
+        lbl.translation = [x, 0]
+        lbl.width = w
+        lbl.height = 76
+        lbl.horizAlign = "center"
+        lbl.vertAlign = "center"
+        lbl.font = font("pkg:/fonts/Inter-Bold.ttf", 28)
+        if isOn then lbl.color = "#000000" else lbl.color = "#FFFFFF"
+        m.buttonsGroup.appendChild(lbl)
+        x = x + w + 24
+    end for
+end sub
+
+function font(uri as string, size as integer) as object
+    f = CreateObject("roSGNode", "Font")
+    f.uri = uri
+    f.size = size
+    return f
+end function
+
+sub activate()
+    if m.busy or m.btnIdx >= m.buttons.count() then return
+    kind = m.buttons[m.btnIdx].kind
+    m.errorLabel.text = ""
+    if kind = "request"
+        ' A movie: one press.
+        m.busy = true
+        render()
+        m.task.request = { action: "requestMovie", tmdbId: m.details.tmdbId }
+    else if kind = "seasons"
+        openPicker()
+    else if kind = "library"
+        m.top.openLibraryItem = m.libraryItem
+    end if
+end sub
+
+' ---------- The season picker ----------
+
+' Its lines: every season (or run on the server), then the button.
+function pickerLines() as object
+    lines = []
+    for each r in SeerrSeasons.rows(m.plan)
+        lines.push({ kind: "season", row: r })
+    end for
+    lines.push({ kind: "submit" })
+    return lines
+end function
+
+sub openPicker()
+    if m.plan = invalid then return
+    m.pickerOpen = true
+    m.pickerTitle.text = m.details.title
+    m.picker.visible = true
+    ' Start on the first season that can be picked.
+    m.pickIdx = 0
+    lines = pickerLines()
+    for i = 0 to lines.count() - 1
+        if lines[i].kind = "season" and lines[i].row.pickable
+            m.pickIdx = i
+            exit for
+        end if
+    end for
+    drawPicker()
+    drawButtons()
+end sub
+
+sub closePicker()
+    m.pickerOpen = false
+    m.picker.visible = false
+    drawButtons()
+end sub
+
+sub drawPicker()
+    while m.pickerRows.getChildCount() > 0
+        m.pickerRows.removeChildIndex(0)
+    end while
+    lines = pickerLines()
+    first = 0
+    if lines.count() > PICKER_ROWS
+        first = m.pickIdx - Int(PICKER_ROWS / 2)
+        if first > lines.count() - PICKER_ROWS then first = lines.count() - PICKER_ROWS
+        if first < 0 then first = 0
+    end if
+    y = 0
+    for i = first to lines.count() - 1
+        if i >= first + PICKER_ROWS then exit for
+        ln = lines[i]
+        isOn = i = m.pickIdx
+        bg = CreateObject("roSGNode", "Poster")
+        bg.translation = [0, y]
+        bg.width = 800
+        bg.height = 64
+        if isOn then bg.uri = "pkg:/images/btn_white_focus.9.png" else bg.uri = "pkg:/images/btn_dark.9.png"
+        m.pickerRows.appendChild(bg)
+        text = ""
+        detail = ""
+        faded = false
+        if ln.kind = "submit"
+            text = SeerrSeasons.buttonTitle(m.plan)
+            faded = SeerrSeasons.requestSeasons(m.plan).count() = 0
+        else
+            mark = "    "
+            if ln.row.pickable
+                if SeerrSeasons.rowSelected(m.plan, ln.row) then mark = Chr(10003) + "  " else mark = Chr(9675) + "  "
+            end if
+            text = mark + ln.row.title
+            detail = ln.row.detail
+            faded = not ln.row.pickable
+        end if
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = text
+        lbl.translation = [24, y]
+        lbl.width = 480
+        lbl.height = 64
+        lbl.vertAlign = "center"
+        lbl.font = font("pkg:/fonts/Inter-Bold.ttf", 26)
+        lbl.color = pickerColor(isOn, faded)
+        m.pickerRows.appendChild(lbl)
+        if detail <> ""
+            dl = CreateObject("roSGNode", "Label")
+            dl.text = detail
+            dl.translation = [500, y]
+            dl.width = 276
+            dl.height = 64
+            dl.vertAlign = "center"
+            dl.horizAlign = "right"
+            dl.font = font("pkg:/fonts/Inter-Medium.ttf", 22)
+            dl.color = pickerColor(isOn, true)
+            m.pickerRows.appendChild(dl)
+        end if
+        y = y + 74
+    end for
+end sub
+
+function pickerColor(isOn as boolean, faded as boolean) as string
+    if isOn then return "#000000"
+    if faded then return "#8C8C8C"
+    return "#FFFFFF"
+end function
+
+sub pickerOk()
+    lines = pickerLines()
+    ln = lines[m.pickIdx]
+    if ln.kind = "submit"
+        seasons = SeerrSeasons.requestSeasons(m.plan)
+        if seasons.count() = 0 then return
+        m.busy = true
+        m.task.request = { action: "requestShow", tmdbId: m.details.tmdbId, seasons: seasons }
+        closePicker()
+        render()
+        return
+    end if
+    if not ln.row.pickable then return
+    for each n in ln.row.seasons
+        m.plan = SeerrSeasons.toggle(m.plan, n)
+    end for
+    drawPicker()
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if m.pickerOpen
+        n = pickerLines().count()
+        if key = "back"
+            closePicker()
+        else if key = "up"
+            if m.pickIdx > 0 then m.pickIdx = m.pickIdx - 1
+            drawPicker()
+        else if key = "down"
+            if m.pickIdx < n - 1 then m.pickIdx = m.pickIdx + 1
+            drawPicker()
+        else if key = "OK"
+            pickerOk()
+        end if
+        return true
+    end if
+    if key = "back"
+        m.top.closed = true
+        return true
+    else if key = "left"
+        if m.btnIdx > 0 then m.btnIdx = m.btnIdx - 1
+        drawButtons()
+        return true
+    else if key = "right"
+        if m.btnIdx < m.buttons.count() - 1 then m.btnIdx = m.btnIdx + 1
+        drawButtons()
+        return true
+    else if key = "OK"
+        activate()
+        return true
+    end if
+    return true
+end function

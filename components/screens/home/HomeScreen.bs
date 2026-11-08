@@ -5,6 +5,7 @@ import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/ContinueWatching.bs"
 import "pkg:/source/utils/HiddenStore.bs"
 import "pkg:/source/utils/RailItems.bs"
+import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/ListsModel.bs"
 
 sub init()
@@ -37,6 +38,20 @@ sub init()
     m.listsGen = 0
     m.listRows = invalid
     m.listsSeen = m.global.listsVersion
+
+    ' The Seerr requests row (a real Home row: Home & Side Menu moves and
+    ' hides it). m.requestCards holds the current load's answer.
+    m.seerrTask = m.top.findNode("seerrTask")
+    m.seerrTask.observeFieldScoped("response", "onSeerrResponse")
+    m.seerrTask.control = "RUN"
+    m.seerrGen = 0
+    m.requestCards = invalid
+    m.requestsTitle = ""
+    m.requestsEnabled = true
+    ' A sign-in, sign-out or expiry, or a request sent or changed anywhere:
+    ' the row reloads (an expired account drops it at once).
+    m.global.observeFieldScoped("seerrState", "loadRequestsRow")
+    m.global.observeFieldScoped("seerrVersion", "loadRequestsRow")
 
     ' Hero banner
     m.heroBanner = m.top.findNode("heroBanner")
@@ -237,6 +252,115 @@ sub loadHomeData()
     m.listRows = invalid
     m.listsSeen = m.global.listsVersion
     m.listsTask.request = { action: "lists", op: "home", context: m.listsGen.ToStr() }
+    loadRequestsRow()
+end sub
+
+' ---------- The Seerr requests row ----------
+
+sub loadRequestsRow()
+    m.seerrGen = m.seerrGen + 1
+    m.requestCards = invalid
+    if not Seerr.isActive(m.global.seerrState)
+        ' No account, or it expired: no row, and nothing asked of Seerr.
+        if m.rowContent <> invalid and removeRequestsRow() and not m.chainBusy then relayoutRows()
+        return
+    end if
+    m.seerrTask.request = { action: "homeRow", context: m.seerrGen.ToStr() }
+end sub
+
+sub onSeerrResponse()
+    r = m.seerrTask.response
+    if r = invalid or r.action <> "homeRow" or r.context <> m.seerrGen.ToStr() then return
+    cards = []
+    if r.success = true and r.cards <> invalid then cards = r.cards
+    m.requestCards = cards
+    m.requestsTitle = ""
+    if r.title <> invalid then m.requestsTitle = r.title
+    if not m.chainBusy and m.rowContent <> invalid and m.rowContent.getChildCount() > 0
+        placeRequestsRow()
+        relayoutRows()
+    end if
+end sub
+
+' Returns whether a row was there.
+function removeRequestsRow() as boolean
+    removed = false
+    if m.rowContent = invalid then return false
+    for i = m.rowContent.getChildCount() - 1 to 0 step -1
+        if m.rowContent.getChild(i).rowKey = "requests"
+            m.rowContent.removeChildIndex(i)
+            removed = true
+        end if
+    end for
+    return removed
+end function
+
+' The row goes where the config puts it among the rows on screen; it is
+' drawn only while signed in, shown on Home, and something waits or arrived
+' this week.
+sub placeRequestsRow()
+    removeRequestsRow()
+    if m.requestCards = invalid or m.requestCards.count() = 0 or m.rowContent = invalid then return
+    if not m.requestsEnabled or not Seerr.isActive(m.global.seerrState) then return
+    row = CreateObject("roSGNode", "ContentNode")
+    row.title = m.requestsTitle
+    row.addFields({ rowKey: "requests", rowKind: "requests" })
+    for each c in m.requestCards
+        child = row.createChild("ContentNode")
+        child.title = c.title
+        child.HDPosterUrl = Seerr.posterUrl(c.posterPath, 342)
+        child.addFields({ captionLine: c.line, newLabel: c.state, seerrJson: FormatJSON({ kind: c.kind, tmdbId: c.tmdbId, title: c.title, posterPath: c.posterPath }), isPlayed: false, playedPercentage: 0, badgeCount: 0 })
+    end for
+    shown = []
+    for i = 0 to m.rowContent.getChildCount() - 1
+        key = m.rowContent.getChild(i).rowKey
+        if key = invalid then key = ""
+        shown.push(key)
+    end for
+    at = RailItems.rowPosition(Registry.readJson("settings", "homeRowOrder"), "requests", shown)
+    m.rowContent.insertChild(row, at)
+end sub
+
+' Re-measure after a row arrived (or left) late, as the lists do.
+sub relayoutRows()
+    sizes = rowSizes()
+    m.pendingRowItemSizes = sizes.itemSizes
+    m.pendingRowSpacings = sizes.itemSpacings
+    m.pendingRowHeights = sizes.rowHeights
+    if m.pendingRowContent = invalid and m.rowList.content <> invalid
+        m.rowList.rowItemSize = sizes.itemSizes
+        m.rowList.rowItemSpacing = sizes.itemSpacings
+        m.rowList.rowHeights = sizes.rowHeights
+    end if
+    m.emptyLabel.visible = false
+end sub
+
+' Home draws its rows in the Home & Side Menu order (the side menu lists its
+' destinations in the same order), late rows included.
+sub applyRowOrder()
+    if m.rowContent = invalid then return
+    n = m.rowContent.getChildCount()
+    if n < 2 then return
+    keys = []
+    byKey = {}
+    for i = 0 to n - 1
+        key = m.rowContent.getChild(i).rowKey
+        if key = invalid or key = "" then key = "_row" + i.ToStr()
+        keys.push(key)
+        byKey[key] = m.rowContent.getChild(i)
+    end for
+    order = RailItems.homeOrder(Registry.readJson("settings", "homeRowOrder"), keys)
+    same = true
+    for i = 0 to n - 1
+        if order[i] <> keys[i] then same = false
+    end for
+    if same then return
+    nodes = []
+    for each key in order
+        nodes.push(byKey[key])
+    end for
+    m.rowContent.removeChildrenIndex(n, 0)
+    m.rowContent.appendChildren(nodes)
 end sub
 
 sub onApiResponse()
@@ -342,8 +466,8 @@ end sub
 ' Merge the saved row config (Settings > Home Screen Rows) with the live
 ' library list — preserve saved order/visibility, append new libraries,
 ' drop removed ones — then apply: reorder m.libraries, drop hidden, and
-' gate the hero / Continue Watching rows. (tvOS homeScreenRowOrder parity;
-' CW stays pinned above library rows on Roku.)
+' gate the hero / Continue Watching rows. (tvOS homeScreenRowOrder parity:
+' applyRowOrder draws every row in the config's order.)
 sub applyHomeRowConfig()
     rawSaved = Registry.read("settings", "homeRowOrder")
     saved = invalid
@@ -387,9 +511,10 @@ sub applyHomeRowConfig()
         end if
     end for
 
-    ' SashimiTV has a Home row and a side-menu place of its own; configs saved
-    ' before it was configurable gain its entry, shown in both.
-    merged = RailItems.withLists(RailItems.withFintv(merged))
+    ' SashimiTV and Requests have a Home row and a side-menu place of their
+    ' own, Lists and the Dashboard a side-menu place; configs saved before
+    ' they existed gain their entries, shown.
+    merged = RailItems.withBuiltIns(merged)
 
     ' Every load runs this merge, but the result only changes when a library is
     ' added/renamed/removed — writing unconditionally meant a flash commit
@@ -409,6 +534,8 @@ sub applyHomeRowConfig()
             m.cwEnabled = (c.visible = true)
         else if c.kind = "fintv"
             m.stationsEnabled = RailItems.onHome(c)
+        else if c.kind = "requests"
+            m.requestsEnabled = RailItems.onHome(c)
         else if c.kind = "library" and c.visible = true
             for each lib in m.libraries
                 if lib.Id = c.libraryId then ordered.push(lib)
@@ -1295,8 +1422,10 @@ sub showRows()
         return
     end if
 
-    ' Subscribed lists that answered before the chain finished.
+    ' Subscribed lists and the requests row that answered before the chain
+    ' finished.
     if m.listRows <> invalid then placeListRows()
+    if m.requestCards <> invalid then placeRequestsRow()
 
     sizes = rowSizes()
     itemSizes = sizes.itemSizes
@@ -1327,14 +1456,17 @@ end sub
 ' 200x200), from each row's kind. Also re-derives the row indices the rest of
 ' the screen keys on, since a list row placed late shifts every row below it.
 function rowSizes() as object
+    applyRowOrder()
     m.continueWatchingRowIndex = invalid
     m.channelsRowIndex = invalid
     m.wideRowIndices = {}
+    requestsIdx = -1
     for i = 0 to m.rowContent.getChildCount() - 1
         kind = m.rowContent.getChild(i).rowKind
         if kind = "cw" then m.continueWatchingRowIndex = i
         if kind = "channels" then m.channelsRowIndex = i
         if kind = "wide" then m.wideRowIndices[str(i).Trim()] = true
+        if kind = "requests" then requestsIdx = i
     end for
     rowCount = m.rowContent.getChildCount()
     itemSizes = []
@@ -1350,6 +1482,10 @@ function rowSizes() as object
         else if m.continueWatchingRowIndex <> invalid and i = m.continueWatchingRowIndex
             ' Continue Watching: 440x248 image + title 28 + subtitle 20
             itemSizes.push([440, 330])
+            itemSpacings.push([40, 0])
+        else if i = requestsIdx
+            ' Posters with a second caption line (who asked / where it stands).
+            itemSizes.push([220, 410])
             itemSpacings.push([40, 0])
         else if m.wideRowIndices.DoesExist(iKey)
             ' YouTube: circular avatars 200x200 + caption (tvOS spacing 24)
@@ -1584,6 +1720,13 @@ sub onRowItemSelected()
     ' cannot choose to start from the beginning.
     if item.channelJson <> invalid and item.channelJson <> ""
         tuneToChannel(ParseJSON(item.channelJson))
+        return
+    end if
+
+    ' A requests row card opens the title's request page (MainScene).
+    if item.seerrJson <> invalid and item.seerrJson <> ""
+        target = ParseJSON(item.seerrJson)
+        if target <> invalid then m.top.selectedItem = { _seerr: target }
         return
     end if
 

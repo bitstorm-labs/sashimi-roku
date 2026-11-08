@@ -1,0 +1,1238 @@
+' Seerr (Overseerr/Jellyseerr) requests: the rules the Apple app pins in
+' SeerrModels / SeerrRequestManagement / SeerrStatus / SeerrSearchMerge /
+' SeerrClient / SeerrSession and their view models, ported as pure functions so
+' tests/SeerrTests.brs can run them off-device. Everything the server sends is
+' read defensively: one odd search result must never fail a page, and a missing
+' field compared against a string is a runtime error on the device.
+'
+' Shapes were checked against seerr-team/seerr 3.5.x (server/lib/permissions.ts,
+' server/routes/request.ts, discover.ts, user/index.ts). Statuses:
+'   media   1 unknown, 2 pending, 3 processing, 4 partially available,
+'           5 available, 6 blocklisted, 7 deleted
+'   request 1 pending, 2 approved, 3 declined, 4 failed, 5 completed
+import "pkg:/source/utils/SeerrSeasons.bs"
+
+namespace Seerr
+
+    const DEFAULT_SERVER = "https://example.com"
+    const COOKIE_NAME = "connect.sid"
+    ' Seerr web's Recent Requests slider takes ten.
+    const RECENT_REQUESTS_COUNT = 10
+    const PAGE_SIZE = 20
+    const WEEK_SECONDS = 604800
+
+    ' ---------- Reading untrusted JSON ----------
+
+    function isStr(v as dynamic) as boolean
+        return v <> invalid and GetInterface(v, "ifString") <> invalid
+    end function
+
+    function isNum(v as dynamic) as boolean
+        if v = invalid then return false
+        t = type(v)
+        return t = "roInt" or t = "roInteger" or t = "Integer" or t = "LongInteger" or t = "roLongInteger" or t = "Float" or t = "roFloat" or t = "Double" or t = "roDouble"
+    end function
+
+    function isAA(v as dynamic) as boolean
+        return v <> invalid and type(v) = "roAssociativeArray"
+    end function
+
+    function isArr(v as dynamic) as boolean
+        return v <> invalid and type(v) = "roArray"
+    end function
+
+    function getStr(aa as dynamic, key as string) as string
+        if not isAA(aa) then return ""
+        v = aa[key]
+        if isStr(v) then return v
+        return ""
+    end function
+
+    ' An integer field, or `fallback`. Ids and statuses always fit an Integer.
+    function getInt(aa as dynamic, key as string, fallback = -1 as integer) as integer
+        if not isAA(aa) then return fallback
+        v = aa[key]
+        if isNum(v) then return Int(v)
+        return fallback
+    end function
+
+    ' A number as a Double: download sizes are bytes and run past 2^31.
+    function dbl(v as dynamic) as double
+        if not isNum(v) then return 0#
+        return v * 1#
+    end function
+
+    function getArr(aa as dynamic, key as string) as object
+        if not isAA(aa) then return []
+        v = aa[key]
+        if isArr(v) then return v
+        return []
+    end function
+
+    function trimmed(s as string) as string
+        return s.Trim()
+    end function
+
+    function numStr(n as dynamic) as string
+        return Str(n).Trim()
+    end function
+
+    ' ---------- Permissions (server/lib/permissions.ts) ----------
+
+    ' Seerr's hasPermission(..., { type: "or" }): an administrator (2) has every
+    ' permission; anyone else needs one of `mask`'s bits.
+    function allows(permissions as integer, mask as integer) as boolean
+        if (permissions and 2) <> 0 then return true
+        return (permissions and mask) <> 0
+    end function
+
+    ' GET /request without requestedBy lists everyone's only for
+    ' MANAGE_REQUESTS (16) or REQUEST_VIEW (16384).
+    function canViewAllRequests(permissions as integer) as boolean
+        return allows(permissions, 16 or 16384)
+    end function
+
+    ' Approve, decline and delete any request.
+    function canManageRequests(permissions as integer) as boolean
+        return allows(permissions, 16)
+    end function
+
+    ' ---------- Accounts ----------
+
+    ' What "Signed in as ..." shows.
+    function userName(user as dynamic) as string
+        for each key in ["displayName", "username", "plexUsername", "email"]
+            v = trimmed(getStr(user, key))
+            if v <> "" then return v
+        end for
+        return "Seerr user"
+    end function
+
+    ' A request's requester. Seerr fills displayName in itself from the
+    ' username, the Plex or Jellyfin name, or the email.
+    function requesterName(user as dynamic) as string
+        if not isAA(user) then return "Unknown"
+        for each key in ["displayName", "username", "plexUsername"]
+            v = trimmed(getStr(user, key))
+            if v <> "" then return v
+        end for
+        return "User " + numStr(getInt(user, "id", 0))
+    end function
+
+    ' "example.com" -> https://example.com; trailing slashes dropped; only
+    ' http and https; "" for anything that isn't an address.
+    function normalizedServer(text as dynamic) as string
+        if not isStr(text) then return ""
+        s = text.Trim()
+        if s = "" then return ""
+        if Instr(1, s, "://") = 0 then s = "https://" + s
+        sep = Instr(1, s, "://")
+        scheme = LCase(Left(s, sep - 1))
+        if scheme <> "http" and scheme <> "https" then return ""
+        rest = Mid(s, sep + 3)
+        while Len(rest) > 0 and Right(rest, 1) = "/"
+            rest = Left(rest, Len(rest) - 1)
+        end while
+        hostEnd = Len(rest)
+        for each ch in ["/", ":", "?", "#"]
+            at = Instr(1, rest, ch)
+            if at > 0 and at - 1 < hostEnd then hostEnd = at - 1
+        end for
+        host = Left(rest, hostEnd)
+        if host = "" or Instr(1, host, " ") > 0 then return ""
+        return scheme + "://" + rest
+    end function
+
+    ' The registry key for one server's session cookie, so a second
+    ' household's server never receives this one's session.
+    function cookieKey(serverUrl as string) as string
+        return "session." + LCase(serverUrl)
+    end function
+
+    ' The session cookie from a response's headers (roUrlEvent
+    ' GetResponseHeadersArray: one AA per header line, so several Set-Cookie
+    ' lines survive). "connect.sid=<value>", attributes dropped; "" if none.
+    function sessionCookie(headers as dynamic) as string
+        if not isArr(headers) then return ""
+        for each h in headers
+            if not isAA(h) then continue for
+            for each k in h
+                if LCase(k) <> "set-cookie" or not isStr(h[k]) then continue for
+                v = h[k].Trim()
+                prefix = COOKIE_NAME + "="
+                if Left(v, Len(prefix)) <> prefix then continue for
+                value = Mid(v, Len(prefix) + 1)
+                semi = Instr(1, value, ";")
+                if semi > 0 then value = Left(value, semi - 1)
+                value = value.Trim()
+                if value <> "" then return prefix + value
+            end for
+        end for
+        return ""
+    end function
+
+    ' The Settings row's value.
+    function accountLabel(state as string, name as string) as string
+        if state = "signedIn" then return "Signed in as " + name
+        if state = "expired" then return "Sign-in expired"
+        return "Not set up"
+    end function
+
+    ' The side menu's Requests entry and the Home row's editor line exist while
+    ' an account is connected or its sign-in has expired (so the page can say
+    ' so); requests themselves only show while signed in.
+    function menuAvailable(state as string) as boolean
+        return state = "signedIn" or state = "expired"
+    end function
+
+    function isActive(state as string) as boolean
+        return state = "signedIn"
+    end function
+
+    ' Launch: a stored cookie checked with GET /auth/me. 2xx signs in, 401/403
+    ' is an expired session, and anything else (offline, 5xx) keeps the last
+    ' known account rather than signing anyone out.
+    function restoreOutcome(meStatus as integer, hasSavedUser as boolean) as string
+        if meStatus >= 200 and meStatus < 300 then return "signedIn"
+        if meStatus = 401 or meStatus = 403 then return "expired"
+        if hasSavedUser then return "offline"
+        return "none"
+    end function
+
+    ' A 401/403 on any other call is checked with /auth/me before it counts as
+    ' a sign-out: Seerr also answers 401 for things like cancelling a request
+    ' that is no longer pending.
+    function expiresAfterCheck(meStatus as integer) as boolean
+        return meStatus = 401 or meStatus = 403
+    end function
+
+    ' ---------- The wire ----------
+
+    ' Seerr rejects loosely encoded queries (a literal space, ', (...), so
+    ' everything but RFC 3986 unreserved characters is percent-encoded, as
+    ' UTF-8.
+    function encodeQuery(value as string) as string
+        out = ""
+        for i = 1 to Len(value)
+            ch = Mid(value, i, 1)
+            c = Asc(ch)
+            if (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c = 45 or c = 46 or c = 95 or c = 126
+                out = out + ch
+            else
+                for each b in utf8Bytes(c)
+                    out = out + "%" + hex2(b)
+                end for
+            end if
+        end for
+        return out
+    end function
+
+    function utf8Bytes(c as integer) as object
+        if c < 128 then return [c]
+        if c < 2048 then return [192 + Int(c / 64), 128 + (c mod 64)]
+        if c < 65536 then return [224 + Int(c / 4096), 128 + (Int(c / 64) mod 64), 128 + (c mod 64)]
+        return [240 + Int(c / 262144), 128 + (Int(c / 4096) mod 64), 128 + (Int(c / 64) mod 64), 128 + (c mod 64)]
+    end function
+
+    function hex2(b as integer) as string
+        digits = "0123456789ABCDEF"
+        return Mid(digits, Int(b / 16) + 1, 1) + Mid(digits, (b mod 16) + 1, 1)
+    end function
+
+    function searchQuery(query as string, page = 1 as integer) as string
+        return "query=" + encodeQuery(query.Trim()) + "&page=" + numStr(page)
+    end function
+
+    ' One page of GET /request, newest first. Without requestedBy the server
+    ' lists everyone's for MANAGE_REQUESTS / REQUEST_VIEW and only the
+    ' caller's for anyone else. requestedBy < 0 means "not given".
+    function requestPageQuery(filter as string, take as integer, skip as integer, requestedBy as integer) as string
+        q = "take=" + numStr(take) + "&skip=" + numStr(skip) + "&filter=" + filter + "&sort=added&sortDirection=desc"
+        if requestedBy >= 0 then q = q + "&requestedBy=" + numStr(requestedBy)
+        return q
+    end function
+
+    ' The person's own requests, newest first (Home's "Your Requests").
+    function myRequestsQuery(userId as integer, take = 50 as integer) as string
+        return "take=" + numStr(take) + "&skip=0&sort=added&requestedBy=" + numStr(userId)
+    end function
+
+    function movieRequestBody(tmdbId as integer) as object
+        return { mediaType: "movie", mediaId: tmdbId }
+    end function
+
+    ' Never season 0: specials are off on the server and never offered.
+    ' invalid (and nothing sent) when no season is left.
+    function showRequestBody(tmdbId as integer, seasons as object) as dynamic
+        numbers = sortedUnique(seasons, true)
+        if numbers.count() = 0 then return invalid
+        return { mediaType: "tv", mediaId: tmdbId, seasons: numbers }
+    end function
+
+    function sortedUnique(values as object, positiveOnly as boolean) as object
+        seen = {}
+        out = []
+        for each v in values
+            if not isNum(v) then continue for
+            n = Int(v)
+            if positiveOnly and n <= 0 then continue for
+            key = numStr(n)
+            if seen.DoesExist(key) then continue for
+            seen[key] = true
+            out.push(n)
+        end for
+        ' Insertion sort: a handful of season numbers.
+        for i = 1 to out.count() - 1
+            v = out[i]
+            j = i - 1
+            while j >= 0 and out[j] > v
+                out[j + 1] = out[j]
+                j = j - 1
+            end while
+            out[j + 1] = v
+        end for
+        return out
+    end function
+
+    ' What became of a call: "ok", "unauthorized" (401/403 on a signed-in
+    ' call), "invalidCredentials" (a sign-in turned down), "network" (no
+    ' answer) or "server".
+    function outcome(statusCode as integer, isSignIn as boolean) as string
+        if statusCode >= 200 and statusCode < 300 then return "ok"
+        if statusCode = 401 or statusCode = 403
+            if isSignIn then return "invalidCredentials"
+            return "unauthorized"
+        end if
+        if statusCode <= 0 then return "network"
+        return "server"
+    end function
+
+    ' The words for a failed call. A server message (Seerr's { message } or
+    ' { error }) wins for server errors.
+    function errorMessage(kind as string, statusCode as integer, body as dynamic) as string
+        if kind = "invalidCredentials" then return "That email and password didn't work."
+        if kind = "unauthorized" then return "Seerr didn't allow that."
+        if kind = "noSession" then return "The server signed in but didn't start a session. Check the server address."
+        if kind = "network" then return "Couldn't reach the request server."
+        if kind = "decoding" then return "The request server sent something unexpected."
+        msg = getStr(body, "message")
+        if msg = "" then msg = getStr(body, "error")
+        if msg <> "" then return msg
+        return "The request server answered with an error (" + numStr(statusCode) + ")."
+    end function
+
+    ' ---------- Images ----------
+
+    ' TMDB artwork by path ("/abc.jpg"): Seerr hands out TMDB paths and the
+    ' images come from TMDB's CDN, as on the Seerr website.
+    function posterUrl(path as dynamic, width = 342 as integer) as string
+        if not isStr(path) or Left(path, 1) <> "/" then return ""
+        return "https://image.tmdb.org/t/p/w" + numStr(width) + path
+    end function
+
+    function backdropUrl(path as dynamic) as string
+        if not isStr(path) or Left(path, 1) <> "/" then return ""
+        return "https://image.tmdb.org/t/p/w1280" + path
+    end function
+
+    ' ---------- Dates ----------
+
+    ' Seerr's dates: ISO 8601 with or without fractional seconds or an offset,
+    ' or a bare TMDB "yyyy-MM-dd" air date (midnight UTC). Seconds since the
+    ' epoch, or invalid.
+    function parseDate(s as dynamic) as dynamic
+        if not isStr(s) or Len(s) < 10 then return invalid
+        y = Val(Left(s, 4))
+        mo = Val(Mid(s, 6, 2))
+        d = Val(Mid(s, 9, 2))
+        if Mid(s, 5, 1) <> "-" or Mid(s, 8, 1) <> "-" or y < 1970 or mo < 1 or mo > 12 or d < 1 or d > 31 then return invalid
+        secs = daysFromCivil(y, mo, d) * 86400
+        if Len(s) >= 19 and (Mid(s, 11, 1) = "T" or Mid(s, 11, 1) = " ")
+            secs = secs + Val(Mid(s, 12, 2)) * 3600 + Val(Mid(s, 15, 2)) * 60 + Val(Mid(s, 18, 2))
+            tail = Mid(s, 20)
+            ' Skip fractional seconds, then read an offset (Z = none).
+            k = 1
+            if Left(tail, 1) = "."
+                k = 2
+                while k <= Len(tail) and Asc(Mid(tail, k, 1)) >= 48 and Asc(Mid(tail, k, 1)) <= 57
+                    k = k + 1
+                end while
+            end if
+            zone = Mid(tail, k)
+            if Left(zone, 1) = "+" or Left(zone, 1) = "-"
+                off = Val(Mid(zone, 2, 2)) * 3600 + Val(Mid(zone, 5, 2)) * 60
+                if Left(zone, 1) = "+" then secs = secs - off else secs = secs + off
+            end if
+        end if
+        return secs
+    end function
+
+    ' Days since 1970-01-01 (Howard Hinnant's days_from_civil).
+    function daysFromCivil(y as integer, mon as integer, d as integer) as integer
+        if mon <= 2 then y = y - 1
+        era = Int(y / 400)
+        yoe = y - era * 400
+        mp = (mon + 9) mod 12
+        doy = Int((153 * mp + 2) / 5) + d - 1
+        doe = yoe * 365 + Int(yoe / 4) - Int(yoe / 100) + doy
+        return era * 146097 + doe - 719468
+    end function
+
+    ' "today", "yesterday", a weekday within the week, else "Nov 2", in the
+    ' viewer's time zone (`tzOffset` seconds east of UTC).
+    function dayLabel(secs as integer, nowSecs as integer, tzOffset as integer) as string
+        day = Int((secs + tzOffset) / 86400)
+        today = Int((nowSecs + tzOffset) / 86400)
+        diff = today - day
+        if diff < 1 then return "today"
+        if diff = 1 then return "yesterday"
+        if diff < 7
+            ' 1970-01-01 was a Thursday.
+            names = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"]
+            return names[day mod 7]
+        end if
+        return monthDay(day)
+    end function
+
+    function monthDay(day as integer) as string
+        ' civil_from_days
+        z = day + 719468
+        era = Int(z / 146097)
+        doe = z - era * 146097
+        yoe = Int((doe - Int(doe / 1460) + Int(doe / 36524) - Int(doe / 146096)) / 365)
+        doy = doe - (365 * yoe + Int(yoe / 4) - Int(yoe / 100))
+        mp = Int((5 * doy + 2) / 153)
+        d = doy - Int((153 * mp + 2) / 5) + 1
+        mon = mp + 3
+        if mon > 12 then mon = mon - 12
+        names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        return names[mon - 1] + " " + numStr(d)
+    end function
+
+    function year(date as dynamic) as integer
+        if not isStr(date) or Len(date) < 4 then return 0
+        return Val(Left(date, 4))
+    end function
+
+    ' ---------- Titles ----------
+
+    ' One search / discover hit as the app keeps it: only movies and shows
+    ' (people and collections give invalid). The watchlist names the TMDB id
+    ' `tmdbId` (for a local account its `id` is the watchlist entry's own).
+    function result(raw as dynamic) as dynamic
+        if not isAA(raw) then return invalid
+        kind = getStr(raw, "mediaType")
+        if kind <> "movie" and kind <> "tv" then return invalid
+        tmdbId = getInt(raw, "tmdbId")
+        if tmdbId < 0 then tmdbId = getInt(raw, "id")
+        if tmdbId < 0 then return invalid
+        title = getStr(raw, "title")
+        if title = "" then title = getStr(raw, "name")
+        date = getStr(raw, "releaseDate")
+        if date = "" then date = getStr(raw, "firstAirDate")
+        info = invalid
+        if isAA(raw.mediaInfo) then info = raw.mediaInfo
+        return {
+            tmdbId: tmdbId, kind: kind, title: title, date: date, year: year(date),
+            posterPath: getStr(raw, "posterPath"), backdropPath: getStr(raw, "backdropPath"),
+            overview: getStr(raw, "overview"), mediaInfo: info
+        }
+    end function
+
+    function results(page as dynamic) as object
+        out = []
+        for each raw in getArr(page, "results")
+            r = result(raw)
+            if r <> invalid then out.push(r)
+        end for
+        return out
+    end function
+
+    function itemKey(kind as string, tmdbId as integer) as string
+        return kind + "-" + numStr(tmdbId)
+    end function
+
+    function mediaStatus(info as dynamic) as integer
+        return getInt(info, "status", 0)
+    end function
+
+    ' ---------- Poster pills ----------
+
+    ' The pill on a "Not in your library" poster, and the request page's state
+    ' before anyone presses anything: "request", "pending", "coming",
+    ' "declined" (only the person's own latest request; someone else's doesn't
+    ' stop them asking) or "available".
+    function badge(info as dynamic, userId as integer) as string
+        s = mediaStatus(info)
+        if s = 5 then return "available"
+        if s = 3 then return "coming"
+        if s = 2 then return "pending"
+        if s = 4 then return "request"
+        latest = invalid
+        for each r in getArr(info, "requests")
+            if not isAA(r) then continue for
+            if userId >= 0 and getInt(r.requestedBy, "id") <> userId then continue for
+            if latest = invalid or getStr(r, "createdAt") > getStr(latest, "createdAt") then latest = r
+        end for
+        if latest <> invalid and getInt(latest, "status") = 3 then return "declined"
+        return "request"
+    end function
+
+    function badgeLabel(b as string) as string
+        if b = "pending" then return "Pending"
+        if b = "coming" then return "Coming"
+        if b = "declined" then return "Declined"
+        if b = "available" then return "On server"
+        return "Request"
+    end function
+
+    ' Discover's pill, in Seerr web's words: nothing for a title nobody has
+    ' asked for. { label, tone } or invalid.
+    function discoverTag(info as dynamic, b as string) as dynamic
+        s = mediaStatus(info)
+        if s = 5 then return { label: "Available", tone: "available" }
+        if s = 4 then return { label: "Partially Available", tone: "coming" }
+        if s = 3 then return { label: "Processing", tone: "coming" }
+        if s = 2 then return { label: "Requested", tone: "pending" }
+        if b = "declined" then return { label: "Declined", tone: "declined" }
+        return invalid
+    end function
+
+    ' Pill colours per tone or badge, #RRGGBBAA.
+    function toneColor(tone as string) as string
+        if tone = "available" then return "#2E9E5BFF"
+        if tone = "coming" then return "#3B6FD6FF"
+        if tone = "pending" then return "#C98A12FF"
+        if tone = "declined" then return "#C0392BFF"
+        return "#5A5A66FF"
+    end function
+
+    ' Every movie and show once, in Seerr's order, each with its pill.
+    function uniqueItems(list as object, userId as integer) as object
+        seen = {}
+        out = []
+        for each r in list
+            key = itemKey(r.kind, r.tmdbId)
+            if seen.DoesExist(key) then continue for
+            seen[key] = true
+            item = {}
+            item.Append(r)
+            item.badge = badge(r.mediaInfo, userId)
+            item.tag = discoverTag(r.mediaInfo, item.badge)
+            out.push(item)
+        end for
+        return out
+    end function
+
+    ' ---------- Search's "Not in your library" row ----------
+
+    ' A Jellyfin item's TMDB id from ProviderIds, or -1.
+    function libraryTmdbId(item as dynamic) as integer
+        if not isAA(item) or not isAA(item.ProviderIds) then return -1
+        for each k in item.ProviderIds
+            if LCase(k) = "tmdb"
+                v = item.ProviderIds[k]
+                if isStr(v) and v <> "" then return Val(v)
+                if isNum(v) then return Int(v)
+            end if
+        end for
+        return -1
+    end function
+
+    function libraryKind(item as dynamic) as string
+        t = getStr(item, "Type")
+        if t = "Movie" then return "movie"
+        if t = "Series" then return "tv"
+        return ""
+    end function
+
+    ' Letters and digits only, lower case: title-and-year matching for library
+    ' items with no ProviderIds.
+    function normalizedTitle(s as string) as string
+        out = ""
+        low = LCase(s)
+        for i = 1 to Len(low)
+            ch = Mid(low, i, 1)
+            c = Asc(ch)
+            if (c >= 48 and c <= 57) or (c >= 97 and c <= 122) or c > 127 then out = out + ch
+        end for
+        return out
+    end function
+
+    ' Seerr's results less what the server has (status 5) and what the library
+    ' row already shows for the same query, each once.
+    function requestable(list as object, library as object) as object
+        libraryIds = {}
+        untagged = {}
+        for each item in library
+            kind = libraryKind(item)
+            if kind = "" then continue for
+            id = libraryTmdbId(item)
+            if id >= 0
+                libraryIds[itemKey(kind, id)] = true
+            else
+                yr = getInt(item, "ProductionYear", 0)
+                untagged[kind + "|" + normalizedTitle(getStr(item, "Name")) + "|" + numStr(yr)] = true
+            end if
+        end for
+        seen = {}
+        out = []
+        for each r in list
+            key = itemKey(r.kind, r.tmdbId)
+            if seen.DoesExist(key) then continue for
+            seen[key] = true
+            if mediaStatus(r.mediaInfo) = 5 then continue for
+            if libraryIds.DoesExist(key) then continue for
+            if untagged.DoesExist(r.kind + "|" + normalizedTitle(r.title) + "|" + numStr(r.year)) then continue for
+            out.push(r)
+        end for
+        return out
+    end function
+
+    ' The library's copy of a Seerr title, by TMDB id and kind only: a
+    ' near-miss on the title would open the wrong thing.
+    function libraryMatch(items as object, tmdbId as integer, kind as string) as dynamic
+        for each item in items
+            if libraryKind(item) = kind and libraryTmdbId(item) = tmdbId then return item
+        end for
+        return invalid
+    end function
+
+    ' ---------- Details ----------
+
+    ' GET /movie/{id} or /tv/{id} as one shape: the two differ only in field
+    ' names and the parts only a show has (seasons, status).
+    function details(raw as dynamic) as dynamic
+        if not isAA(raw) then return invalid
+        id = getInt(raw, "id")
+        if id < 0 then return invalid
+        kind = "movie"
+        title = getStr(raw, "title")
+        if not isStr(raw.title)
+            kind = "tv"
+            title = getStr(raw, "name")
+        end if
+        date = getStr(raw, "releaseDate")
+        if date = "" then date = getStr(raw, "firstAirDate")
+        genres = []
+        for each g in getArr(raw, "genres")
+            n = getStr(g, "name")
+            if n <> "" then genres.push(n)
+        end for
+        seasons = []
+        for each s in getArr(raw, "seasons")
+            n = getInt(s, "seasonNumber")
+            if n < 0 then continue for
+            seasons.push({ seasonNumber: n, episodeCount: getInt(s, "episodeCount", 0), airDate: getStr(s, "airDate") })
+        end for
+        info = invalid
+        if isAA(raw.mediaInfo) then info = raw.mediaInfo
+        tmdbStatus = ""
+        if kind = "tv" then tmdbStatus = getStr(raw, "status")
+        return {
+            tmdbId: id, kind: kind, title: title, date: date, year: year(date),
+            overview: getStr(raw, "overview"), posterPath: getStr(raw, "posterPath"),
+            backdropPath: getStr(raw, "backdropPath"), genres: genres, mediaInfo: info,
+            tmdbStatus: tmdbStatus, seasons: seasons, contentRating: contentRating(raw)
+        }
+    end function
+
+    ' The US rating when there is one, else the first non-empty one. Shows
+    ' carry contentRatings, movies releases.
+    function contentRating(raw as object) as string
+        if isAA(raw.contentRatings)
+            first = ""
+            for each r in getArr(raw.contentRatings, "results")
+                rating = getStr(r, "rating")
+                if rating = "" then continue for
+                if getStr(r, "iso_3166_1") = "US" then return rating
+                if first = "" then first = rating
+            end for
+            return first
+        end if
+        if not isAA(raw.releases) then return ""
+        first = ""
+        for each country in getArr(raw.releases, "results")
+            cert = ""
+            for each rd in getArr(country, "release_dates")
+                c = getStr(rd, "certification")
+                if c <> ""
+                    cert = c
+                    exit for
+                end if
+            end for
+            if cert = "" then continue for
+            if getStr(country, "iso_3166_1") = "US" then return cert
+            if first = "" then first = cert
+        end for
+        return first
+    end function
+
+    ' TMDB's show status to the show-status badge's words, or "".
+    function seriesStatus(tmdbStatus as string) as string
+        s = LCase(tmdbStatus)
+        if s = "returning series" or s = "in production" then return "Continuing"
+        if s = "ended" or s = "canceled" or s = "cancelled" then return "Ended"
+        if s = "planned" or s = "pilot" then return "Upcoming"
+        return ""
+    end function
+
+    ' The request page's main button: { kind: "request" } (a movie, one
+    ' press), { kind: "chooseSeasons" } (a show: the season picker) or
+    ' { kind: "status", text }. `plan` is SeerrSeasons.plan for a show, else
+    ' invalid.
+    function detailAction(d as object, plan as dynamic, userId as integer) as object
+        if plan <> invalid and SeerrSeasons.hasMissing(plan) then return { kind: "chooseSeasons", text: "" }
+        b = badge(d.mediaInfo, userId)
+        if b = "available" then return { kind: "status", text: "On your server" }
+        if b = "coming" then return { kind: "status", text: "Coming soon" }
+        if b = "pending" then return { kind: "status", text: "Requested " + Chr(8226) + " waiting for approval" }
+        if plan <> invalid
+            if SeerrSeasons.anyPickable(plan) then return { kind: "chooseSeasons", text: "" }
+            return { kind: "status", text: "Every season is on the server or requested" }
+        end if
+        return { kind: "request", text: "" }
+    end function
+
+    ' The title is on the server (whole or in part): the page opens the
+    ' library's copy instead.
+    function isOnServer(d as dynamic) as boolean
+        if not isAA(d) then return false
+        s = mediaStatus(d.mediaInfo)
+        return s = 5 or s = 4
+    end function
+
+    ' ---------- Requests ----------
+
+    ' What a request is for: { kind, tmdbId }, or invalid when its media row is
+    ' gone.
+    function target(request as dynamic) as dynamic
+        if not isAA(request) then return invalid
+        tmdbId = getInt(request.media, "tmdbId")
+        if tmdbId < 0 then return invalid
+        kind = getStr(request, "type")
+        if kind = "" then kind = getStr(request.media, "mediaType")
+        if kind <> "movie" and kind <> "tv" then return invalid
+        return { kind: kind, tmdbId: tmdbId }
+    end function
+
+    function seasonNumbers(request as dynamic) as object
+        nums = []
+        for each s in getArr(request, "seasons")
+            n = getInt(s, "seasonNumber")
+            if n >= 0 then nums.push(n)
+        end for
+        return sortedUnique(nums, false)
+    end function
+
+    ' A movie is ready once it is on the server; a show once every season this
+    ' request asked for is.
+    function requestOnServer(request as object) as boolean
+        media = request.media
+        if not isAA(media) then return false
+        s = mediaStatus(media)
+        if s = 5 then return true
+        if getStr(request, "type") <> "tv" or s <> 4 then return false
+        asked = seasonNumbers(request)
+        if asked.count() = 0 then return false
+        onServer = {}
+        for each ss in getArr(media, "seasons")
+            if getInt(ss, "status") = 5 then onServer[numStr(getInt(ss, "seasonNumber"))] = true
+        end for
+        for each n in asked
+            if not onServer.DoesExist(numStr(n)) then return false
+        end for
+        return true
+    end function
+
+    ' Download progress (0..1) summed over every download Radarr/Sonarr
+    ' report, or -1 when there is none.
+    function progress(media as dynamic) as double
+        size = 0#
+        sizeLeft = 0#
+        for each dl in getArr(media, "downloadStatus")
+            sz = dbl(dl.size)
+            if sz <= 0 then continue for
+            sl = dbl(dl.sizeLeft)
+            if sl > sz then sl = sz
+            size = size + sz
+            sizeLeft = sizeLeft + sl
+        end for
+        if size <= 0 then return -1#
+        p = (size - sizeLeft) / size
+        if p < 0 then p = 0#
+        if p > 1 then p = 1#
+        return p
+    end function
+
+    ' Where a request stands: "pending", "coming" (approved, downloading),
+    ' "ready" (on the server), "declined" or "failed".
+    function requestState(request as object) as string
+        s = getInt(request, "status")
+        if s = 3 then return "declined"
+        if s = 1 then return "pending"
+        if s = 4
+            if requestOnServer(request) then return "ready"
+            return "failed"
+        end if
+        if requestOnServer(request) then return "ready"
+        return "coming"
+    end function
+
+    function stateLabel(state as string) as string
+        if state = "pending" then return "Pending"
+        if state = "coming" then return "Coming"
+        if state = "ready" then return "Ready"
+        if state = "declined" then return "Declined"
+        return "Failed"
+    end function
+
+    ' When the title landed on the server, or invalid.
+    function arrival(request as object) as dynamic
+        a = parseDate(getStr(request.media, "mediaAddedAt"))
+        if a = invalid then a = parseDate(getStr(request.media, "updatedAt"))
+        return a
+    end function
+
+    function dated(verb as string, secs as dynamic, nowSecs as integer, tzOffset as integer) as string
+        if secs = invalid then return verb
+        return verb + " " + dayLabel(secs, nowSecs, tzOffset)
+    end function
+
+    ' "Requested today", "Approved Tue · 62% downloaded", "Arrived yesterday".
+    function subtitle(request as object, nowSecs as integer, tzOffset as integer) as string
+        state = requestState(request)
+        if state = "coming"
+            approved = dated("Approved", parseDate(getStr(request, "updatedAt")), nowSecs, tzOffset)
+            p = progress(request.media)
+            if p < 0 then return approved
+            return approved + " " + Chr(183) + " " + numStr(Int(p * 100 + 0.5)) + "% downloaded"
+        end if
+        if state = "ready" then return dated("Arrived", arrival(request), nowSecs, tzOffset)
+        if state = "failed" then return "Approved, but it couldn't be sent for download"
+        ' Pending, and declined (Seerr keeps no reason; the tag says Declined).
+        return dated("Requested", parseDate(getStr(request, "createdAt")), nowSecs, tzOffset)
+    end function
+
+    ' Home's row: while something waits, or for a week after it arrives.
+    ' Declined and failed requests stay on the Requests page.
+    function showsOnHome(request as object, nowSecs as integer) as boolean
+        state = requestState(request)
+        if state = "pending" or state = "coming" then return true
+        if state <> "ready" then return false
+        a = arrival(request)
+        if a = invalid then return false
+        return nowSecs - a < WEEK_SECONDS
+    end function
+
+    ' One request as a row: the title and poster come from `titles` (key
+    ' itemKey -> { title, posterPath, mediaInfo }), since Seerr's request list
+    ' carries only the TMDB id. invalid when the request names no title.
+    function row(request as dynamic, titles as object, nowSecs as integer, tzOffset as integer) as dynamic
+        t = target(request)
+        if t = invalid then return invalid
+        key = itemKey(t.kind, t.tmdbId)
+        title = "Unknown title"
+        poster = ""
+        if titles.DoesExist(key)
+            if titles[key].title <> "" then title = titles[key].title
+            poster = titles[key].posterPath
+        end if
+        return {
+            id: getInt(request, "id"), request: request, kind: t.kind, tmdbId: t.tmdbId,
+            key: key, title: title, posterPath: poster,
+            state: requestState(request), subtitle: subtitle(request, nowSecs, tzOffset)
+        }
+    end function
+
+    function rows(requests as object, titles as object, nowSecs as integer, tzOffset as integer) as object
+        out = []
+        for each r in requests
+            rr = row(r, titles, nowSecs, tzOffset)
+            if rr <> invalid then out.push(rr)
+        end for
+        return out
+    end function
+
+    ' S1, S1–3, or "N seasons" for a non-contiguous set; "" for none.
+    function seasonSpan(nums as object) as string
+        if nums.count() = 0 then return ""
+        first = nums[0]
+        last = nums[nums.count() - 1]
+        if nums.count() = 1 then return "S" + numStr(first)
+        if last - first + 1 = nums.count() then return "S" + numStr(first) + Chr(8211) + numStr(last)
+        return numStr(nums.count()) + " seasons"
+    end function
+
+    ' "Dune: Prophecy · S1" for a show request.
+    function displayTitle(r as object) as string
+        if r.kind <> "tv" then return r.title
+        span = seasonSpan(seasonNumbers(r.request))
+        if span = "" then return r.title
+        return r.title + " " + Chr(183) + " " + span
+    end function
+
+    ' "Movie", "Series · S1–3".
+    function kindLabel(r as object) as string
+        if r.kind <> "tv" then return "Movie"
+        span = seasonSpan(seasonNumbers(r.request))
+        if span = "" then return "Series"
+        return "Series " + Chr(183) + " " + span
+    end function
+
+    ' The request's own state, as Seerr's request list words it.
+    function requestStatusLabel(request as object) as object
+        s = getInt(request, "status")
+        if s = 1 then return { label: "Pending", tone: "pending" }
+        if s = 2 then return { label: "Approved", tone: "coming" }
+        if s = 3 then return { label: "Declined", tone: "declined" }
+        if s = 4 then return { label: "Failed", tone: "declined" }
+        if s = 5 then return { label: "Completed", tone: "available" }
+        return { label: "Unknown", tone: "request" }
+    end function
+
+    ' Where the title itself stands; invalid when that adds nothing.
+    function mediaStatusLabel(request as object) as dynamic
+        s = mediaStatus(request.media)
+        if s = 5 then return { label: "Available", tone: "available" }
+        if s = 4 then return { label: "Partially Available", tone: "coming" }
+        if s = 3 then return { label: "Processing", tone: "coming" }
+        if s = 7 then return { label: "Deleted", tone: "declined" }
+        if s = 6 then return { label: "Blocklisted", tone: "declined" }
+        return invalid
+    end function
+
+    function requestedLabel(request as object, nowSecs as integer, tzOffset as integer) as string
+        return dated("Requested", parseDate(getStr(request, "createdAt")), nowSecs, tzOffset)
+    end function
+
+    ' What the person may do to one request: managers approve or decline a
+    ' pending one and delete any; anyone else may cancel their own pending one.
+    function actions(r as object, permissions as integer, uid as integer) as object
+        pending = getInt(r.request, "status") = 1
+        if canManageRequests(permissions)
+            if pending then return ["approve", "decline", "delete"]
+            return ["delete"]
+        end if
+        if pending and getInt(r.request.requestedBy, "id") = uid then return ["cancel"]
+        return []
+    end function
+
+    function actionTitle(action as string) as string
+        if action = "approve" then return "Approve"
+        if action = "decline" then return "Decline"
+        if action = "cancel" then return "Cancel Request"
+        return "Delete Request"
+    end function
+
+    ' The confirmation's buttons, the way out first (StandardMessageDialog
+    ' focuses its first button; index 1 confirms, as Confirm.buttons). "Cancel"
+    ' next to "Cancel Request" would be ambiguous, so that one says Keep.
+    function confirmButtons(action as string) as object
+        if action = "cancel" then return ["Keep Request", "Cancel Request"]
+        return ["Cancel", actionTitle(action)]
+    end function
+
+    function isDestructive(action as string) as boolean
+        return action <> "approve"
+    end function
+
+    function hasAction(r as object, action as string, permissions as integer, uid as integer) as boolean
+        for each a in actions(r, permissions, uid)
+            if a = action then return true
+        end for
+        return false
+    end function
+
+    ' The list after `action` succeeded on request `id`: approved / declined
+    ' rows take the new state until the reload lands (a row the Pending filter
+    ' no longer matches leaves), cancelled / deleted rows leave.
+    function afterAction(list as object, id as integer, action as string, filter as string, nowSecs as integer, tzOffset as integer) as object
+        out = []
+        for each r in list
+            if r.id <> id
+                out.push(r)
+                continue for
+            end if
+            if action = "cancel" or action = "delete" then continue for
+            if filter = "pending" then continue for
+            req = {}
+            req.Append(r.request)
+            if action = "approve" then req.status = 2 else req.status = 3
+            nr = {}
+            nr.Append(r)
+            nr.request = req
+            nr.state = requestState(req)
+            nr.subtitle = subtitle(req, nowSecs, tzOffset)
+            out.push(nr)
+        end for
+        return out
+    end function
+
+    ' Paging: more to fetch? `total` is pageInfo.results (-1 when absent).
+    function canLoadMore(fetched as integer, total as integer, lastPageCount as integer, pageSize as integer) as boolean
+        if total >= 0 then return fetched < total
+        return lastPageCount = pageSize
+    end function
+
+    ' The next page loads once focus is among the last five.
+    function nearEnd(index as integer, count as integer) as boolean
+        return index >= count - 5
+    end function
+
+    ' Appends a page, skipping ids already listed.
+    function appendRows(list as object, more as object) as object
+        known = {}
+        for each r in list
+            known[numStr(r.id)] = true
+        end for
+        out = []
+        out.Append(list)
+        for each r in more
+            if not known.DoesExist(numStr(r.id)) then out.push(r)
+        end for
+        return out
+    end function
+
+    ' ---------- The Requests list's controls ----------
+
+    ' GET /request's filter=, as the server reads it. Seerr has no filter for
+    ' declined requests; they appear under All.
+    function filters() as object
+        return [
+            { id: "all", title: "All" }, { id: "pending", title: "Pending" },
+            { id: "approved", title: "Approved" }, { id: "processing", title: "Processing" },
+            { id: "available", title: "Available" }, { id: "failed", title: "Failed" }
+        ]
+    end function
+
+    ' The Everyone / Mine switch, Everyone first and the default; none for an
+    ' account that can only see its own requests.
+    function scopes(permissions as integer) as object
+        if not canViewAllRequests(permissions) then return []
+        return [{ id: "everyone", title: "Everyone" }, { id: "mine", title: "Mine" }]
+    end function
+
+    function effectiveScope(permissions as integer, scope as string) as string
+        if not canViewAllRequests(permissions) then return "mine"
+        if scope = "mine" then return "mine"
+        return "everyone"
+    end function
+
+    ' requestedBy for a scope: the person's id for Mine, -1 (not sent) for
+    ' Everyone.
+    function requestedByFor(permissions as integer, scope as string, uid as integer) as integer
+        if effectiveScope(permissions, scope) = "mine" then return uid
+        return -1
+    end function
+
+    ' "493 requests · 0 pending · 78 processing · 56 available" from
+    ' GET /request/count (everyone's, so only for those who may see them).
+    function countSummary(c as dynamic) as string
+        if not isAA(c) then return ""
+        s = numStr(getInt(c, "total", 0)) + " requests " + Chr(183) + " " + numStr(getInt(c, "pending", 0)) + " pending"
+        if isNum(c.processing) then s = s + " " + Chr(183) + " " + numStr(Int(c.processing)) + " processing"
+        if isNum(c.available) then s = s + " " + Chr(183) + " " + numStr(Int(c.available)) + " available"
+        return s
+    end function
+
+    ' The line under the Request button, "" without a limit. A limit of 0 is
+    ' unlimited; TV quotas count seasons.
+    function quotaSummary(quota as dynamic, kind as string) as string
+        if not isAA(quota) then return ""
+        st = invalid
+        noun = "movie"
+        if kind = "movie" then st = quota.movie else st = quota.tv
+        if kind <> "movie" then noun = "season"
+        if not isAA(st) then return ""
+        limit = getInt(st, "limit", 0)
+        if limit <= 0 then return ""
+        remainingN = getInt(st, "remaining", limit - getInt(st, "used", 0))
+        if remainingN < 0 then remainingN = 0
+        window = ""
+        days = getInt(st, "days", 0)
+        if days > 0
+            window = " " + Chr(183) + " resets over " + numStr(days) + " day"
+            if days <> 1 then window = window + "s"
+        end if
+        if st.restricted = true or remainingN = 0
+            return "You've used all " + numStr(limit) + " of your " + noun + " requests" + window
+        end if
+        return numStr(remainingN) + " of " + numStr(limit) + " " + noun + " requests left" + window
+    end function
+
+    ' ---------- Discover ----------
+
+    ' The Discover page's rows in Seerr web's order. Recent Requests is
+    ' GET /request (path ""); the Watchlist is hidden when empty.
+    function sliders() as object
+        return [
+            { id: "recentRequests", title: "Recent Requests", path: "" },
+            { id: "trending", title: "Trending", path: "discover/trending" },
+            { id: "popularMovies", title: "Popular Movies", path: "discover/movies" },
+            { id: "upcomingMovies", title: "Upcoming Movies", path: "discover/movies/upcoming" },
+            { id: "popularSeries", title: "Popular Series", path: "discover/tv" },
+            { id: "upcomingSeries", title: "Upcoming Series", path: "discover/tv/upcoming" },
+            { id: "watchlist", title: "Your Watchlist", path: "discover/watchlist" }
+        ]
+    end function
+
+    ' Recent Requests as Discover items: one per title (newest request wins),
+    ' the request's media state for the pill.
+    function recentItems(requests as object, titles as object, userId as integer) as object
+        list = []
+        for each req in requests
+            t = target(req)
+            if t = invalid then continue for
+            key = itemKey(t.kind, t.tmdbId)
+            title = "Unknown title"
+            poster = ""
+            info = invalid
+            if titles.DoesExist(key)
+                if titles[key].title <> "" then title = titles[key].title
+                poster = titles[key].posterPath
+                info = titles[key].mediaInfo
+            end if
+            if isAA(req.media) then info = req.media
+            list.push({ tmdbId: t.tmdbId, kind: t.kind, title: title, date: "", year: 0, posterPath: poster, backdropPath: "", overview: "", mediaInfo: info })
+        end for
+        return uniqueItems(list, userId)
+    end function
+
+    ' The watchlist carries no posters or state: they come from each title's
+    ' details, as on the website.
+    function fillFromTitles(list as object, titles as object) as object
+        out = []
+        for each r in list
+            key = itemKey(r.kind, r.tmdbId)
+            if titles.DoesExist(key)
+                known = titles[key]
+                c = {}
+                c.Append(r)
+                if c.posterPath = "" then c.posterPath = known.posterPath
+                if c.mediaInfo = invalid then c.mediaInfo = known.mediaInfo
+                if c.title = "" then c.title = known.title
+                out.push(c)
+            else
+                out.push(r)
+            end if
+        end for
+        return out
+    end function
+
+    ' A row with nothing in it (a watchlist the account doesn't have, say) is
+    ' left out; the rest keep Seerr web's order.
+    function discoverRows(loaded as object) as object
+        out = []
+        for each s in sliders()
+            if not loaded.DoesExist(s.id) then continue for
+            r = loaded[s.id]
+            if r.items.count() = 0 then continue for
+            out.push(r)
+        end for
+        return out
+    end function
+
+    function rowCanLoadMore(r as object) as boolean
+        return r.id <> "recentRequests" and r.page < r.totalPages
+    end function
+
+    ' Appends a discover page to a row, skipping titles already there.
+    function appendItems(items as object, more as object) as object
+        known = {}
+        for each it in items
+            known[itemKey(it.kind, it.tmdbId)] = true
+        end for
+        out = []
+        out.Append(items)
+        for each it in more
+            if not known.DoesExist(itemKey(it.kind, it.tmdbId)) then out.push(it)
+        end for
+        return out
+    end function
+
+    ' ---------- Home's row ----------
+
+    ' Everyone's recent requests for those Seerr lets see them, else the
+    ' person's own.
+    function homeTitle(permissions as integer) as string
+        if canViewAllRequests(permissions) then return "Recent Requests"
+        return "Your Requests"
+    end function
+
+    ' The requester's name under the title, only on everyone's row.
+    function homeRequester(r as object, permissions as integer) as string
+        if not canViewAllRequests(permissions) then return ""
+        return requesterName(r.request.requestedBy)
+    end function
+
+    ' The row's cards: newest first, so the first request per title is the one
+    ' shown (several people asking for one title is one poster), and only
+    ' while something waits or arrived in the last week.
+    function homeRows(requests as object, titles as object, nowSecs as integer, tzOffset as integer) as object
+        seen = {}
+        out = []
+        for each rr in rows(requests, titles, nowSecs, tzOffset)
+            if seen.DoesExist(rr.key) then continue for
+            seen[rr.key] = true
+            if showsOnHome(rr.request, nowSecs) then out.push(rr)
+        end for
+        return out
+    end function
+
+    ' The titles a list of requests needs details for (each once).
+    function missingTitles(requests as object, titles as object) as object
+        out = []
+        seen = {}
+        for each req in requests
+            t = target(req)
+            if t = invalid then continue for
+            key = itemKey(t.kind, t.tmdbId)
+            if titles.DoesExist(key) or seen.DoesExist(key) then continue for
+            seen[key] = true
+            out.push(t)
+        end for
+        return out
+    end function
+
+    ' A details answer as a titles entry.
+    function titleEntry(d as object) as object
+        return { title: d.title, posterPath: d.posterPath, mediaInfo: d.mediaInfo }
+    end function
+
+    ' ---------- Plex PIN sign-in ----------
+
+    ' Plex's PIN flow: POST https://plex.tv/api/v2/pins?strong=false shows a
+    ' four-character code for plex.tv/link; GET .../pins/{id} until authToken
+    ' is set; the token is handed to Seerr (POST /auth/plex) once and never
+    ' stored.
+    function plexPinUrl(pinId as integer) as string
+        if pinId < 0 then return "https://plex.tv/api/v2/pins?strong=false"
+        return "https://plex.tv/api/v2/pins/" + numStr(pinId)
+    end function
+
+    function plexHeaders(clientId as string, version as string) as object
+        return {
+            "Accept": "application/json",
+            "X-Plex-Product": "Sashimi",
+            "X-Plex-Client-Identifier": clientId,
+            "X-Plex-Version": version,
+            "X-Plex-Platform": "Roku",
+            "X-Plex-Device-Name": "Sashimi (Roku)"
+        }
+    end function
+
+    ' A PIN answer: { id, code, token } ("" until linked), or invalid.
+    function plexPin(raw as dynamic) as dynamic
+        if not isAA(raw) then return invalid
+        id = getInt(raw, "id")
+        code = getStr(raw, "code")
+        if id < 0 or code = "" then return invalid
+        return { id: id, code: code, token: getStr(raw, "authToken") }
+    end function
+
+    ' The code expires after 15 minutes; poll every 2 s until then.
+    const PLEX_POLL_SECONDS = 2
+    const PLEX_PIN_SECONDS = 900
+
+end namespace

@@ -1,0 +1,267 @@
+import "pkg:/source/utils/Seerr.bs"
+import "pkg:/source/utils/SeerrStore.bs"
+import "pkg:/source/utils/Confirm.bs"
+
+' The Seerr account (Apple's RequestsSettingsView). Each person signs in as
+' themselves, with Plex (a PIN shown here, linked at plex.tv/link) or a Seerr
+' username and password typed on the keyboard, so approvals and quotas work
+' as on the website. No admin API key is ever stored. Focus is virtual: the
+' screen keeps it and m.btnIdx names the highlighted button.
+
+sub init()
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.codeLabel = m.top.findNode("codeLabel")
+    m.codeHint = m.top.findNode("codeHint")
+    m.buttonsGroup = m.top.findNode("buttons")
+    m.errorLabel = m.top.findNode("errorLabel")
+    m.pollTimer = m.top.findNode("pollTimer")
+    m.pollTimer.observeFieldScoped("fire", "onPoll")
+    m.task = m.top.findNode("seerrTask")
+    m.task.observeFieldScoped("response", "onResponse")
+    m.task.control = "RUN"
+
+    m.pin = invalid          ' { id, code, started } while Plex sign-in waits
+    m.busy = false
+    m.email = ""
+    m.btnIdx = 0
+    m.buttons = []
+    m.global.observeFieldScoped("seerrState", "render")
+    m.top.observeField("focusedChild", "render")
+    render()
+end sub
+
+function signedIn() as boolean
+    return Seerr.isActive(m.global.seerrState)
+end function
+
+sub render()
+    m.codeLabel.visible = m.pin <> invalid
+    m.codeHint.visible = m.pin <> invalid
+    defs = []
+    if m.pin <> invalid
+        m.statusLabel.text = "Sign in with Plex"
+        m.codeLabel.text = m.pin.code
+        m.codeHint.text = "On your phone or computer, go to plex.tv/link and enter this code. This screen updates once it's linked."
+        m.buttonsGroup.translation = [160, 600]
+        defs.push({ kind: "cancelPlex", label: "Cancel" })
+    else if signedIn()
+        name = ""
+        if m.global.seerrUser <> invalid and m.global.seerrUser.name <> invalid then name = m.global.seerrUser.name
+        m.statusLabel.text = Seerr.accountLabel("signedIn", name) + Chr(10) + m.global.seerrTitle + " " + Chr(183) + " " + m.global.seerrServer
+        m.buttonsGroup.translation = [160, 340]
+        defs.push({ kind: "signOut", label: "Sign Out" })
+    else
+        intro = "Connect your Seerr account to request movies and shows that aren't on the server."
+        if m.global.seerrState = "expired" then intro = "Your sign-in to " + m.global.seerrTitle + " expired. Sign in again to see and make requests."
+        m.statusLabel.text = intro
+        m.buttonsGroup.translation = [160, 340]
+        defs.push({ kind: "server", label: "Server", value: m.global.seerrServer })
+        defs.push({ kind: "plex", label: "Sign in with Plex" })
+        defs.push({ kind: "local", label: "Use a Seerr username instead" })
+    end if
+    if m.busy then m.statusLabel.text = "Signing in..."
+    m.buttons = defs
+    if m.btnIdx >= defs.count() then m.btnIdx = 0
+    drawButtons()
+end sub
+
+sub drawButtons()
+    while m.buttonsGroup.getChildCount() > 0
+        m.buttonsGroup.removeChildIndex(0)
+    end while
+    focused = m.top.isInFocusChain()
+    for i = 0 to m.buttons.count() - 1
+        b = m.buttons[i]
+        cell = CreateObject("roSGNode", "Group")
+        cell.translation = [0, i * 96]
+        bg = CreateObject("roSGNode", "Poster")
+        bg.width = 900
+        bg.height = 80
+        isOn = focused and i = m.btnIdx
+        if isOn then bg.uri = "pkg:/images/btn_white_focus.9.png" else bg.uri = "pkg:/images/btn_dark.9.png"
+        cell.appendChild(bg)
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = b.label
+        lbl.translation = [32, 0]
+        lbl.width = 830
+        if b.value <> invalid then lbl.width = 360
+        lbl.height = 80
+        lbl.vertAlign = "center"
+        lbl.font = font("pkg:/fonts/Inter-Bold.ttf", 28)
+        if isOn then lbl.color = "#000000" else lbl.color = "#FFFFFF"
+        cell.appendChild(lbl)
+        if b.value <> invalid
+            v = CreateObject("roSGNode", "Label")
+            v.text = b.value
+            v.translation = [380, 0]
+            v.width = 490
+            v.height = 80
+            v.vertAlign = "center"
+            v.horizAlign = "right"
+            v.font = font("pkg:/fonts/Inter-Medium.ttf", 26)
+            if isOn then v.color = "#333333" else v.color = "#BFBFBF"
+            cell.appendChild(v)
+        end if
+        m.buttonsGroup.appendChild(cell)
+    end for
+end sub
+
+function font(uri as string, size as integer) as object
+    f = CreateObject("roSGNode", "Font")
+    f.uri = uri
+    f.size = size
+    return f
+end function
+
+sub showError(text as string)
+    m.errorLabel.text = text
+end sub
+
+sub activate()
+    if m.busy or m.btnIdx >= m.buttons.count() then return
+    kind = m.buttons[m.btnIdx].kind
+    showError("")
+    if kind = "server"
+        m.editing = "server"
+        showKeyboard("Server Address", "https://requests.example.com", m.global.seerrServer, false)
+    else if kind = "plex"
+        m.busy = true
+        render()
+        m.task.request = { action: "plexStart" }
+    else if kind = "local"
+        m.editing = "email"
+        showKeyboard("Seerr Email or Username", "", m.email, false)
+    else if kind = "cancelPlex"
+        stopPlex()
+        render()
+    else if kind = "signOut"
+        dialog = CreateObject("roSGNode", "StandardMessageDialog")
+        dialog.title = "Sign Out"
+        dialog.message = ["Sign out of " + m.global.seerrTitle + "? Requests disappear from Sashimi until you sign in again."]
+        dialog.buttons = Confirm.buttons("Sign Out")
+        dialog.observeFieldScoped("buttonSelected", "onSignOutButton")
+        m.top.getScene().dialog = dialog
+    end if
+end sub
+
+sub onSignOutButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
+    dialog.close = true
+    if confirmed then m.task.request = { action: "signOut" }
+end sub
+
+sub showKeyboard(title as string, hint as string, text as string, secure as boolean)
+    dialog = CreateObject("roSGNode", "StandardKeyboardDialog")
+    dialog.title = title
+    dialog.buttons = ["OK", "Cancel"]
+    if hint <> "" then dialog.textEditBox.hintText = hint
+    if text <> "" then dialog.text = text
+    if secure then dialog.textEditBox.secureMode = true
+    dialog.observeFieldScoped("buttonSelected", "onKeyboardButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onKeyboardButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    okPressed = dialog.buttonSelected = 0
+    text = dialog.text
+    dialog.close = true
+    if not okPressed then return
+    if m.editing = "server"
+        url = Seerr.normalizedServer(text)
+        if url = ""
+            showError("That doesn't look like a server address.")
+            return
+        end if
+        ' Only while signed out: a session belongs to the server that issued it.
+        if signedIn() then return
+        SeerrStore.setServer(url)
+        m.global.seerrServer = url
+        if m.global.seerrState = "expired" then SeerrStore.publishSignedOut()
+        m.task.request = { action: "publicSettings" }
+        render()
+    else if m.editing = "email"
+        m.email = text.Trim()
+        if m.email = "" then return
+        m.editing = "password"
+        showKeyboard("Password", "", "", true)
+    else if m.editing = "password"
+        m.busy = true
+        render()
+        ' The password goes straight to the task and is not kept here.
+        m.task.request = { action: "signInLocal", email: m.email, password: text }
+    end if
+end sub
+
+sub stopPlex()
+    m.pin = invalid
+    m.pollTimer.control = "stop"
+end sub
+
+sub onPoll()
+    if m.pin = invalid then return
+    if CreateObject("roDateTime").AsSeconds() - m.pin.started > 900
+        ' Plex codes last 15 minutes.
+        stopPlex()
+        showError("The Plex code expired. Try again.")
+        render()
+        return
+    end if
+    m.task.request = { action: "plexCheck", pinId: m.pin.id }
+end sub
+
+sub onResponse()
+    r = m.task.response
+    if r = invalid then return
+    if r.action = "plexStart"
+        m.busy = false
+        if r.success = true
+            m.pin = { id: r.pinId, code: r.code, started: CreateObject("roDateTime").AsSeconds() }
+            m.btnIdx = 0
+            m.pollTimer.control = "start"
+        else
+            showError(r.error)
+        end if
+        render()
+    else if r.action = "plexCheck"
+        if m.pin = invalid or r.waiting = true then return
+        stopPlex()
+        if r.success <> true then showError(r.error)
+        m.btnIdx = 0
+        render()
+    else if r.action = "signInLocal"
+        m.busy = false
+        if r.success <> true then showError(r.error)
+        m.btnIdx = 0
+        render()
+    else if r.action = "signOut"
+        m.btnIdx = 0
+        render()
+    else if r.action = "publicSettings"
+        render()
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "back"
+        stopPlex()
+        m.top.closed = true
+        return true
+    else if key = "up"
+        if m.btnIdx > 0 then m.btnIdx = m.btnIdx - 1
+        drawButtons()
+        return true
+    else if key = "down"
+        if m.btnIdx < m.buttons.count() - 1 then m.btnIdx = m.btnIdx + 1
+        drawButtons()
+        return true
+    else if key = "OK"
+        activate()
+        return true
+    end if
+    return true
+end function

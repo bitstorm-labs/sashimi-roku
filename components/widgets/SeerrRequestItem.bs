@@ -1,0 +1,63 @@
+' Recycled by the grid: every field is reset on each new content.
+
+sub init()
+    m.focusBg = m.top.findNode("focusBg")
+    m.poster = m.top.findNode("poster")
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.lineLabel = m.top.findNode("lineLabel")
+    m.subLabel = m.top.findNode("subLabel")
+    m.pills = m.top.findNode("pills")
+    m.progressBg = m.top.findNode("progressBg")
+    m.progressBar = m.top.findNode("progressBar")
+end sub
+
+sub onFocusChanged()
+    m.focusBg.opacity = m.top.focusPercent
+end sub
+
+sub onItemContentChanged()
+    c = m.top.itemContent
+    if c = invalid then return
+    m.titleLabel.text = c.title
+    m.poster.uri = c.HDPosterUrl
+    m.lineLabel.text = c.shortDescriptionLine1
+    m.subLabel.text = c.shortDescriptionLine2
+    while m.pills.getChildCount() > 0
+        m.pills.removeChildIndex(0)
+    end while
+    ' Pills right-aligned, the request's state rightmost.
+    x = 0
+    pills = []
+    if c.doesExist("pills") and c.pills <> invalid then pills = c.pills
+    for i = pills.count() - 1 to 0 step -1
+        p = pills[i]
+        w = 28 + Len(p.label) * 12
+        x = x - w
+        bg = CreateObject("roSGNode", "Poster")
+        bg.uri = "pkg:/images/pill_white.9.png"
+        bg.blendColor = p.color
+        bg.width = w
+        bg.height = 34
+        bg.translation = [x, 0]
+        m.pills.appendChild(bg)
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = p.label
+        lbl.width = w
+        lbl.height = 34
+        lbl.horizAlign = "center"
+        lbl.vertAlign = "center"
+        lbl.color = "#FFFFFF"
+        lbl.translation = [x, 0]
+        f = CreateObject("roSGNode", "Font")
+        f.uri = "pkg:/fonts/Inter-Bold.ttf"
+        f.size = 20
+        lbl.font = f
+        m.pills.appendChild(lbl)
+        x = x - 10
+    end for
+    pct = -1.0
+    if c.doesExist("progress") and c.progress <> invalid then pct = c.progress
+    m.progressBg.visible = pct >= 0
+    m.progressBar.visible = pct >= 0
+    if pct >= 0 then m.progressBar.width = 300 * pct else m.progressBar.width = 0
+end sub

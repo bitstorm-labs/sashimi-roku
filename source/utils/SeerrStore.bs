@@ -1,0 +1,91 @@
+import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/Seerr.bs"
+
+' The Seerr account on this device, in registry section "seerr": the server,
+' who is signed in (id, name, permission bits, so an offline launch keeps the
+' account), the server's own name, a stable Plex client id, and the session
+' cookie under a key per server (Seerr.cookieKey). m.global mirrors it for the
+' screens: seerrState ("none" | "signedIn" | "expired"), seerrUser
+' { id, name, permissions }, seerrServer, seerrTitle, seerrPartial.
+namespace SeerrStore
+
+    const SECTION = "seerr"
+
+    function server() as string
+        s = Seerr.normalizedServer(Registry.read(SECTION, "server"))
+        if s = "" then s = Seerr.DEFAULT_SERVER
+        return s
+    end function
+
+    sub setServer(url as string)
+        Registry.write(SECTION, "server", url)
+    end sub
+
+    function cookie() as string
+        return Registry.read(SECTION, Seerr.cookieKey(server()))
+    end function
+
+    function savedUser() as dynamic
+        raw = Registry.read(SECTION, "user")
+        if raw = "" then return invalid
+        u = ParseJSON(raw)
+        if u = invalid or type(u) <> "roAssociativeArray" or u.id = invalid then return invalid
+        return u
+    end function
+
+    ' A sign-in: the cookie for this server and who it is.
+    sub saveSignIn(user as object, sessionCookie as string)
+        sec = CreateObject("roRegistrySection", SECTION)
+        sec.Write(Seerr.cookieKey(server()), sessionCookie)
+        sec.Write("user", FormatJSON(user))
+        sec.Flush()
+    end sub
+
+    sub forget()
+        sec = CreateObject("roRegistrySection", SECTION)
+        sec.Delete(Seerr.cookieKey(server()))
+        sec.Delete("user")
+        sec.Flush()
+    end sub
+
+    ' Stable per install, so plex.tv lists one "Sashimi" device, not one per
+    ' sign-in.
+    function plexClientId() as string
+        id = Registry.read(SECTION, "plexClientId")
+        if id <> "" then return id
+        id = CreateObject("roDeviceInfo").GetRandomUUID()
+        Registry.write(SECTION, "plexClientId", id)
+        return id
+    end function
+
+    function title() as string
+        t = Registry.read(SECTION, "title")
+        if t = "" then t = "Seerr"
+        return t
+    end function
+
+    sub setTitle(t as string)
+        if t <> "" then Registry.write(SECTION, "title", t)
+    end sub
+
+    ' { id, name, permissions } as the screens read it.
+    function userInfo(user as dynamic) as object
+        return { id: Seerr.getInt(user, "id"), name: Seerr.userName(user), permissions: Seerr.getInt(user, "permissions", 0) }
+    end function
+
+    sub publishSignedIn(user as object)
+        m.global.seerrUser = userInfo(user)
+        m.global.seerrState = "signedIn"
+    end sub
+
+    sub publishExpired()
+        m.global.seerrUser = {}
+        m.global.seerrState = "expired"
+    end sub
+
+    sub publishSignedOut()
+        m.global.seerrUser = {}
+        m.global.seerrState = "none"
+    end sub
+
+end namespace

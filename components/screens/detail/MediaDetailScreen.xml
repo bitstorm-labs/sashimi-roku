@@ -178,5 +178,7 @@
         </Animation>
 
         <JellyfinApi id="apiTask" />
+        <!-- Request Missing Seasons: asks Seerr once per series. -->
+        <SeerrTask id="seerrTask" />
     </children>
 </component>

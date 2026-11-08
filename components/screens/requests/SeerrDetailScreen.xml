@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- A Seerr title's request page (Apple's SeerrDetailView): artwork, what it
+     is, where it stands, and the one thing to do about it (Request for a
+     movie, the season picker for a show, else a status line), the quota line
+     near the button. Once the title is on the server it hands over to the
+     library's own detail screen. Pushed full-width. -->
+<component name="SeerrDetailScreen" extends="Group">
+    <interface>
+        <!-- { kind, tmdbId, title, posterPath } -->
+        <field id="target" type="assocarray" onChange="onTarget" />
+        <!-- The library's copy (a Jellyfin item): MainScene opens it. -->
+        <field id="openLibraryItem" type="assocarray" alwaysNotify="true" />
+        <field id="closed" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+        <Poster id="backdrop" width="1920" height="1080" loadDisplayMode="scaleToZoom" opacity="0.35" />
+        <Rectangle width="1920" height="1080" color="#0A0A0E99" />
+        <Poster id="poster" width="300" height="450" translation="[120, 140]" loadDisplayMode="scaleToFit" />
+        <!-- Title, meta and overview stack under one another whatever the
+             title's length. -->
+        <LayoutGroup id="info" translation="[480, 132]" layoutDirection="vert" itemSpacings="[20, 16]">
+            <Label id="titleLabel" text="" color="#FFFFFF" width="1300" wrap="true" maxLines="2">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="56" />
+            </Label>
+            <Label id="metaLabel" text="" color="#BFBFBF" width="1300">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+            </Label>
+            <Label id="overviewLabel" text="" color="#DDDDDD" width="1300" wrap="true" maxLines="6">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+            </Label>
+        </LayoutGroup>
+        <Group id="buttons" translation="[480, 640]" />
+        <Label id="statusLabel" text="" color="#FFFFFF" width="1300" translation="[480, 650]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
+        </Label>
+        <Label id="quotaLabel" text="" color="#BFBFBF" width="1300" translation="[480, 740]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
+        </Label>
+        <Label id="errorLabel" text="" color="#FF6B6BFF" width="1300" wrap="true" maxLines="2" translation="[480, 790]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
+        </Label>
+        <!-- The season picker, drawn over the page. -->
+        <Group id="picker" visible="false">
+            <Rectangle width="1920" height="1080" color="#0A0A0EF2" />
+            <Label id="pickerTitle" text="" color="#FFFFFF" translation="[560, 80]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="44" />
+            </Label>
+            <Label id="pickerHint" text="OK tick or untick  •  Back close" color="#888888" translation="[560, 144]">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
+            </Label>
+            <Group id="pickerRows" translation="[560, 200]" />
+        </Group>
+        <SeerrTask id="seerrTask" />
+    </children>
+</component>

@@ -72,6 +72,8 @@ namespace DetailActions
             if ctx.hasSeries = true then items.push({ kind: "series", label: "Go to Series" })
             if str_(ctx.seasonId) <> "" then items.push({ kind: "season", label: goToSeasonLabel(ctx.seasonNumber) })
         end if
+        ' Seerr says some aired seasons are neither on the server nor asked for.
+        if itemType = "Series" and pinned = "" and ctx.missingSeasons = true then items.push({ kind: "requestSeasons", label: "Request Missing Seasons" })
         if ctx.canAddToChannel = true then items.push({ kind: "addToChannel", label: "Add to Channel" })
         if ctx.isFavorite = true
             items.push({ kind: "favorite", label: "Remove from Favorites" })

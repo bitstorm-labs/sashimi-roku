@@ -16,6 +16,7 @@ import "pkg:/source/utils/SeasonPage.bs"
 import "pkg:/source/utils/DetailNav.bs"
 import "pkg:/source/utils/DetailLayout.bs"
 import "pkg:/source/utils/ListsModel.bs"
+import "pkg:/source/utils/Seerr.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -93,6 +94,13 @@ sub init()
     m.seasonAction = invalid    ' { season, index, played } awaiting confirmation
     m.chipMenu = invalid        ' DetailActions.seasonChipMenu items on screen
     m.moreMenu = invalid        ' DetailActions.moreItems on screen
+    ' Request Missing Seasons (Seerr): the series' request target once Seerr
+    ' says some aired seasons are missing; checked once per series.
+    m.seerrTask = m.top.findNode("seerrTask")
+    m.seerrTask.observeFieldScoped("response", "onSeerrResponse")
+    m.seerrTask.control = "RUN"
+    m.missingTarget = invalid
+    m.missingCheckedFor = ""
     m.playTarget = invalid      ' resolved episode a Series/Season Play button launches
     m.playTargetAction = ""     ' a Season page's: "play" or "resume" (SeasonPage.playTarget)
     m.pendingPlay = false       ' Play pressed before the target resolved
@@ -415,6 +423,7 @@ sub onItemLoaded(response as object)
     item = m.item
     m.itemType = ""
     if item.Type <> invalid then m.itemType = item.Type
+    checkMissingSeasons(item)
     m.top.navKey = DetailNav.key(item.Id, m.top.pinnedServerId)
 
     ' Cert 5.2: an invalid contentId must show an error and land on home. A
@@ -1488,6 +1497,7 @@ function actionContext() as object
         seasonId: seasonId,
         seasonNumber: item.ParentIndexNumber,
         canAddToChannel: (channelTarget() <> invalid),
+        missingSeasons: (m.missingTarget <> invalid),
         isFavorite: (item.UserData <> invalid and item.UserData.IsFavorite = true),
         canAddToList: ListsModel.canAdd(m.itemType)
     }
@@ -1542,6 +1552,8 @@ sub runAction(kind as string)
     else if kind = "trailer"
         ' Fetch + play the local trailer
         enqueue({ action: "getLocalTrailers", itemId: item.Id })
+    else if kind = "requestSeasons"
+        if m.missingTarget <> invalid then m.top.selectedItem = { _seerr: m.missingTarget }
     else if kind = "addToChannel"
         target = channelTarget()
         if target <> invalid then m.top.manageChannels = { mode: "add", target: target }
@@ -1682,6 +1694,24 @@ sub openSeason(season as object)
     data.Type = "Season"
     if m.isYouTube then data._forceYouTube = true
     m.top.selectedItem = withPin(data)
+end sub
+
+' A library series Seerr can still add seasons to. No account, no TMDB id, or
+' another server's title: nothing is asked.
+sub checkMissingSeasons(item as object)
+    if m.itemType <> "Series" or m.pinned <> invalid or not Seerr.isActive(m.global.seerrState) then return
+    if item.Id = invalid or m.missingCheckedFor = item.Id then return
+    tmdbId = Seerr.libraryTmdbId(item)
+    if tmdbId < 0 then return
+    m.missingCheckedFor = item.Id
+    m.seerrTask.request = { action: "missingSeasons", tmdbId: tmdbId, itemId: item.Id }
+end sub
+
+sub onSeerrResponse()
+    r = m.seerrTask.response
+    if r = invalid or r.action <> "missingSeasons" or r.success <> true then return
+    if m.item = invalid or r.itemId <> m.item.Id then return
+    m.missingTarget = r.target
 end sub
 
 ' More: the overview in full (the header caps it at 2-4 lines) over
