@@ -55,9 +55,13 @@ sub render()
         if m.global.seerrState = "expired" then intro = "Your sign-in to " + m.global.seerrTitle + " expired. Sign in again to see and make requests."
         m.statusLabel.text = intro
         m.buttonsGroup.translation = [160, 340]
-        defs.push({ kind: "server", label: "Server", value: m.global.seerrServer })
-        defs.push({ kind: "plex", label: "Sign in with Plex" })
-        defs.push({ kind: "local", label: "Use a Seerr username instead" })
+        if m.global.seerrServer = "" then m.statusLabel.text = intro + " Start with your Seerr server's address."
+        labels = { server: "Server", plex: "Sign in with Plex", local: "Use a Seerr username instead" }
+        for each kind in Seerr.accountButtonKinds(m.global.seerrServer)
+            b = { kind: kind, label: labels[kind] }
+            if kind = "server" then b.value = Seerr.serverLabel(m.global.seerrServer)
+            defs.push(b)
+        end for
     end if
     if m.busy then m.statusLabel.text = "Signing in..."
     m.buttons = defs

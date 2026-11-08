@@ -14,7 +14,6 @@ import "pkg:/source/utils/SeerrSeasons.bs"
 
 namespace Seerr
 
-    const DEFAULT_SERVER = "https://example.com"
     const COOKIE_NAME = "connect.sid"
     ' Seerr web's Recent Requests slider takes ten.
     const RECENT_REQUESTS_COUNT = 10
@@ -119,7 +118,7 @@ namespace Seerr
         return "User " + numStr(getInt(user, "id", 0))
     end function
 
-    ' "example.com" -> https://example.com; trailing slashes dropped; only
+    ' "seerr.example.com" -> https://seerr.example.com; trailing slashes dropped; only
     ' http and https; "" for anything that isn't an address.
     function normalizedServer(text as dynamic) as string
         if not isStr(text) then return ""
@@ -172,6 +171,18 @@ namespace Seerr
     end function
 
     ' The Settings row's value.
+    ' Signed out, the account screen offers the server address, and sign-in
+    ' only once there is one: there is no default server.
+    function accountButtonKinds(server as string) as object
+        if server = "" then return ["server"]
+        return ["server", "plex", "local"]
+    end function
+
+    function serverLabel(server as string) as string
+        if server = "" then return "Not set"
+        return server
+    end function
+
     function accountLabel(state as string, name as string) as string
         if state = "signedIn" then return "Signed in as " + name
         if state = "expired" then return "Sign-in expired"
