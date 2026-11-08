@@ -6,17 +6,18 @@
 ' them off-device.
 namespace RailItems
 
-    ' Rows that are also rail destinations: a library, and SashimiTV, plus the
-    ' Lists page (shared lists), a destination with no Home row. The hero,
-    ' Continue Watching and subscribed lists ("list") are Home-only.
+    ' Rows that are also rail destinations: a library, SashimiTV and Requests
+    ' (Seerr), plus two destinations with no Home row: the Lists page (shared
+    ' lists) and the admin Dashboard. The hero, Continue Watching and
+    ' subscribed lists ("list") are Home-only.
     function isDestination(entry as dynamic) as boolean
         k = kindOf(entry)
-        return (k = "library" or k = "fintv" or k = "lists")
+        return (k = "library" or k = "fintv" or k = "requests" or k = "lists" or k = "dashboard")
     end function
 
     function hasHomeRow(entry as dynamic) as boolean
         k = kindOf(entry)
-        return k <> "" and k <> "lists"
+        return k <> "" and k <> "lists" and k <> "dashboard"
     end function
 
     ' Config rows come from the registry; never compare an absent field (invalid
@@ -49,41 +50,239 @@ namespace RailItems
         return isDestination(entry) and hasHomeRow(entry) and not onHome(entry) and not inRail(entry)
     end function
 
-    ' The rail's ids, top to bottom. Home, Search and Settings are always there
-    ' whatever the config says. SashimiTV keeps its place under Home (as on the
-    ' other clients); libraries follow the Home row order, and Lists comes after
-    ' them unless hidden. A library the config
-    ' doesn't know yet is shown, after the known ones, in server order; config
-    ' entries for libraries the server no longer has are ignored.
-    function ids(libraryIds as object, config as dynamic) as object
-        if config = invalid or type(config) <> "roArray" then config = []
-        result = ["home"]
-        fintvShown = true
-        listsShown = true
-        for each c in config
-            if kindOf(c) = "fintv" then fintvShown = inRail(c)
-            if kindOf(c) = "lists" then listsShown = inRail(c)
-        end for
-        if fintvShown then result.push("fintv")
+    ' The editor's footnote for a row, "" for none. The Dashboard has no other
+    ' way in once it leaves the side menu; Requests is still offered by
+    ' Search's "Not in your library" row.
+    function note(entry as dynamic) as string
+        if kindOf(entry) = "dashboard"
+            if inRail(entry) then return ""
+            return "Hidden: the Dashboard has no other way in"
+        end if
+        if onlyFromSearch(entry) then return "Only reachable from Search"
+        return ""
+    end function
 
+    ' Requests and the Dashboard come and go with the account: `available` is
+    ' { requests, dashboard } (a Seerr account connected or expired; an
+    ' administrator). invalid means neither.
+    function isAvailable(entry as dynamic, available as dynamic) as boolean
+        k = kindOf(entry)
+        if k <> "requests" and k <> "dashboard" then return true
+        if available = invalid or type(available) <> "roAssociativeArray" then return false
+        return available[k] = true
+    end function
+
+    ' Every entry the editor and the menu work from: the saved config with the
+    ' built-in destinations a config that predates them lacks, each put where
+    ' it has always been drawn (SashimiTV and Requests after Continue
+    ' Watching, Lists then the Dashboard at the end).
+    function withBuiltIns(config as dynamic) as object
+        if config = invalid or type(config) <> "roArray" then config = []
+        return withDashboard(withLists(withRequests(withFintv(config))))
+    end function
+
+    ' The rail's ids, top to bottom: Home, then every destination in exactly
+    ' the order of the Home & Side Menu list (so the side menu matches Home's
+    ' rows), less what is hidden from the menu or not available now, then
+    ' Search and Settings. Home, Search and Settings are always there whatever
+    ' the config says. A library the config doesn't know yet is shown after the
+    ' known ones, in server order; config entries for libraries the server no
+    ' longer has are ignored.
+    function ids(libraryIds as object, config as dynamic, available = invalid as dynamic) as object
         present = {}
         for each id in libraryIds
             present[id] = true
         end for
+        result = ["home"]
         placed = {}
-        for each c in config
-            if kindOf(c) = "library" and c.libraryId <> invalid and GetInterface(c.libraryId, "ifString") <> invalid and present.DoesExist(c.libraryId) and not placed.DoesExist(c.libraryId)
-                placed[c.libraryId] = true
-                if inRail(c) then result.push("lib:" + c.libraryId)
+        lastLibrary = -1
+        for each c in withBuiltIns(config)
+            k = kindOf(c)
+            if k = "library"
+                if c.libraryId = invalid or GetInterface(c.libraryId, "ifString") = invalid then continue for
+                if not present.DoesExist(c.libraryId) or placed.DoesExist("lib:" + c.libraryId) then continue for
+                placed["lib:" + c.libraryId] = true
+                if inRail(c)
+                    result.push("lib:" + c.libraryId)
+                    lastLibrary = result.count() - 1
+                end if
+            else if isDestination(c) and not placed.DoesExist(k)
+                placed[k] = true
+                if inRail(c) and isAvailable(c, available) then result.push(k)
             end if
         end for
+        ' New libraries go after the last library shown, else ahead of Lists
+        ' and the Dashboard (where libraries have always been listed).
+        at = lastLibrary + 1
+        if lastLibrary < 0
+            at = result.count()
+            for i = result.count() - 1 to 1 step -1
+                if result[i] = "lists" or result[i] = "dashboard" then at = i
+            end for
+        end if
         for each id in libraryIds
-            if not placed.DoesExist(id) then result.push("lib:" + id)
+            if placed.DoesExist("lib:" + id) then continue for
+            placed["lib:" + id] = true
+            out = []
+            for i = 0 to result.count() - 1
+                if i = at then out.push("lib:" + id)
+                out.push(result[i])
+            end for
+            if at >= result.count() then out.push("lib:" + id)
+            result = out
+            at = at + 1
         end for
-        if listsShown then result.push("lists")
 
         result.push("search")
         result.push("settings")
+        return result
+    end function
+
+    ' The order Home draws its rows in: `shownKeys` (rowKeys on screen) sorted
+    ' by where the config lists them. A key the config doesn't list keeps its
+    ' place relative to the others, after the listed ones.
+    function homeOrder(config as dynamic, shownKeys as object) as object
+        if config = invalid or type(config) <> "roArray" then config = []
+        rank = {}
+        for i = 0 to config.count() - 1
+            c = config[i]
+            if type(c) = "roAssociativeArray" and c.id <> invalid and GetInterface(c.id, "ifString") <> invalid and not rank.DoesExist(c.id) then rank[c.id] = i
+        end for
+        ranked = []
+        for i = 0 to shownKeys.count() - 1
+            r = config.count() + i
+            if rank.DoesExist(shownKeys[i]) then r = rank[shownKeys[i]]
+            ranked.push({ key: shownKeys[i], r: r, i: i })
+        end for
+        ' Stable insertion sort: a dozen rows.
+        for i = 1 to ranked.count() - 1
+            v = ranked[i]
+            j = i - 1
+            while j >= 0 and (ranked[j].r > v.r or (ranked[j].r = v.r and ranked[j].i > v.i))
+                ranked[j + 1] = ranked[j]
+                j = j - 1
+            end while
+            ranked[j + 1] = v
+        end for
+        out = []
+        for each e in ranked
+            out.push(e.key)
+        end for
+        return out
+    end function
+
+    ' Where Home inserts the row keyed `key` among the rows on screen: after
+    ' the nearest entry before it in the config that is shown, else first.
+    function rowPosition(config as dynamic, key as string, shownKeys as object) as integer
+        if config = invalid or type(config) <> "roArray" then return shownKeys.count()
+        at = -1
+        for i = 0 to config.count() - 1
+            if type(config[i]) = "roAssociativeArray" and config[i].id = key
+                at = i
+                exit for
+            end if
+        end for
+        if at < 0 then return shownKeys.count()
+        for j = at - 1 to 0 step -1
+            for k = 0 to shownKeys.count() - 1
+                if type(config[j]) = "roAssociativeArray" and shownKeys[k] = config[j].id then return k + 1
+            end for
+        end for
+        return 0
+    end function
+
+    ' The editor's rows while some built-ins are unavailable: they are kept
+    ' (with what they followed) and put back on save, so signing out of Seerr
+    ' or losing admin doesn't lose where the user put them.
+    function editorView(config as object, available as dynamic) as object
+        shown = []
+        hidden = []
+        before = []
+        for each c in config
+            if isAvailable(c, available)
+                shown.push(c)
+            else
+                prev = []
+                prev.Append(before)
+                hidden.push({ entry: c, after: prev })
+            end if
+            if type(c) = "roAssociativeArray" and c.id <> invalid then before.push(c.id)
+        end for
+        return { rows: shown, hidden: hidden }
+    end function
+
+    ' `rows` (as edited) with the hidden entries back: each straight after the
+    ' nearest entry it followed that is still there, else first.
+    function mergeHidden(rows as object, hidden as object) as object
+        result = []
+        result.Append(rows)
+        for each h in hidden
+            at = 0
+            for j = h.after.count() - 1 to 0 step -1
+                found = -1
+                for k = 0 to result.count() - 1
+                    if result[k].id = h.after[j]
+                        found = k
+                        exit for
+                    end if
+                end for
+                if found >= 0
+                    at = found + 1
+                    exit for
+                end if
+            end for
+            out = []
+            for k = 0 to result.count() - 1
+                if k = at then out.push(h.entry)
+                out.push(result[k])
+            end for
+            if at >= result.count() then out.push(h.entry)
+            result = out
+        end for
+        return result
+    end function
+
+    ' The Requests entry (Seerr), added to a config that predates it, right
+    ' after Continue Watching, where Apple's Home has always drawn the requests
+    ' row. Nothing else moves.
+    function withRequests(config as object) as object
+        for each c in config
+            if kindOf(c) = "requests" then return config
+        end for
+        return insertAfterCw(config, { id: "requests", kind: "requests", name: "Requests", visible: true, rail: true })
+    end function
+
+    ' The Dashboard entry (administrators), added to a config that predates
+    ' it, straight after Lists, else at the end.
+    function withDashboard(config as object) as object
+        for each c in config
+            if kindOf(c) = "dashboard" then return config
+        end for
+        entry = { id: "dashboard", kind: "dashboard", name: "Dashboard", rail: true }
+        result = []
+        inserted = false
+        for each c in config
+            result.push(c)
+            if not inserted and kindOf(c) = "lists"
+                result.push(entry)
+                inserted = true
+            end if
+        end for
+        if not inserted then result.push(entry)
+        return result
+    end function
+
+    function insertAfterCw(config as object, entry as object) as object
+        result = []
+        inserted = false
+        for each c in config
+            result.push(c)
+            if not inserted and kindOf(c) = "cw"
+                result.push(entry)
+                inserted = true
+            end if
+        end for
+        if not inserted then result.unshift(entry)
         return result
     end function
 

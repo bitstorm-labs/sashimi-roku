@@ -65,8 +65,18 @@ reconnect backoff, the Roku OS 16 gate) and `source/utils/WatchState.bs`
 detail screen coming back to the front is stale, and whether a re-read episode
 list patches the row in place, rebuilds it, or is ignored) and
 `source/utils/RailItems.bs` (Settings > Home & Side Menu: which destinations
-the side menu lists and in what order, Home, Search and Settings always,
-new libraries shown, stale ids ignored, the editor's two columns, the Lists destination after the libraries with no Home row) and
+the side menu lists and in what order -- exactly the list's order, so the
+menu matches Home's rows, which Home also draws in that order -- Home, Search
+and Settings always, new libraries shown, stale ids ignored, the editor's two
+columns, the Requests Home row after Continue Watching, the menu-only Lists
+and Dashboard, Requests and the Dashboard only while available and kept
+aside in the editor until they are) and
+`source/utils/Seerr.bs` with `SeerrSeasons.bs` (Seerr requests, Apple's
+vectors: permission bits, the poster pill, request states and their lines,
+Home's requests row, the Requests list's filter / scope / actions / paging,
+Discover, the quota line, Search's "Not in your library" merge, the season
+picker, the wire's queries and bodies, the session cookie, the launch and
+401 checks) and
 `source/utils/SharedLists.bs` (shared lists: a list's creator from its
 self-share, S1:E1 shown as its series, repeats once, the subscriptions codec
 for DisplayPreferences `sashimi-lists`, "N new", subscribe/markSeen/prune, and
@@ -214,6 +224,14 @@ every format (srt/ass/pgs) and QSV makes the re-encode cheap. This means a
 subtitle change requires a stream restart, and Roku's own caption UI has no
 native track to toggle — the app translates `GetCaptionsMode()` into a track
 choice itself (`captionsMode()` / `applyCaptionsMode()` in `PlayerScreen.bs`).
+
+**Seerr's session cookie is handled by hand.** `SeerrTask` reads
+`connect.sid` from `GetResponseHeadersArray()` (an AA of headers would keep
+one Set-Cookie of several), stores it in registry section `seerr` under a
+key per server, and sends it as a `Cookie` header; no cookie store is
+enabled, so it never travels with a Jellyfin request. Never print it, the
+Plex token or a password. Requests run as the signed-in person (Plex PIN or
+a Seerr username), never with an admin API key.
 
 **Jellyfin remote control needs Roku OS 16.** The dashboard's Stop and
 Message arrive only over Jellyfin's `/socket` WebSocket (12.x has no polling

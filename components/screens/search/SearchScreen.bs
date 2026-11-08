@@ -2,6 +2,7 @@ import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Quality.bs"
 import "pkg:/source/utils/YouTube.bs"
+import "pkg:/source/utils/Seerr.bs"
 
 ' tvOS-parity search, Roku-native input: persistent MiniKeyboard with LIVE
 ' debounced results (300ms, like tvOS) — no modal dialog. Query empty shows
@@ -19,6 +20,14 @@ sub init()
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
+    ' "Not in your library": Seerr's results for the same query, below the
+    ' library's. Silent without a Seerr account (no row, no request).
+    m.seerrTask = m.top.findNode("seerrTask")
+    m.seerrTask.observeFieldScoped("response", "onSeerrResponse")
+    m.seerrTask.control = "RUN"
+    m.libraryItems = []
+    m.seerrItems = []
+    m.flat = []
 
     m.keyboard.observeFieldScoped("text", "onQueryChanged")
     m.debounceTimer.observeFieldScoped("fire", "onDebounce")
@@ -120,6 +129,7 @@ sub doSearch(query as string)
     m.recentTitle.visible = false
     m.recentList.visible = false
     m.statusLabel.text = "Searching..."
+    m.seerrItems = []
     m.apiTask.request = { action: "search", query: query }
 end sub
 
@@ -149,6 +159,12 @@ sub onApiResponse()
 end sub
 
 sub onSearchResults(response as object)
+    m.libraryItems = []
+    if response.success and response.items <> invalid then m.libraryItems = response.items
+    ' Seerr's half waits for the library's, so nothing shows in both.
+    if Seerr.isActive(m.global.seerrState)
+        m.seerrTask.request = { action: "search", query: m.currentQuery, library: m.libraryItems }
+    end if
     if not response.success
         ' Silently returning left the "Searching..." label up indefinitely, so a
         ' failed request was indistinguishable from a slow one.
@@ -159,7 +175,7 @@ sub onSearchResults(response as object)
     end if
 
     items = response.items
-    if items.count() = 0
+    if items.count() = 0 and m.seerrItems.count() = 0
         m.statusLabel.text = "No results found for " + chr(34) + m.currentQuery + chr(34)
         ' Hand focus back before hiding: an invisible grid that still holds
         ' focus swallows every keypress and the screen looks frozen.
@@ -168,12 +184,30 @@ sub onSearchResults(response as object)
         return
     end if
 
-    m.statusLabel.text = str(items.count()).Trim() + " results for " + chr(34) + m.currentQuery + chr(34)
+    renderResults()
+end sub
 
+sub onSeerrResponse()
+    r = m.seerrTask.response
+    if r = invalid or r.action <> "search" or r.query <> m.currentQuery.Trim() then return
+    m.seerrItems = []
+    if r.success = true and r.items <> invalid then m.seerrItems = r.items
+    if m.seerrItems.count() > 0 or m.libraryItems.count() > 0 then renderResults()
+end sub
+
+' The library's results, then Seerr's for titles the library doesn't have,
+' each with its status pill. One grid: MarkupGrid draws section nodes as
+' blank cards on device, so the heading line says where the second group
+' starts instead of a divider.
+sub renderResults()
+    items = m.libraryItems
+    m.statusLabel.text = str(items.count()).Trim() + " results for " + chr(34) + m.currentQuery + chr(34)
+    m.flat = []
     m.gridContent = CreateObject("roSGNode", "ContentNode")
+    target = m.gridContent
 
     for each item in items
-        child = m.gridContent.createChild("ContentNode")
+        child = target.createChild("ContentNode")
 
         ' YouTube channels render as circles with cleaned names (tvOS parity)
         isYT = YT.isItem(item)
@@ -210,7 +244,27 @@ sub onSearchResults(response as object)
         if isYT then item._forceYouTube = true
         child.addFields({ quality: Quality.badge(item), communityRating: Quality.rating(item) })
         child.itemJson = FormatJSON(item)
+        m.flat.push({ item: item })
     end for
+
+    if m.seerrItems.count() > 0
+        for each it in m.seerrItems
+            child = m.gridContent.createChild("ContentNode")
+            child.shortDescriptionLine1 = it.title
+            line2 = ""
+            if it.year > 0 then line2 = Str(it.year).Trim()
+            child.shortDescriptionLine2 = line2
+            child.HDPosterUrl = Seerr.posterUrl(it.posterPath, 342)
+            child.addFields({ itemJson: "", isCircular: false, pillText: Seerr.badgeLabel(it.badge), pillColor: Seerr.toneColor(it.badge) })
+            m.flat.push({ seerr: { kind: it.kind, tmdbId: it.tmdbId, title: it.title, posterPath: it.posterPath } })
+        end for
+        notHere = Str(m.seerrItems.count()).Trim() + " not in your library " + Chr(183) + " from " + m.global.seerrTitle
+        if items.count() = 0
+            m.statusLabel.text = notHere
+        else
+            m.statusLabel.text = m.statusLabel.text + ", then " + notHere
+        end if
+    end if
 
     m.resultsGrid.content = m.gridContent
     m.resultsGrid.visible = true
@@ -226,11 +280,12 @@ sub onResultSelected()
     ' ("b", "ba", "bat", ...). Opening a result is the point the query is known
     ' to be what the user actually meant.
     if m.currentQuery <> invalid and m.currentQuery <> "" then saveToHistory(m.currentQuery)
-    child = m.gridContent.getChild(index)
-    if child = invalid then return
-    if child.itemJson <> invalid and child.itemJson <> ""
-        itemData = ParseJSON(child.itemJson)
-        if itemData <> invalid then m.top.selectedItem = itemData
+    if index >= m.flat.count() then return
+    picked = m.flat[index]
+    if picked.seerr <> invalid
+        m.top.selectedItem = { _seerr: picked.seerr }
+    else if picked.item <> invalid
+        m.top.selectedItem = picked.item
     end if
 end sub
 

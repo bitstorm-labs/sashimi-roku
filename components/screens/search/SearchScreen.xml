@@ -45,5 +45,6 @@
 
         <Timer id="debounceTimer" repeat="false" duration="0.3" />
         <JellyfinApi id="apiTask" />
+        <SeerrTask id="seerrTask" />
     </children>
 </component>

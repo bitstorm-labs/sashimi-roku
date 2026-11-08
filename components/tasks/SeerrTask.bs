@@ -1,0 +1,529 @@
+import "pkg:/source/utils/Http.bs"
+import "pkg:/source/utils/Seerr.bs"
+import "pkg:/source/utils/SeerrSeasons.bs"
+import "pkg:/source/utils/SeerrStore.bs"
+
+' Seerr's API as the signed-in person (a Plex or Seerr username sign-in, never
+' an admin API key), plus plex.tv's PIN sign-in. The rules live in
+' source/utils/Seerr.bs; this is the wire. Every response carries `action`
+' and the request's `context`, so a screen can drop answers it no longer
+' wants. A 401/403 is checked with /auth/me before it counts as a sign-out
+' (Seerr also answers 401 for things like cancelling a request that is no
+' longer pending); only then does the account go to "expired".
+
+const TIMEOUT_MS = 20000
+const PARALLEL = 6
+
+sub init()
+    m.top.functionName = "taskLoop"
+end sub
+
+sub taskLoop()
+    port = CreateObject("roMessagePort")
+    m.top.observeFieldScoped("request", port)
+    if m.top.request <> invalid then processRequest()
+    while true
+        msg = wait(0, port)
+        if msg <> invalid then processRequest()
+    end while
+end sub
+
+sub processRequest()
+    r = m.top.request
+    if r = invalid or r.action = invalid then return
+    a = r.action
+    out = invalid
+    if a = "restore"
+        out = doRestore()
+    else if a = "publicSettings"
+        out = doPublicSettings()
+    else if a = "signInLocal"
+        out = doSignInLocal(r)
+    else if a = "plexStart"
+        out = doPlexStart()
+    else if a = "plexCheck"
+        out = doPlexCheck(r)
+    else if a = "signOut"
+        out = doSignOut()
+    else if a = "search"
+        out = doSearch(r)
+    else if a = "detail"
+        out = doDetail(r)
+    else if a = "requestMovie" or a = "requestShow"
+        out = doRequest(r)
+    else if a = "homeRow"
+        out = doHomeRow()
+    else if a = "discover"
+        out = doDiscover()
+    else if a = "discoverMore"
+        out = doDiscoverMore(r)
+    else if a = "requestList"
+        out = doRequestList(r)
+    else if a = "act"
+        out = doAct(r)
+    else if a = "missingSeasons"
+        out = doMissingSeasons(r)
+    end if
+    if out = invalid then out = { success: false, error: "Unknown request." }
+    out.action = a
+    out.context = r.context
+    m.top.response = out
+end sub
+
+' ---------- Plumbing ----------
+
+function clockNow() as integer
+    d = CreateObject("roDateTime")
+    return d.AsSeconds()
+end function
+
+' Seconds east of UTC, for "today" / "yesterday".
+function clockOffset() as integer
+    d = CreateObject("roDateTime")
+    utc = d.AsSeconds()
+    d.ToLocalTime()
+    return d.AsSeconds() - utc
+end function
+
+function appVersion() as string
+    info = CreateObject("roAppInfo")
+    if info <> invalid then return info.GetVersion()
+    return "1.0"
+end function
+
+function newTransfer(url as string) as object
+    x = CreateObject("roUrlTransfer")
+    x.SetCertificatesFile("common:/certs/ca-bundle.crt")
+    x.InitClientCertificates()
+    x.SetUrl(url)
+    x.RetainBodyOnError(true)
+    ' No cookie store: the session cookie is sent by hand from the registry,
+    ' so it can never travel with a Jellyfin request.
+    x.AddHeader("Accept", "application/json")
+    return x
+end function
+
+function apiUrl(path as string, query = "" as string) as string
+    url = m.global.seerrServer + "/api/v1/" + path
+    if query <> "" then url = url + "?" + query
+    return url
+end function
+
+' One call: { code, data, headers }. code 0 = timed out, -1 = never started.
+function send(method as string, url as string, body = invalid as dynamic, withCookie = true as boolean, headers = invalid as dynamic) as object
+    result = { code: -1, data: invalid, headers: [] }
+    x = newTransfer(url)
+    port = CreateObject("roMessagePort")
+    x.SetMessagePort(port)
+    if withCookie
+        c = SeerrStore.cookie()
+        if c <> "" then x.AddHeader("Cookie", c)
+    end if
+    if headers <> invalid
+        for each k in headers
+            x.AddHeader(k, headers[k])
+        end for
+    end if
+    started = false
+    if method = "GET"
+        started = x.AsyncGetToString()
+    else
+        if method <> "POST" then x.SetRequest(method)
+        x.AddHeader("Content-Type", "application/json")
+        payload = "{}"
+        if body <> invalid then payload = FormatJSON(body)
+        started = x.AsyncPostFromString(payload)
+    end if
+    if not started then return result
+    msg = wait(TIMEOUT_MS, port)
+    if msg = invalid or type(msg) <> "roUrlEvent"
+        x.AsyncCancel()
+        result.code = 0
+        return result
+    end if
+    result.code = msg.GetResponseCode()
+    result.headers = msg.GetResponseHeadersArray()
+    text = msg.GetString()
+    if text <> invalid and text <> "" then result.data = ParseJSON(text)
+    return result
+end function
+
+function api(method as string, path as string, query = "" as string, body = invalid as dynamic) as object
+    return send(method, apiUrl(path, query), body)
+end function
+
+' A failed call as a response, after the /auth/me check on a 401/403.
+function failure(res as object, isSignIn = false as boolean) as object
+    kind = Seerr.outcome(res.code, isSignIn)
+    if kind = "unauthorized" then checkExpired()
+    return { success: false, error: Seerr.errorMessage(kind, res.code, res.data), kind: kind }
+end function
+
+sub checkExpired()
+    meRes = send("GET", apiUrl("auth/me"))
+    if Seerr.expiresAfterCheck(meRes.code)
+        SeerrStore.forget()
+        SeerrStore.publishExpired()
+    end if
+end sub
+
+function ok(res as object) as boolean
+    return res.code >= 200 and res.code < 300
+end function
+
+function seerrUserId() as integer
+    u = m.global.seerrUser
+    if u = invalid or u.id = invalid then return -1
+    return u.id
+end function
+
+function seerrPermissions() as integer
+    u = m.global.seerrUser
+    if u = invalid or u.permissions = invalid then return 0
+    return u.permissions
+end function
+
+' Details for many titles at once (the request list and the watchlist carry
+' only TMDB ids): `targets` [{ kind, tmdbId }], a few transfers in flight at a
+' time. Adds itemKey -> { title, posterPath, mediaInfo } to `titles`; a title
+' that fails to load is simply left out.
+sub fillTitles(targets as object, titles as object)
+    port = CreateObject("roMessagePort")
+    cookie = SeerrStore.cookie()
+    ' The transfers in flight, matched to their events by identity compared
+    ' as numbers: identities are large, and Str() of one rounds, so string
+    ' keys collided, replaced a live transfer and cancelled it.
+    inFlight = []
+    nextIdx = 0
+    while nextIdx < targets.count() or inFlight.count() > 0
+        while nextIdx < targets.count() and inFlight.count() < PARALLEL
+            t = targets[nextIdx]
+            nextIdx = nextIdx + 1
+            if titles.DoesExist(Seerr.itemKey(t.kind, t.tmdbId)) then continue while
+            x = newTransfer(apiUrl(t.kind + "/" + Seerr.numStr(t.tmdbId)))
+            x.SetMessagePort(port)
+            if cookie <> "" then x.AddHeader("Cookie", cookie)
+            if x.AsyncGetToString() then inFlight.push({ x: x, t: t })
+        end while
+        if inFlight.count() = 0 then exit while
+        msg = wait(TIMEOUT_MS, port)
+        if msg = invalid
+            for each f in inFlight
+                f.x.AsyncCancel()
+            end for
+            exit while
+        end if
+        if type(msg) <> "roUrlEvent" then continue while
+        found = -1
+        for i = 0 to inFlight.count() - 1
+            if inFlight[i].x.GetIdentity() = msg.GetSourceIdentity()
+                found = i
+                exit for
+            end if
+        end for
+        if found < 0 then continue while
+        inFlight.Delete(found)
+        if msg.GetResponseCode() >= 200 and msg.GetResponseCode() < 300
+            d = Seerr.details(ParseJSON(msg.GetString()))
+            if d <> invalid then titles[Seerr.itemKey(d.kind, d.tmdbId)] = Seerr.titleEntry(d)
+        end if
+    end while
+end sub
+
+' ---------- Account ----------
+
+function doPublicSettings() as object
+    res = send("GET", apiUrl("settings/public"), invalid, false)
+    if not ok(res) or not Seerr.isAA(res.data) then return { success: false }
+    t = Seerr.getStr(res.data, "applicationTitle")
+    if t <> ""
+        SeerrStore.setTitle(t)
+        m.global.seerrTitle = t
+    end if
+    m.global.seerrPartial = res.data.partialRequestsEnabled <> false
+    return { success: true }
+end function
+
+' Launch: no cookie, no network at all. A server that can't be reached keeps
+' the last known account (it's not a sign-out).
+function doRestore() as object
+    if SeerrStore.cookie() = "" then return { success: true, state: m.global.seerrState }
+    doPublicSettings()
+    res = send("GET", apiUrl("auth/me"))
+    saved = SeerrStore.savedUser()
+    outcome = Seerr.restoreOutcome(res.code, saved <> invalid)
+    if outcome = "signedIn" and Seerr.isAA(res.data)
+        SeerrStore.saveSignIn(res.data, SeerrStore.cookie())
+        SeerrStore.publishSignedIn(res.data)
+    else if outcome = "expired"
+        SeerrStore.forget()
+        SeerrStore.publishExpired()
+    else if outcome = "offline"
+        SeerrStore.publishSignedIn(saved)
+    end if
+    return { success: true, state: m.global.seerrState }
+end function
+
+function finishSignIn(res as object) as object
+    if not ok(res) then return failure(res, true)
+    c = Seerr.sessionCookie(res.headers)
+    if c = "" then return { success: false, error: Seerr.errorMessage("noSession", res.code, invalid) }
+    if not Seerr.isAA(res.data) then return { success: false, error: Seerr.errorMessage("decoding", res.code, invalid) }
+    SeerrStore.saveSignIn(res.data, c)
+    SeerrStore.publishSignedIn(res.data)
+    doPublicSettings()
+    return { success: true }
+end function
+
+function doSignInLocal(r as object) as object
+    body = { email: Seerr.getStr(r, "email").Trim(), password: Seerr.getStr(r, "password") }
+    return finishSignIn(send("POST", apiUrl("auth/local"), body, false))
+end function
+
+function plexHeaders() as object
+    return Seerr.plexHeaders(SeerrStore.plexClientId(), appVersion())
+end function
+
+function doPlexStart() as object
+    res = send("POST", Seerr.plexPinUrl(-1), invalid, false, plexHeaders())
+    pin = invalid
+    if ok(res) then pin = Seerr.plexPin(res.data)
+    if pin = invalid then return { success: false, error: "Couldn't start Plex sign-in. Try again." }
+    return { success: true, pinId: pin.id, code: pin.code }
+end function
+
+' One poll. Once the code is linked the Plex token goes straight to Seerr and
+' is never kept or handed to a screen.
+function doPlexCheck(r as object) as object
+    res = send("GET", Seerr.plexPinUrl(Seerr.getInt(r, "pinId")), invalid, false, plexHeaders())
+    pin = invalid
+    if ok(res) then pin = Seerr.plexPin(res.data)
+    if pin = invalid or pin.token = "" then return { success: true, waiting: true }
+    signIn = send("POST", apiUrl("auth/plex"), { authToken: pin.token }, false)
+    out = finishSignIn(signIn)
+    if not out.success and out.kind = "invalidCredentials"
+        out.error = "That Plex account doesn't have access to " + m.global.seerrTitle + "."
+    end if
+    return out
+end function
+
+' Best effort with the server; the local sign-out happens whatever it says.
+function doSignOut() as object
+    send("POST", apiUrl("auth/logout"), {})
+    SeerrStore.forget()
+    SeerrStore.publishSignedOut()
+    return { success: true }
+end function
+
+' ---------- Browse ----------
+
+' Search's "Not in your library" row (`library` is what the library row shows
+' for the same query), or the Requests page's search (everything Seerr finds).
+function doSearch(r as object) as object
+    q = Seerr.getStr(r, "query").Trim()
+    if q = "" then return { success: true, items: [], query: q }
+    res = api("GET", "search", Seerr.searchQuery(q))
+    if not ok(res) then return failure(res)
+    list = Seerr.results(res.data)
+    if r.includeAvailable <> true
+        library = []
+        if Seerr.isArr(r.library) then library = r.library
+        list = Seerr.requestable(list, library)
+    end if
+    return { success: true, items: Seerr.uniqueItems(list, seerrUserId()), query: q }
+end function
+
+' A title's page: its details, the quota line while it can still be asked for,
+' and the library's copy once it is on the server.
+function doDetail(r as object) as object
+    kind = Seerr.getStr(r, "kind")
+    res = api("GET", kind + "/" + Seerr.numStr(Seerr.getInt(r, "tmdbId")))
+    if not ok(res) then return failure(res)
+    d = Seerr.details(res.data)
+    if d = invalid then return { success: false, error: Seerr.errorMessage("decoding", res.code, invalid) }
+    out = { success: true, details: d, quota: "", libraryItem: invalid }
+    plan = invalid
+    if d.kind = "tv" then plan = SeerrSeasons.plan(d, clockNow(), m.global.seerrPartial <> false)
+    act = Seerr.detailAction(d, plan, seerrUserId())
+    if (act.kind = "request" or act.kind = "chooseSeasons") and seerrUserId() >= 0
+        q = api("GET", "user/" + Seerr.numStr(seerrUserId()) + "/quota")
+        if ok(q) then out.quota = Seerr.quotaSummary(q.data, d.kind)
+    end if
+    if Seerr.isOnServer(d) then out.libraryItem = findInLibrary(d)
+    return out
+end function
+
+' The active Jellyfin server's copy, matched by TMDB id among the library's
+' search results for its name.
+function findInLibrary(d as object) as dynamic
+    if m.global.serverUrl = "" or m.global.userId = "" then return invalid
+    url = Http.apiUrl("/Users/" + m.global.userId + "/Items")
+    url = url + "?SearchTerm=" + Http.escape(d.title) + "&Limit=20&Recursive=true&IncludeItemTypes=Movie,Series&Fields=ProviderIds,Overview"
+    res = Http.getJson(url)
+    if res = invalid or not Seerr.isArr(res.Items) then return invalid
+    return Seerr.libraryMatch(res.Items, d.tmdbId, d.kind)
+end function
+
+function doRequest(r as object) as object
+    tmdbId = Seerr.getInt(r, "tmdbId")
+    body = invalid
+    if r.action = "requestMovie"
+        body = Seerr.movieRequestBody(tmdbId)
+    else
+        seasons = []
+        if Seerr.isArr(r.seasons) then seasons = r.seasons
+        body = Seerr.showRequestBody(tmdbId, seasons)
+        if body = invalid then return { success: false, error: "Pick at least one season." }
+    end if
+    res = api("POST", "request", "", body)
+    if not ok(res) then return failure(res)
+    m.global.seerrVersion = m.global.seerrVersion + 1
+    return { success: true }
+end function
+
+' Home's row: everyone's recent requests for those who may see them, else the
+' person's own; one poster per title, only what waits or arrived this week.
+function doHomeRow() as object
+    perms = seerrPermissions()
+    query = Seerr.myRequestsQuery(seerrUserId())
+    if Seerr.canViewAllRequests(perms) then query = Seerr.requestPageQuery("all", 50, 0, -1)
+    res = api("GET", "request", query)
+    if not ok(res) then return failure(res)
+    requests = Seerr.getArr(res.data, "results")
+    titles = {}
+    fillTitles(Seerr.missingTitles(requests, titles), titles)
+    rows = Seerr.homeRows(requests, titles, clockNow(), clockOffset())
+    cards = []
+    for each rr in rows
+        cards.push(card(rr, Seerr.homeRequester(rr, perms)))
+    end for
+    return { success: true, title: Seerr.homeTitle(perms), cards: cards }
+end function
+
+' A request row as a poster card: the target to open and the line under the
+' title (the requester's name on everyone's row, else where it stands).
+function card(rr as object, requester as string) as object
+    line = requester
+    if line = "" then line = rr.subtitle
+    return {
+        kind: rr.kind, tmdbId: rr.tmdbId, title: rr.title, posterPath: rr.posterPath,
+        line: line, state: Seerr.stateLabel(rr.state)
+    }
+end function
+
+function discoverPage(slider as object, page as integer, titles as object) as dynamic
+    res = api("GET", slider.path, "page=" + Seerr.numStr(page))
+    if not ok(res) then return invalid
+    list = Seerr.results(res.data)
+    if slider.id = "watchlist"
+        targets = []
+        for each it in list
+            targets.push({ kind: it.kind, tmdbId: it.tmdbId })
+        end for
+        fillTitles(targets, titles)
+        list = Seerr.fillFromTitles(list, titles)
+    end if
+    return {
+        id: slider.id, title: slider.title, items: Seerr.uniqueItems(list, seerrUserId()),
+        page: Seerr.getInt(res.data, "page", page), totalPages: Seerr.getInt(res.data, "totalPages", page)
+    }
+end function
+
+function doDiscover() as object
+    loaded = {}
+    titles = {}
+    firstError = invalid
+    for each s in Seerr.sliders()
+        if s.id = "recentRequests"
+            res = api("GET", "request", Seerr.requestPageQuery("all", Seerr.RECENT_REQUESTS_COUNT, 0, -1))
+            if ok(res)
+                requests = Seerr.getArr(res.data, "results")
+                fillTitles(Seerr.missingTitles(requests, titles), titles)
+                loaded[s.id] = { id: s.id, title: s.title, items: Seerr.recentItems(requests, titles, seerrUserId()), page: 1, totalPages: 1 }
+            else if firstError = invalid
+                firstError = res
+            end if
+        else
+            r = discoverPage(s, 1, titles)
+            if r <> invalid then loaded[s.id] = r
+        end if
+    end for
+    rows = Seerr.discoverRows(loaded)
+    if rows.count() = 0 and firstError <> invalid then return failure(firstError)
+    if rows.count() = 0 then return { success: false, error: Seerr.errorMessage("network", 0, invalid) }
+    return { success: true, rows: rows }
+end function
+
+function doDiscoverMore(r as object) as object
+    for each s in Seerr.sliders()
+        if s.id = r.slider and s.path <> ""
+            p = discoverPage(s, Seerr.getInt(r, "page", 2), {})
+            if p = invalid then return { success: false, slider: r.slider }
+            p.success = true
+            p.slider = r.slider
+            return p
+        end if
+    end for
+    return { success: false, slider: r.slider }
+end function
+
+function doRequestList(r as object) as object
+    perms = seerrPermissions()
+    filter = Seerr.getStr(r, "filter")
+    if filter = "" then filter = "all"
+    skip = Seerr.getInt(r, "skip", 0)
+    take = Seerr.getInt(r, "take", Seerr.PAGE_SIZE)
+    requestedBy = Seerr.requestedByFor(perms, Seerr.getStr(r, "scope"), seerrUserId())
+    res = api("GET", "request", Seerr.requestPageQuery(filter, take, skip, requestedBy))
+    if not ok(res) then return failure(res)
+    requests = Seerr.getArr(res.data, "results")
+    titles = {}
+    fillTitles(Seerr.missingTitles(requests, titles), titles)
+    total = -1
+    if Seerr.isAA(res.data) then total = Seerr.getInt(res.data.pageInfo, "results")
+    out = {
+        success: true, rows: Seerr.rows(requests, titles, clockNow(), clockOffset()),
+        fetched: skip + requests.count(), total: total, pageCount: requests.count(), take: take, summary: ""
+    }
+    ' Everyone's counts: only for those who may see everyone's requests.
+    if skip = 0 and Seerr.canViewAllRequests(perms)
+        c = api("GET", "request/count")
+        if ok(c) then out.summary = Seerr.countSummary(c.data)
+    end if
+    return out
+end function
+
+' Approve, decline, cancel or delete. Nothing is sent for an action the
+' account lacks (the server enforces the same rules).
+function doAct(r as object) as object
+    action = Seerr.getStr(r, "action2")
+    id = Seerr.getInt(r, "id")
+    row = r.row
+    if not Seerr.isAA(row) or not Seerr.hasAction(row, action, seerrPermissions(), seerrUserId())
+        return { success: false, error: "You can't do that to this request." }
+    end if
+    res = invalid
+    if action = "approve"
+        res = api("POST", "request/" + Seerr.numStr(id) + "/approve", "", {})
+    else if action = "decline"
+        res = api("POST", "request/" + Seerr.numStr(id) + "/decline", "", {})
+    else
+        res = api("DELETE", "request/" + Seerr.numStr(id))
+    end if
+    if not ok(res) then return failure(res)
+    m.global.seerrVersion = m.global.seerrVersion + 1
+    return { success: true, id: id, done: action }
+end function
+
+' For a library show's More menu: whether Seerr says some aired seasons are
+' neither on the server nor asked for.
+function doMissingSeasons(r as object) as object
+    tmdbId = Seerr.getInt(r, "tmdbId")
+    res = api("GET", "tv/" + Seerr.numStr(tmdbId))
+    if not ok(res) then return { success: false }
+    d = Seerr.details(res.data)
+    if d = invalid then return { success: false }
+    p = SeerrSeasons.plan(d, clockNow(), m.global.seerrPartial <> false)
+    if not SeerrSeasons.hasMissing(p) then return { success: true, target: invalid, itemId: r.itemId }
+    return { success: true, target: { kind: "tv", tmdbId: tmdbId, title: d.title, posterPath: d.posterPath }, itemId: r.itemId }
+end function
