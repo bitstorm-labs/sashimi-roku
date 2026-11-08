@@ -247,7 +247,7 @@ end function
 ' Launch: no cookie, no network at all. A server that can't be reached keeps
 ' the last known account (it's not a sign-out).
 function doRestore() as object
-    if SeerrStore.cookie() = "" then return { success: true, state: m.global.seerrState }
+    if SeerrStore.server() = "" or SeerrStore.cookie() = "" then return { success: true, state: m.global.seerrState }
     doPublicSettings()
     res = send("GET", apiUrl("auth/me"))
     saved = SeerrStore.savedUser()
