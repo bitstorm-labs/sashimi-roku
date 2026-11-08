@@ -116,6 +116,10 @@ end sub
 ' ---------- Server address and session cookie ----------
 
 sub testServerAndCookie(t as object)
+    eq(t, "no server: only the address can be set", Seerr_accountButtonKinds("").Join(","), "server")
+    eq(t, "a server: sign-in offered", Seerr_accountButtonKinds("https://seerr.test").Join(","), "server,plex,local")
+    eq(t, "no server reads as not set", Seerr_serverLabel(""), "Not set")
+    eq(t, "a server reads as itself", Seerr_serverLabel("https://seerr.test"), "https://seerr.test")
     eq(t, "bare host gets https", Seerr_normalizedServer("seerr.test"), "https://seerr.test")
     eq(t, "trailing slashes", Seerr_normalizedServer(" https://seerr.test// "), "https://seerr.test")
     eq(t, "http kept", Seerr_normalizedServer("http://seerr.test:5055"), "http://seerr.test:5055")

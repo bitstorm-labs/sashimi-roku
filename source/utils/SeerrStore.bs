@@ -12,9 +12,8 @@ namespace SeerrStore
     const SECTION = "seerr"
 
     function server() as string
-        s = Seerr.normalizedServer(Registry.read(SECTION, "server"))
-        if s = "" then s = Seerr.DEFAULT_SERVER
-        return s
+        ' "" until the user types one in: there is no default server.
+        return Seerr.normalizedServer(Registry.read(SECTION, "server"))
     end function
 
     sub setServer(url as string)
