@@ -325,13 +325,15 @@ sub onItemContentChanged()
     end if
 
     ' Subtitle only on Continue Watching (landscape) cards — tvOS posters are title-only
+    m.subtitleLabel.horizAlign = "left"
     if m.isLandscape and content.description <> invalid and content.description <> ""
         m.subtitleLabel.text = content.description
         m.subtitleLabel.visible = true
     else if not m.isLandscape and not m.isCircular and content.doesExist("captionLine") and content.captionLine <> ""
         ' The Seerr requests row: who asked (everyone's row) or where the
-        ' request stands (your own), under the title.
+        ' request stands (your own), centred under the title.
         m.subtitleLabel.text = content.captionLine
+        m.subtitleLabel.horizAlign = "center"
         m.subtitleLabel.visible = true
     else
         m.subtitleLabel.visible = false

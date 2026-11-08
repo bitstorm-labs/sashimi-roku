@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- An invisible node a screen with virtual focus zones can park real focus
+     on, so its own onKeyEvent gets the keys. Calling setFocus on the screen
+     itself while a child list holds focus leaves focus on the list. -->
+<component name="FocusSink" extends="Group" />

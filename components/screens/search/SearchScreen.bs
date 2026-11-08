@@ -195,22 +195,16 @@ sub onSeerrResponse()
     if m.seerrItems.count() > 0 or m.libraryItems.count() > 0 then renderResults()
 end sub
 
-' The library's results, then (as a second section) Seerr's for titles the
-' library doesn't have, each with its status pill.
+' The library's results, then Seerr's for titles the library doesn't have,
+' each with its status pill. One grid: MarkupGrid draws section nodes as
+' blank cards on device, so the heading line says where the second group
+' starts instead of a divider.
 sub renderResults()
     items = m.libraryItems
     m.statusLabel.text = str(items.count()).Trim() + " results for " + chr(34) + m.currentQuery + chr(34)
     m.flat = []
     m.gridContent = CreateObject("roSGNode", "ContentNode")
     target = m.gridContent
-    if m.seerrItems.count() > 0
-        ' Sections: MarkupGrid draws each section node's title as a divider.
-        target = invalid
-        if items.count() > 0
-            target = m.gridContent.createChild("ContentNode")
-            target.title = "In your library"
-        end if
-    end if
 
     for each item in items
         child = target.createChild("ContentNode")
@@ -254,10 +248,8 @@ sub renderResults()
     end for
 
     if m.seerrItems.count() > 0
-        section = m.gridContent.createChild("ContentNode")
-        section.title = "Not in your library " + Chr(183) + " from " + m.global.seerrTitle
         for each it in m.seerrItems
-            child = section.createChild("ContentNode")
+            child = m.gridContent.createChild("ContentNode")
             child.shortDescriptionLine1 = it.title
             line2 = ""
             if it.year > 0 then line2 = Str(it.year).Trim()
@@ -266,7 +258,12 @@ sub renderResults()
             child.addFields({ itemJson: "", isCircular: false, pillText: Seerr.badgeLabel(it.badge), pillColor: Seerr.toneColor(it.badge) })
             m.flat.push({ seerr: { kind: it.kind, tmdbId: it.tmdbId, title: it.title, posterPath: it.posterPath } })
         end for
-        if items.count() = 0 then m.statusLabel.text = "Not in your library " + Chr(183) + " from " + m.global.seerrTitle
+        notHere = Str(m.seerrItems.count()).Trim() + " not in your library " + Chr(183) + " from " + m.global.seerrTitle
+        if items.count() = 0
+            m.statusLabel.text = notHere
+        else
+            m.statusLabel.text = m.statusLabel.text + ", then " + notHere
+        end if
     end if
 
     m.resultsGrid.content = m.gridContent

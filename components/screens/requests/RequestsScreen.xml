@@ -55,6 +55,7 @@
             itemComponentName="SeerrRequestItem"
             visible="false"
         />
+        <FocusSink id="keySink" />
         <SeerrTask id="seerrTask" />
     </children>
 </component>

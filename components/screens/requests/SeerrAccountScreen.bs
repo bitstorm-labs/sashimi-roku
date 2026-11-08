@@ -83,7 +83,8 @@ sub drawButtons()
         lbl = CreateObject("roSGNode", "Label")
         lbl.text = b.label
         lbl.translation = [32, 0]
-        lbl.width = 360
+        lbl.width = 830
+        if b.value <> invalid then lbl.width = 360
         lbl.height = 80
         lbl.vertAlign = "center"
         lbl.font = font("pkg:/fonts/Inter-Bold.ttf", 28)

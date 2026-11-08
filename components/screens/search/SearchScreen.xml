@@ -34,14 +34,8 @@
             numRows="3"
             drawFocusFeedback="false"
             itemComponentName="GridItem"
-            sectionDividerTextColor="#BFBFBF"
-            sectionDividerSpacing="14"
-            sectionDividerMinWidth="600"
             visible="false"
-        >
-            <!-- "Not in your library · from <Seerr>": the second section. -->
-            <Font role="sectionDividerFont" uri="pkg:/fonts/Inter-Bold.ttf" size="26" />
-        </MarkupGrid>
+        />
 
         <!-- Recent searches (right column, when query empty) -->
         <Label id="recentTitle" text="Recent Searches" color="#FFFFFF" translation="[660, 158]" visible="false">

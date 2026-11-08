@@ -295,6 +295,8 @@ sub testActions(t as object)
     eq(t, "viewer can't manage", joined(Seerr_actions(theirs, 16384 or 32, 1)), "")
     eq(t, "titles", Seerr_actionTitle("cancel") + "/" + Seerr_actionTitle("delete"), "Cancel Request/Delete Request")
     eq(t, "approve isn't destructive", Seerr_isDestructive("approve"), false)
+    eq(t, "cancel's confirm keeps first", joined(Seerr_confirmButtons("cancel")), "Keep Request,Cancel Request")
+    eq(t, "delete's confirm", joined(Seerr_confirmButtons("delete")), "Cancel,Delete Request")
     eq(t, "decline is", Seerr_isDestructive("decline"), true)
 
     list = [theirs, approved]

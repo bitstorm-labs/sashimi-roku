@@ -925,6 +925,14 @@ namespace Seerr
         return "Delete Request"
     end function
 
+    ' The confirmation's buttons, the way out first (StandardMessageDialog
+    ' focuses its first button; index 1 confirms, as Confirm.buttons). "Cancel"
+    ' next to "Cancel Request" would be ambiguous, so that one says Keep.
+    function confirmButtons(action as string) as object
+        if action = "cancel" then return ["Keep Request", "Cancel Request"]
+        return ["Cancel", actionTitle(action)]
+    end function
+
     function isDestructive(action as string) as boolean
         return action <> "approve"
     end function

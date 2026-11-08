@@ -17,15 +17,19 @@
         <Poster id="backdrop" width="1920" height="1080" loadDisplayMode="scaleToZoom" opacity="0.35" />
         <Rectangle width="1920" height="1080" color="#0A0A0E99" />
         <Poster id="poster" width="300" height="450" translation="[120, 140]" loadDisplayMode="scaleToFit" />
-        <Label id="titleLabel" text="" color="#FFFFFF" width="1300" wrap="true" maxLines="2" translation="[480, 132]">
-            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="56" />
-        </Label>
-        <Label id="metaLabel" text="" color="#BFBFBF" width="1300" translation="[480, 290]">
-            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
-        </Label>
-        <Label id="overviewLabel" text="" color="#DDDDDD" width="1300" wrap="true" maxLines="6" translation="[480, 350]">
-            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
-        </Label>
+        <!-- Title, meta and overview stack under one another whatever the
+             title's length. -->
+        <LayoutGroup id="info" translation="[480, 132]" layoutDirection="vert" itemSpacings="[20, 16]">
+            <Label id="titleLabel" text="" color="#FFFFFF" width="1300" wrap="true" maxLines="2">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="56" />
+            </Label>
+            <Label id="metaLabel" text="" color="#BFBFBF" width="1300">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+            </Label>
+            <Label id="overviewLabel" text="" color="#DDDDDD" width="1300" wrap="true" maxLines="6">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+            </Label>
+        </LayoutGroup>
         <Group id="buttons" translation="[480, 640]" />
         <Label id="statusLabel" text="" color="#FFFFFF" width="1300" translation="[480, 650]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />

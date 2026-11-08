@@ -23,6 +23,7 @@ sub init()
     m.messageLabel = m.top.findNode("messageLabel")
     m.discoverRows = m.top.findNode("discoverRows")
     m.requestList = m.top.findNode("requestList")
+    m.sink = m.top.findNode("keySink")
     m.task = m.top.findNode("seerrTask")
     m.task.observeFieldScoped("response", "onResponse")
     m.task.control = "RUN"
@@ -120,6 +121,8 @@ sub onFocusChanged()
             return
         end if
         if m.zone = "content" then m.zone = "tabs"
+        m.sink.setFocus(true)
+        return
     end if
     drawTabs()
     drawChips()
@@ -275,7 +278,7 @@ sub render()
     ' swallows every key.
     if m.zone = "content" and (contentNode() = invalid or not contentNode().visible)
         m.zone = "tabs"
-        m.top.setFocus(true)
+        m.sink.setFocus(true)
     end if
     drawTabs()
     drawChips()
@@ -331,7 +334,10 @@ sub addListItem(root as object, row as object)
     if Seerr.effectiveScope(myPermissions(), m.scope) = "everyone" then line = line + "  " + Chr(183) + "  " + Seerr.requesterName(row.request.requestedBy)
     line = line + "  " + Chr(183) + "  " + Seerr.requestedLabel(row.request, utc, tz)
     child.shortDescriptionLine1 = line
-    child.shortDescriptionLine2 = row.subtitle
+    ' A pending request's line would only repeat "Requested ..." from above.
+    sub2 = row.subtitle
+    if sub2 = Seerr.requestedLabel(row.request, utc, tz) then sub2 = ""
+    child.shortDescriptionLine2 = sub2
     pills = []
     rs = Seerr.requestStatusLabel(row.request)
     ms = Seerr.mediaStatusLabel(row.request)
@@ -513,7 +519,7 @@ sub onRowDialog()
         confirmDialog = CreateObject("roSGNode", "StandardMessageDialog")
         confirmDialog.title = Seerr.actionTitle(a) + "?"
         confirmDialog.message = [Seerr.displayTitle(row) + "  " + Chr(183) + "  " + Seerr.requesterName(row.request.requestedBy)]
-        confirmDialog.buttons = Confirm.buttons(Seerr.actionTitle(a))
+        confirmDialog.buttons = Seerr.confirmButtons(a)
         confirmDialog.observeFieldScoped("buttonSelected", "onConfirmAction")
         m.top.getScene().dialog = confirmDialog
     else
@@ -589,7 +595,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
         ' The list's own Up at its top edge, or Back.
         if key = "up" or key = "back"
             if currentTab() = "requests" then m.zone = "chips" else m.zone = "tabs"
-            m.top.setFocus(true)
+            m.sink.setFocus(true)
             drawTabs()
             drawChips()
             return true

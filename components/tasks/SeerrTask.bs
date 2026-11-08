@@ -190,7 +190,10 @@ end function
 sub fillTitles(targets as object, titles as object)
     port = CreateObject("roMessagePort")
     cookie = SeerrStore.cookie()
-    inFlight = {}
+    ' The transfers in flight, matched to their events by identity compared
+    ' as numbers: identities are large, and Str() of one rounds, so string
+    ' keys collided, replaced a live transfer and cancelled it.
+    inFlight = []
     nextIdx = 0
     while nextIdx < targets.count() or inFlight.count() > 0
         while nextIdx < targets.count() and inFlight.count() < PARALLEL
@@ -200,20 +203,26 @@ sub fillTitles(targets as object, titles as object)
             x = newTransfer(apiUrl(t.kind + "/" + Seerr.numStr(t.tmdbId)))
             x.SetMessagePort(port)
             if cookie <> "" then x.AddHeader("Cookie", cookie)
-            if x.AsyncGetToString() then inFlight[Seerr.numStr(x.GetIdentity())] = { x: x, t: t }
+            if x.AsyncGetToString() then inFlight.push({ x: x, t: t })
         end while
         if inFlight.count() = 0 then exit while
         msg = wait(TIMEOUT_MS, port)
         if msg = invalid
-            for each k in inFlight
-                inFlight[k].x.AsyncCancel()
+            for each f in inFlight
+                f.x.AsyncCancel()
             end for
             exit while
         end if
         if type(msg) <> "roUrlEvent" then continue while
-        key = Seerr.numStr(msg.GetSourceIdentity())
-        if not inFlight.DoesExist(key) then continue while
-        inFlight.Delete(key)
+        found = -1
+        for i = 0 to inFlight.count() - 1
+            if inFlight[i].x.GetIdentity() = msg.GetSourceIdentity()
+                found = i
+                exit for
+            end if
+        end for
+        if found < 0 then continue while
+        inFlight.Delete(found)
         if msg.GetResponseCode() >= 200 and msg.GetResponseCode() < 300
             d = Seerr.details(ParseJSON(msg.GetString()))
             if d <> invalid then titles[Seerr.itemKey(d.kind, d.tmdbId)] = Seerr.titleEntry(d)
