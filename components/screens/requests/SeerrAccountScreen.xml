@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Settings > Requests: the Seerr account. Server address (editable while
+     signed out), sign in with Plex (a code for plex.tv/link) or a Seerr
+     username and password, "Signed in as X", Sign out. Pushed full-width. -->
+<component name="SeerrAccountScreen" extends="Group">
+    <interface>
+        <!-- Back: MainScene pops the screen. -->
+        <field id="closed" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+        <Label text="Requests" color="#FFFFFF" translation="[160, 90]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="56" />
+        </Label>
+        <Label id="statusLabel" text="" color="#BFBFBF" width="1500" wrap="true" maxLines="3" translation="[160, 176]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="30" />
+        </Label>
+        <!-- The plex.tv/link code while Plex sign-in waits. -->
+        <Label id="codeLabel" text="" color="#FFFFFF" visible="false" translation="[160, 300]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="120" />
+        </Label>
+        <Label id="codeHint" text="" color="#BFBFBF" width="1500" wrap="true" visible="false" translation="[160, 460]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="30" />
+        </Label>
+        <Group id="buttons" translation="[160, 300]" />
+        <Label id="errorLabel" text="" color="#FF6B6BFF" width="1500" wrap="true" maxLines="3" translation="[160, 860]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+        </Label>
+        <Timer id="pollTimer" repeat="true" duration="2" />
+        <SeerrTask id="seerrTask" />
+    </children>
+</component>

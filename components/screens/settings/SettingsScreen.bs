@@ -6,6 +6,7 @@ import "pkg:/source/utils/ViewMode.bs"
 import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/Filmography.bs"
 import "pkg:/source/utils/RailItems.bs"
+import "pkg:/source/utils/Seerr.bs"
 
 ' tvOS Settings parity: card rows (maxWidth 800), focus = accent fill + scale.
 ' Pickers cycle values on OK (TV-simple equivalent of tvOS picker subscreens).
@@ -80,7 +81,7 @@ sub init()
 
     m.allItems = [
         { key: "", title: "Servers", kind: "servers" },
-        { key: "", title: "Dashboard", kind: "dashboard" },
+        { key: "", title: "Requests", kind: "seerr" },
         { key: "", title: "Home & Side Menu", kind: "homerows" },
         { key: "maxBitrateMbps", title: "Maximum Bitrate", kind: "picker", options: m.bitrateOptions },
         { key: "forceDirectPlay", title: "Always Play Original", kind: "toggle", default: "false" },
@@ -103,32 +104,19 @@ sub init()
         { key: "", title: "Sign Out", kind: "signout" }
     ]
 
-    m.items = visibleItems()
+    ' The Dashboard is a side-menu entry now (Home & Side Menu), as on Apple.
+    m.items = m.allItems
     buildRows()
     m.top.observeField("focusedChild", "onFocusGained")
-    ' The admin flag can land after this screen is built (the server's answer
-    ' replaces the cached value), and can change with a server switch.
-    m.global.observeFieldScoped("isAdministrator", "onAdministratorChanged")
+    ' The Requests row says who is signed in to Seerr.
+    m.global.observeFieldScoped("seerrState", "onSeerrChanged")
+    m.global.observeFieldScoped("seerrUser", "onSeerrChanged")
 end sub
 
-' The Dashboard row exists only for administrators.
-function visibleItems() as object
-    out = []
-    for each item in m.allItems
-        if item.kind <> "dashboard" or m.global.isAdministrator = true then out.push(item)
-    end for
-    return out
-end function
-
-sub onAdministratorChanged()
-    focusedKind = ""
-    if m.focusIndex < m.items.count() then focusedKind = m.items[m.focusIndex].kind + m.items[m.focusIndex].title
-    m.items = visibleItems()
-    m.focusIndex = 0
+sub onSeerrChanged()
     for i = 0 to m.items.count() - 1
-        if m.items[i].kind + m.items[i].title = focusedKind then m.focusIndex = i
+        if m.items[i].kind = "seerr" and i < m.rows.count() then m.rows[i].value.text = currentValueLabel(m.items[i])
     end for
-    buildRows()
 end sub
 
 function currentValueLabel(item as object) as string
@@ -144,6 +132,10 @@ function currentValueLabel(item as object) as string
         return "Off"
     else if item.kind = "info"
         return item.value
+    else if item.kind = "seerr"
+        name = ""
+        if m.global.seerrUser <> invalid and m.global.seerrUser.name <> invalid then name = m.global.seerrUser.name
+        return Seerr.accountLabel(m.global.seerrState, name)
     end if
     return ""
 end function
@@ -279,8 +271,8 @@ sub activateRow(index as integer)
         openServersManager()
     else if item.kind = "homerows"
         openHomeRowsEditor()
-    else if item.kind = "dashboard"
-        if m.global.isAdministrator = true then m.top.openDashboard = true
+    else if item.kind = "seerr"
+        m.top.openSeerr = true
     else if item.kind = "signout"
         showSignOutDialog()
     else if item.kind = "info"
@@ -371,11 +363,12 @@ end function
 
 ' ---------- Home & Side Menu editor ----------
 ' Config stored in Registry "settings"/"homeRowOrder" as a JSON array of
-' {id, kind ("hero"/"cw"/"fintv"/"library"/"list"/"lists"), libraryId, listId,
+' {id, kind ("hero"/"cw"/"fintv"/"requests"/"library"/"list"/"lists"/"dashboard"),
+' libraryId, listId,
 ' name, visible, rail};
 ' array order is row order (tvOS homeScreenRowOrder parity). `visible` is the
 ' Home row, `rail` the side-menu entry, independent of each other (only
-' destinations -- libraries, SashimiTV -- have one; RailItems.bs). The Home
+' destinations -- libraries, SashimiTV, Requests -- have one; RailItems.bs). The Home
 ' screen merges in new/removed libraries on load; this editor renders whatever
 ' is saved. OK toggles Home, Options (*) the side menu, Left/Right move.
 
@@ -385,11 +378,19 @@ sub openHomeRowsEditor()
         m.global.toastMessage = { message: "Visit the Home tab first to load your libraries" }
         return
     end if
-    m.hrConfig = RailItems.withLists(RailItems.withFintv(cfg))
+    ' Requests and the Dashboard are listed only while they exist (a Seerr
+    ' account; an administrator); kept aside meanwhile and put back on save.
+    view = RailItems.editorView(RailItems.withBuiltIns(cfg), railAvailable())
+    m.hrConfig = view.rows
+    m.hrHidden = view.hidden
     m.hrIndex = 0
     m.hrOpen = true
     renderHomeRows()
 end sub
+
+function railAvailable() as object
+    return { requests: Seerr.menuAvailable(m.global.seerrState), dashboard: m.global.isAdministrator = true }
+end function
 
 sub renderHomeRows()
     if m.hrPanel = invalid
@@ -463,12 +464,12 @@ sub renderHomeRows()
         lbl.text = c.name
         lbl.width = 500
         lbl.height = 60
-        onlySearch = RailItems.onlyFromSearch(c)
-        if onlySearch
+        noteText = RailItems.note(c)
+        if noteText <> ""
             ' Hidden from both: the name moves up to make room for the note.
             lbl.height = 40
             note = CreateObject("roSGNode", "Label")
-            note.text = "Only reachable from Search"
+            note.text = noteText
             note.width = 500
             note.translation = [20, 34]
             note.font = hrFont("pkg:/fonts/Inter-Medium.ttf", 18)
@@ -511,7 +512,19 @@ sub renderHomeRows()
         end for
         m.hrRows.appendChild(cell)
     end for
-    m.hrFooter.translation = [580, 236 + m.hrConfig.count() * 68 + 16]
+    ' Requests and the Dashboard made the list long enough to run off the
+    ' screen with a few libraries and lists: scroll it, ten rows at a time.
+    first = 0
+    if m.hrConfig.count() > 10
+        first = m.hrIndex - 5
+        if first > m.hrConfig.count() - 10 then first = m.hrConfig.count() - 10
+        if first < 0 then first = 0
+    end if
+    m.hrRows.translation = [560, 236 - first * 68]
+    m.hrRows.clippingRect = [0, first * 68, 820, 10 * 68]
+    shown = m.hrConfig.count()
+    if shown > 10 then shown = 10
+    m.hrFooter.translation = [580, 236 + shown * 68 + 16]
 end sub
 
 function hrMarkText(mark as string) as string
@@ -528,7 +541,9 @@ function hrFont(uri as string, size as integer) as object
 end function
 
 sub saveHomeRows()
-    Registry.writeJson("settings", "homeRowOrder", m.hrConfig)
+    hidden = []
+    if m.hrHidden <> invalid then hidden = m.hrHidden
+    Registry.writeJson("settings", "homeRowOrder", RailItems.mergeHidden(m.hrConfig, hidden))
 end sub
 
 sub closeHomeRowsEditor()

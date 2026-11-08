@@ -1,0 +1,203 @@
+' The season picker for a Seerr show (Apple's SeerrSeasonPlan): every aired
+' season not already on the server or asked for starts ticked; seasons on the
+' server are listed but can't be picked; season 0 (specials) never appears.
+' Pure, for tests/SeerrSeasonsTests.brs. A plan is an AA:
+'   { seasons: [{ number, episodeCount, state }], selected: { "<n>": true },
+'     partial: partialRequestsEnabled }
+' state: "requestable" (aired, missing, ticked by default), "notAired"
+' (pickable, unticked), "requested", "partiallyAvailable", "onServer".
+namespace SeerrSeasons
+
+    function plan(d as object, nowSecs as integer, partial = true as boolean) as object
+        statuses = {}
+        for each s in Seerr.getArr(d.mediaInfo, "seasons")
+            n = Seerr.getInt(s, "seasonNumber")
+            key = Seerr.numStr(n)
+            if n >= 0 and not statuses.DoesExist(key) then statuses[key] = Seerr.getInt(s, "status", 0)
+        end for
+        ' Seasons someone already asked for (a declined or failed request
+        ' doesn't count: those can be asked for again).
+        requested = {}
+        for each r in Seerr.getArr(d.mediaInfo, "requests")
+            st = Seerr.getInt(r, "status")
+            if st = 3 or st = 4 then continue for
+            for each n in Seerr.seasonNumbers(r)
+                requested[Seerr.numStr(n)] = true
+            end for
+        end for
+
+        nums = []
+        byNum = {}
+        for each s in d.seasons
+            if s.seasonNumber > 0
+                nums.push(s.seasonNumber)
+                byNum[Seerr.numStr(s.seasonNumber)] = s
+            end if
+        end for
+        seasons = []
+        selected = {}
+        for each n in Seerr.sortedUnique(nums, true)
+            key = Seerr.numStr(n)
+            s = byNum[key]
+            status = 0
+            if statuses.DoesExist(key) then status = statuses[key]
+            state = ""
+            if status = 5
+                state = "onServer"
+            else if status = 4
+                state = "partiallyAvailable"
+            else if status = 2 or status = 3
+                state = "requested"
+            else if requested.DoesExist(key)
+                state = "requested"
+            else
+                aired = Seerr.parseDate(s.airDate)
+                if aired <> invalid and aired <= nowSecs
+                    state = "requestable"
+                    selected[key] = true
+                else
+                    state = "notAired"
+                end if
+            end if
+            seasons.push({ number: n, episodeCount: s.episodeCount, state: state })
+        end for
+        return { seasons: seasons, selected: selected, partial: partial }
+    end function
+
+    function isPickable(state as string) as boolean
+        return state = "requestable" or state = "notAired"
+    end function
+
+    ' Aired seasons nobody has asked for and the server doesn't have.
+    function missing(p as object) as object
+        out = []
+        for each s in p.seasons
+            if s.state = "requestable" then out.push(s.number)
+        end for
+        return out
+    end function
+
+    function hasMissing(p as object) as boolean
+        return missing(p).count() > 0
+    end function
+
+    function anyPickable(p as object) as boolean
+        for each s in p.seasons
+            if isPickable(s.state) then return true
+        end for
+        return false
+    end function
+
+    function isSelected(p as object, n as integer) as boolean
+        return p.selected.DoesExist(Seerr.numStr(n))
+    end function
+
+    ' What POST /request gets: sorted, never 0.
+    function requestSeasons(p as object) as object
+        nums = []
+        for each s in p.seasons
+            if isSelected(p, s.number) then nums.push(s.number)
+        end for
+        return Seerr.sortedUnique(nums, true)
+    end function
+
+    function allMissingSelected(p as object) as boolean
+        miss = missing(p)
+        if miss.count() = 0 then return false
+        for each n in miss
+            if not isSelected(p, n) then return false
+        end for
+        return true
+    end function
+
+    function buttonTitle(p as object) as string
+        c = requestSeasons(p).count()
+        if c = 1 then return "Request 1 season"
+        return "Request " + Seerr.numStr(c) + " seasons"
+    end function
+
+    ' A season number toggled; seasons that can't be picked stay as they are.
+    ' With partial requests off on the server a show is requested whole, so
+    ' any toggle selects every missing season.
+    function toggle(p as object, n as integer) as object
+        found = invalid
+        for each s in p.seasons
+            if s.number = n then found = s
+        end for
+        if found = invalid or not isPickable(found.state) then return p
+        sel = {}
+        if not p.partial
+            for each k in missing(p)
+                sel[Seerr.numStr(k)] = true
+            end for
+        else
+            sel.Append(p.selected)
+            key = Seerr.numStr(n)
+            if sel.DoesExist(key) then sel.Delete(key) else sel[key] = true
+        end if
+        return { seasons: p.seasons, selected: sel, partial: p.partial }
+    end function
+
+    function setAllMissing(p as object, turnOn as boolean) as object
+        sel = {}
+        if turnOn
+            sel.Append(p.selected)
+            for each k in missing(p)
+                sel[Seerr.numStr(k)] = true
+            end for
+        end if
+        return { seasons: p.seasons, selected: sel, partial: p.partial }
+    end function
+
+    ' The picker's lines: a season, or a onRun of seasons on the server
+    ' ("Seasons 1–9 · On server"). { id, title, detail, seasons, pickable }.
+    function rows(p as object) as object
+        out = []
+        onRun = []
+        for each s in p.seasons
+            if s.state = "onServer"
+                onRun.push(s.number)
+                continue for
+            end if
+            flushRun(out, onRun)
+            onRun = []
+            out.push({
+                id: "season-" + Seerr.numStr(s.number), title: "Season " + Seerr.numStr(s.number),
+                detail: detail(s), seasons: [s.number], pickable: p.partial and isPickable(s.state)
+            })
+        end for
+        flushRun(out, onRun)
+        return out
+    end function
+
+    sub flushRun(out as object, onRun as object)
+        if onRun.count() = 0 then return
+        first = onRun[0]
+        last = onRun[onRun.count() - 1]
+        title = "Season " + Seerr.numStr(first)
+        if onRun.count() > 1 then title = "Seasons " + Seerr.numStr(first) + Chr(8211) + Seerr.numStr(last)
+        out.push({ id: "server-" + Seerr.numStr(first), title: title, detail: "On server", seasons: onRun, pickable: false })
+    end sub
+
+    function detail(s as object) as string
+        if s.state = "requestable"
+            if s.episodeCount <= 0 then return ""
+            if s.episodeCount = 1 then return "1 episode"
+            return Seerr.numStr(s.episodeCount) + " episodes"
+        end if
+        if s.state = "notAired" then return "Not aired"
+        if s.state = "requested" then return "Requested"
+        if s.state = "partiallyAvailable" then return "Partly on server"
+        return "On server"
+    end function
+
+    ' A row is ticked when every season it stands for is selected.
+    function rowSelected(p as object, r as object) as boolean
+        if not r.pickable then return false
+        for each n in r.seasons
+            if not isSelected(p, n) then return false
+        end for
+        return true
+    end function
+
+end namespace

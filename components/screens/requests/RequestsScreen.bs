@@ -1,0 +1,654 @@
+import "pkg:/source/utils/Seerr.bs"
+import "pkg:/source/utils/Confirm.bs"
+
+' The Requests page. Rules: Seerr.bs; wire: SeerrTask. Three tabs:
+'   Discover - Seerr web's Discover rows (Recent Requests if permitted,
+'              Trending, Popular / Upcoming Movies and Series, the
+'              Watchlist when it has anything), each poster with its pill;
+'              a row pages on as focus nears its end.
+'   Requests - Seerr web's /requests: filter chips, Everyone / Mine for
+'              those who may see everyone's (Everyone first, the default),
+'              the count summary, newest first, paged; OK on a request
+'              offers what the account may do, destructive ones confirmed
+'              Cancel-first.
+'   Search   - Seerr's search, titles on the server included.
+' Zones: "tabs" and "chips" are virtual (the screen keeps focus); "content"
+' gives real focus to the row list or the request list, whose unconsumed
+' Up comes back here.
+
+sub init()
+    m.tabsGroup = m.top.findNode("tabs")
+    m.chipsGroup = m.top.findNode("chips")
+    m.summaryLabel = m.top.findNode("summaryLabel")
+    m.messageLabel = m.top.findNode("messageLabel")
+    m.discoverRows = m.top.findNode("discoverRows")
+    m.requestList = m.top.findNode("requestList")
+    m.task = m.top.findNode("seerrTask")
+    m.task.observeFieldScoped("response", "onResponse")
+    m.task.control = "RUN"
+
+    m.discoverRows.observeFieldScoped("rowItemSelected", "onDiscoverSelected")
+    m.discoverRows.observeFieldScoped("rowItemFocused", "onDiscoverFocused")
+    m.requestList.observeFieldScoped("itemSelected", "onRequestSelected")
+    m.requestList.observeFieldScoped("itemFocused", "onRequestFocused")
+
+    m.tabs = [{ id: "discover", title: "Discover" }, { id: "requests", title: "Requests" }, { id: "search", title: "Search" }]
+    m.tabIdx = 0
+    m.zone = "tabs"
+    m.chipIdx = 0
+    m.gen = 0
+
+    m.discover = invalid      ' rows from the task
+    m.discoverContent = invalid
+    m.pagingRows = {}
+    m.searchQuery = ""
+    m.searchItems = invalid
+    m.searchContent = invalid
+
+    m.filterIdx = 0
+    m.scope = "everyone"
+    m.rows = invalid
+    m.fetched = 0
+    m.canMore = false
+    m.listLoading = false
+    m.summary = ""
+    m.listContent = invalid
+    m.pendingRow = invalid
+    m.pendingAction = ""
+    m.dirty = false
+
+    m.global.observeFieldScoped("seerrState", "onAccountChanged")
+    m.global.observeFieldScoped("seerrVersion", "onRequestsChanged")
+    m.top.observeField("focusedChild", "onFocusChanged")
+    m.top.observeField("visible", "onVisibleChanged")
+    onAccountChanged()
+end sub
+
+' ---------- State ----------
+
+function myId() as integer
+    u = m.global.seerrUser
+    if u = invalid or u.id = invalid then return -1
+    return u.id
+end function
+
+function myPermissions() as integer
+    u = m.global.seerrUser
+    if u = invalid or u.permissions = invalid then return 0
+    return u.permissions
+end function
+
+function currentTab() as string
+    return m.tabs[m.tabIdx].id
+end function
+
+sub onAccountChanged()
+    m.discover = invalid
+    m.rows = invalid
+    m.searchItems = invalid
+    m.discoverContent = invalid
+    if Seerr.isActive(m.global.seerrState) then loadTab()
+    render()
+end sub
+
+' A request sent, approved, declined or cancelled anywhere: reload what is
+' on screen when it next shows.
+sub onRequestsChanged()
+    m.dirty = true
+    if m.top.visible then refreshDirty()
+end sub
+
+sub onVisibleChanged()
+    if m.top.visible then refreshDirty()
+end sub
+
+sub refreshDirty()
+    if not m.dirty or not Seerr.isActive(m.global.seerrState) then return
+    m.dirty = false
+    m.discover = invalid
+    m.discoverContent = invalid
+    m.rows = invalid
+    loadTab()
+end sub
+
+sub onFocusChanged()
+    if m.top.hasFocus()
+        ' Focus handed to the screen itself (descend from the rail): the
+        ' content keeps it if it had it.
+        if m.zone = "content" and contentNode() <> invalid
+            contentNode().setFocus(true)
+            return
+        end if
+        if m.zone = "content" then m.zone = "tabs"
+    end if
+    drawTabs()
+    drawChips()
+end sub
+
+sub loadTab()
+    if not Seerr.isActive(m.global.seerrState) then return
+    m.gen = m.gen + 1
+    tabId = currentTab()
+    if tabId = "discover" and m.discover = invalid
+        m.messageLabel.text = "Loading..."
+        m.task.request = { action: "discover", context: m.gen.ToStr() }
+    else if tabId = "requests" and m.rows = invalid
+        m.messageLabel.text = "Loading..."
+        loadList(true)
+    end if
+end sub
+
+sub loadList(fromStart as boolean)
+    if fromStart
+        m.fetched = 0
+        m.canMore = false
+        m.rows = invalid
+        m.listContent = invalid
+        m.gen = m.gen + 1
+    end if
+    m.listLoading = true
+    filter = Seerr.filters()[m.filterIdx].id
+    m.task.request = { action: "requestList", filter: filter, scope: m.scope, skip: m.fetched, take: Seerr.PAGE_SIZE, context: m.gen.ToStr() }
+end sub
+
+' ---------- Responses ----------
+
+sub onResponse()
+    r = m.task.response
+    if r = invalid then return
+    if r.action = "discover"
+        if r.context <> m.gen.ToStr() then return
+        if r.success = true
+            m.discover = r.rows
+            m.discoverContent = invalid
+            m.messageLabel.text = ""
+        else
+            m.discover = []
+            m.messageLabel.text = r.error
+        end if
+        render()
+    else if r.action = "discoverMore"
+        m.pagingRows.Delete(r.slider)
+        if r.success = true then appendDiscover(r)
+    else if r.action = "requestList"
+        if r.context <> m.gen.ToStr() then return
+        m.listLoading = false
+        if r.success <> true
+            if m.rows = invalid then m.rows = []
+            m.canMore = false
+            m.messageLabel.text = r.error
+            render()
+            return
+        end if
+        m.messageLabel.text = ""
+        first = (m.rows = invalid)
+        if first
+            m.rows = r.rows
+            m.summary = r.summary
+        else
+            m.rows = Seerr.appendRows(m.rows, r.rows)
+        end if
+        m.fetched = r.fetched
+        m.canMore = Seerr.canLoadMore(r.fetched, r.total, r.pageCount, r.take)
+        if first then render() else appendList(r.rows)
+    else if r.action = "search"
+        if r.query <> m.searchQuery then return
+        if r.success = true then m.searchItems = r.items else m.searchItems = []
+        m.searchContent = invalid
+        m.messageLabel.text = ""
+        if r.success <> true then m.messageLabel.text = r.error
+        if r.success = true and m.searchItems.count() = 0 then m.messageLabel.text = "Nothing found for " + Chr(34) + m.searchQuery + Chr(34)
+        render()
+    else if r.action = "act"
+        if r.success = true
+            filter = Seerr.filters()[m.filterIdx].id
+            d = CreateObject("roDateTime")
+            utc = d.AsSeconds()
+            d.ToLocalTime()
+            m.rows = Seerr.afterAction(m.rows, r.id, r.done, filter, utc, d.AsSeconds() - utc)
+            ' This screen is already up to date; other screens reload.
+            m.dirty = false
+            m.listContent = invalid
+            render()
+        else
+            m.global.toastMessage = { message: r.error }
+        end if
+    end if
+end sub
+
+' ---------- Drawing ----------
+
+sub render()
+    active = Seerr.isActive(m.global.seerrState)
+    m.discoverRows.visible = false
+    m.requestList.visible = false
+    m.chipsGroup.visible = false
+    m.summaryLabel.visible = false
+    m.messageLabel.translation = [60, 300]
+    if not active
+        if m.global.seerrState = "expired"
+            m.messageLabel.text = "Your sign-in to " + m.global.seerrTitle + " expired. Press OK to sign in again."
+        else
+            m.messageLabel.text = "Connect a Seerr account in Settings > Requests. Press OK to set it up."
+        end if
+        m.zone = "tabs"
+        drawTabs()
+        return
+    end if
+    tabId = currentTab()
+    if tabId = "discover"
+        if m.discover <> invalid and m.discover.count() > 0
+            if m.discoverContent = invalid then m.discoverContent = discoverContent(m.discover)
+            if m.discoverRows.content = invalid or not m.discoverRows.content.isSameNode(m.discoverContent) then m.discoverRows.content = m.discoverContent
+            m.discoverRows.visible = true
+        end if
+    else if tabId = "search"
+        m.messageLabel.translation = [60, 200]
+        if m.searchItems = invalid
+            m.messageLabel.text = "Press OK on Search to look for a movie or show on " + m.global.seerrTitle + "."
+        else if m.searchItems.count() > 0
+            if m.searchContent = invalid then m.searchContent = discoverContent([{ id: "search", title: "Results for " + Chr(34) + m.searchQuery + Chr(34), items: m.searchItems }])
+            m.discoverRows.content = m.searchContent
+            m.discoverRows.visible = true
+        end if
+    else
+        m.chipsGroup.visible = true
+        m.summaryLabel.visible = m.summary <> ""
+        m.summaryLabel.text = m.summary
+        if m.rows <> invalid
+            if m.rows.count() = 0 and m.messageLabel.text = ""
+                m.messageLabel.text = "No requests here."
+            end if
+            if m.rows.count() > 0
+                if m.listContent = invalid
+                    m.listContent = CreateObject("roSGNode", "ContentNode")
+                    for each row in m.rows
+                        addListItem(m.listContent, row)
+                    end for
+                end if
+                if m.requestList.content = invalid or not m.requestList.content.isSameNode(m.listContent) then m.requestList.content = m.listContent
+                m.requestList.visible = true
+            end if
+        end if
+    end if
+    ' Hand focus back before a list hides: an invisible list holding focus
+    ' swallows every key.
+    if m.zone = "content" and (contentNode() = invalid or not contentNode().visible)
+        m.zone = "tabs"
+        m.top.setFocus(true)
+    end if
+    drawTabs()
+    drawChips()
+end sub
+
+function contentNode() as dynamic
+    if currentTab() = "requests"
+        if m.requestList.visible then return m.requestList
+        return invalid
+    end if
+    if m.discoverRows.visible then return m.discoverRows
+    return invalid
+end function
+
+function discoverContent(rows as object) as object
+    root = CreateObject("roSGNode", "ContentNode")
+    for each r in rows
+        rowNode = root.createChild("ContentNode")
+        rowNode.title = r.title
+        rowNode.addFields({ sliderId: r.id })
+        for each it in r.items
+            addPoster(rowNode, it)
+        end for
+    end for
+    return root
+end function
+
+sub addPoster(rowNode as object, it as object)
+    child = rowNode.createChild("ContentNode")
+    child.shortDescriptionLine1 = it.title
+    line2 = ""
+    if it.year > 0 then line2 = Str(it.year).Trim()
+    child.shortDescriptionLine2 = line2
+    child.HDPosterUrl = Seerr.posterUrl(it.posterPath, 342)
+    pill = ""
+    color = ""
+    if it.tag <> invalid
+        pill = it.tag.label
+        color = Seerr.toneColor(it.tag.tone)
+    end if
+    child.addFields({ itemJson: "", isCircular: false, pillText: pill, pillColor: color, seerrJson: FormatJSON({ kind: it.kind, tmdbId: it.tmdbId, title: it.title, posterPath: it.posterPath }) })
+end sub
+
+sub addListItem(root as object, row as object)
+    child = root.createChild("ContentNode")
+    child.title = Seerr.displayTitle(row)
+    child.HDPosterUrl = Seerr.posterUrl(row.posterPath, 185)
+    d = CreateObject("roDateTime")
+    utc = d.AsSeconds()
+    d.ToLocalTime()
+    tz = d.AsSeconds() - utc
+    line = Seerr.kindLabel(row)
+    if Seerr.effectiveScope(myPermissions(), m.scope) = "everyone" then line = line + "  " + Chr(183) + "  " + Seerr.requesterName(row.request.requestedBy)
+    line = line + "  " + Chr(183) + "  " + Seerr.requestedLabel(row.request, utc, tz)
+    child.shortDescriptionLine1 = line
+    child.shortDescriptionLine2 = row.subtitle
+    pills = []
+    rs = Seerr.requestStatusLabel(row.request)
+    ms = Seerr.mediaStatusLabel(row.request)
+    if ms <> invalid then pills.push({ label: ms.label, color: Seerr.toneColor(ms.tone) })
+    pills.push({ label: rs.label, color: Seerr.toneColor(rs.tone) })
+    p = Seerr.progress(row.request.media)
+    child.addFields({ pills: pills, progress: p })
+end sub
+
+sub appendList(more as object)
+    if m.listContent = invalid
+        render()
+        return
+    end if
+    ' Append to the live node: re-assigning content snaps focus to item 0.
+    have = m.listContent.getChildCount()
+    for i = have to m.rows.count() - 1
+        addListItem(m.listContent, m.rows[i])
+    end for
+end sub
+
+sub appendDiscover(r as object)
+    if m.discover = invalid or m.discoverContent = invalid then return
+    for i = 0 to m.discover.count() - 1
+        if m.discover[i].id = r.slider
+            row = m.discover[i]
+            before = row.items.count()
+            row.items = Seerr.appendItems(row.items, r.items)
+            row.page = r.page
+            row.totalPages = r.totalPages
+            m.discover[i] = row
+            rowNode = m.discoverContent.getChild(i)
+            for k = before to row.items.count() - 1
+                addPoster(rowNode, row.items[k])
+            end for
+            return
+        end if
+    end for
+end sub
+
+sub drawTabs()
+    while m.tabsGroup.getChildCount() > 0
+        m.tabsGroup.removeChildIndex(0)
+    end while
+    focused = m.top.isInFocusChain() and m.zone = "tabs"
+    x = 0
+    for i = 0 to m.tabs.count() - 1
+        x = x + drawChip(m.tabsGroup, x, m.tabs[i].title, focused and i = m.tabIdx, i = m.tabIdx) + 16
+    end for
+end sub
+
+' Requests tabId: the filter, then (when the account may see everyone's) the
+' scope.
+function chipDefs() as object
+    defs = []
+    fs = Seerr.filters()
+    for i = 0 to fs.count() - 1
+        defs.push({ kind: "filter", idx: i, title: fs[i].title, selected: i = m.filterIdx })
+    end for
+    for each s in Seerr.scopes(myPermissions())
+        defs.push({ kind: "scope", id: s.id, title: s.title, selected: Seerr.effectiveScope(myPermissions(), m.scope) = s.id })
+    end for
+    return defs
+end function
+
+sub drawChips()
+    while m.chipsGroup.getChildCount() > 0
+        m.chipsGroup.removeChildIndex(0)
+    end while
+    if currentTab() <> "requests" then return
+    focused = m.top.isInFocusChain() and m.zone = "chips"
+    defs = chipDefs()
+    x = 0
+    for i = 0 to defs.count() - 1
+        ' A gap between the filters and the scope.
+        if i > 0 and defs[i].kind = "scope" and defs[i - 1].kind = "filter" then x = x + 40
+        x = x + drawChip(m.chipsGroup, x, defs[i].title, focused and i = m.chipIdx, defs[i].selected) + 12
+    end for
+end sub
+
+' One chip; returns its width.
+function drawChip(parent as object, x as integer, text as string, isFocused as boolean, isSelected as boolean) as integer
+    w = 48 + Len(text) * 15
+    bg = CreateObject("roSGNode", "Poster")
+    bg.translation = [x, 0]
+    bg.width = w
+    bg.height = 52
+    if isFocused
+        bg.uri = "pkg:/images/btn_white_focus.9.png"
+    else if isSelected
+        bg.uri = "pkg:/images/pill_white.9.png"
+        bg.blendColor = "#BD3EEDFF"
+    else
+        bg.uri = "pkg:/images/btn_dark.9.png"
+    end if
+    parent.appendChild(bg)
+    lbl = CreateObject("roSGNode", "Label")
+    lbl.text = text
+    lbl.translation = [x, 0]
+    lbl.width = w
+    lbl.height = 52
+    lbl.horizAlign = "center"
+    lbl.vertAlign = "center"
+    f = CreateObject("roSGNode", "Font")
+    f.uri = "pkg:/fonts/Inter-Bold.ttf"
+    f.size = 24
+    lbl.font = f
+    if isFocused then lbl.color = "#000000" else lbl.color = "#FFFFFF"
+    parent.appendChild(lbl)
+    return w
+end function
+
+' ---------- Selection ----------
+
+sub onDiscoverSelected()
+    sel = m.discoverRows.rowItemSelected
+    if sel = invalid or sel.count() < 2 or m.discoverRows.content = invalid then return
+    rowNode = m.discoverRows.content.getChild(sel[0])
+    if rowNode = invalid then return
+    item = rowNode.getChild(sel[1])
+    if item = invalid or item.seerrJson = invalid then return
+    target = ParseJSON(item.seerrJson)
+    if target <> invalid then m.top.selectedItem = { _seerr: target }
+end sub
+
+' Paging: a row's next page once focus is among its last few.
+sub onDiscoverFocused()
+    if currentTab() <> "discover" or m.discover = invalid then return
+    f = m.discoverRows.rowItemFocused
+    if f = invalid or f.count() < 2 or f[0] < 0 or f[0] >= m.discover.count() then return
+    row = m.discover[f[0]]
+    if not Seerr.rowCanLoadMore(row) or m.pagingRows.DoesExist(row.id) then return
+    if not Seerr.nearEnd(f[1], row.items.count()) then return
+    m.pagingRows[row.id] = true
+    m.task.request = { action: "discoverMore", slider: row.id, page: row.page + 1 }
+end sub
+
+sub onRequestFocused()
+    if m.rows = invalid or not m.canMore or m.listLoading then return
+    if Seerr.nearEnd(m.requestList.itemFocused, m.rows.count()) then loadList(false)
+end sub
+
+' OK on a request: open the title, or one of the actions the account has.
+sub onRequestSelected()
+    idx = m.requestList.itemSelected
+    if m.rows = invalid or idx < 0 or idx >= m.rows.count() then return
+    row = m.rows[idx]
+    m.pendingRow = row
+    m.dialogActions = ["open"]
+    labels = ["View Title"]
+    for each a in Seerr.actions(row, myPermissions(), myId())
+        m.dialogActions.push(a)
+        labels.push(Seerr.actionTitle(a))
+    end for
+    m.dialogActions.push("close")
+    labels.push("Close")
+    dialog = CreateObject("roSGNode", "StandardMessageDialog")
+    dialog.title = Seerr.displayTitle(row)
+    dialog.message = [Seerr.kindLabel(row) + "  " + Chr(183) + "  " + Seerr.requesterName(row.request.requestedBy), row.subtitle]
+    dialog.buttons = labels
+    dialog.observeFieldScoped("buttonSelected", "onRowDialog")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onRowDialog()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    i = dialog.buttonSelected
+    dialog.close = true
+    if i < 0 or i >= m.dialogActions.count() or m.pendingRow = invalid then return
+    a = m.dialogActions[i]
+    row = m.pendingRow
+    if a = "open"
+        m.top.selectedItem = { _seerr: { kind: row.kind, tmdbId: row.tmdbId, title: row.title, posterPath: row.posterPath } }
+    else if a = "close"
+        return
+    else if Seerr.isDestructive(a)
+        m.pendingAction = a
+        confirmDialog = CreateObject("roSGNode", "StandardMessageDialog")
+        confirmDialog.title = Seerr.actionTitle(a) + "?"
+        confirmDialog.message = [Seerr.displayTitle(row) + "  " + Chr(183) + "  " + Seerr.requesterName(row.request.requestedBy)]
+        confirmDialog.buttons = Confirm.buttons(Seerr.actionTitle(a))
+        confirmDialog.observeFieldScoped("buttonSelected", "onConfirmAction")
+        m.top.getScene().dialog = confirmDialog
+    else
+        sendAction(a, row)
+    end if
+end sub
+
+sub onConfirmAction()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    ok = Confirm.isConfirmed(dialog.buttonSelected)
+    dialog.close = true
+    if ok and m.pendingRow <> invalid then sendAction(m.pendingAction, m.pendingRow)
+end sub
+
+sub sendAction(a as string, row as object)
+    m.task.request = { action: "act", action2: a, id: row.id, row: row }
+end sub
+
+sub openSearch()
+    dialog = CreateObject("roSGNode", "StandardKeyboardDialog")
+    dialog.title = "Search " + m.global.seerrTitle
+    dialog.buttons = ["Search", "Cancel"]
+    if m.searchQuery <> "" then dialog.text = m.searchQuery
+    dialog.observeFieldScoped("buttonSelected", "onSearchDialog")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onSearchDialog()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    go = dialog.buttonSelected = 0
+    text = dialog.text
+    dialog.close = true
+    if not go or text.Trim() = "" then return
+    m.searchQuery = text.Trim()
+    m.searchItems = invalid
+    m.messageLabel.text = "Searching..."
+    m.task.request = { action: "search", query: m.searchQuery, includeAvailable: true }
+    render()
+end sub
+
+' ---------- Keys ----------
+
+sub selectTab(i as integer)
+    if i = m.tabIdx then return
+    m.tabIdx = i
+    m.chipIdx = 0
+    m.messageLabel.text = ""
+    loadTab()
+    render()
+end sub
+
+sub enterContent()
+    node = contentNode()
+    if node = invalid then return
+    m.zone = "content"
+    node.setFocus(true)
+    drawTabs()
+    drawChips()
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if not Seerr.isActive(m.global.seerrState)
+        if key = "OK"
+            m.top.openSeerr = true
+            return true
+        end if
+        return false
+    end if
+    if m.zone = "content"
+        ' The list's own Up at its top edge, or Back.
+        if key = "up" or key = "back"
+            if currentTab() = "requests" then m.zone = "chips" else m.zone = "tabs"
+            m.top.setFocus(true)
+            drawTabs()
+            drawChips()
+            return true
+        end if
+        return false
+    end if
+    if m.zone = "chips"
+        n = chipDefs().count()
+        if key = "left"
+            if m.chipIdx = 0 then return false
+            m.chipIdx = m.chipIdx - 1
+        else if key = "right"
+            if m.chipIdx < n - 1 then m.chipIdx = m.chipIdx + 1
+        else if key = "up" or key = "back"
+            m.zone = "tabs"
+            drawTabs()
+        else if key = "down"
+            enterContent()
+            return true
+        else if key = "OK"
+            c = chipDefs()[m.chipIdx]
+            if c.kind = "filter" then m.filterIdx = c.idx else m.scope = c.id
+            m.summary = ""
+            m.messageLabel.text = "Loading..."
+            loadList(true)
+            render()
+            return true
+        end if
+        drawChips()
+        return true
+    end if
+    ' Tabs.
+    if key = "left"
+        if m.tabIdx = 0 then return false
+        selectTab(m.tabIdx - 1)
+        return true
+    else if key = "right"
+        if m.tabIdx < m.tabs.count() - 1 then selectTab(m.tabIdx + 1)
+        return true
+    else if key = "down"
+        if currentTab() = "requests"
+            m.zone = "chips"
+            drawTabs()
+            drawChips()
+        else
+            enterContent()
+        end if
+        return true
+    else if key = "OK"
+        if currentTab() = "search"
+            openSearch()
+        else if currentTab() = "requests"
+            m.zone = "chips"
+        else
+            enterContent()
+        end if
+        drawTabs()
+        drawChips()
+        return true
+    end if
+    return false
+end function

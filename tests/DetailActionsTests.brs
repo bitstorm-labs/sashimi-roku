@@ -119,6 +119,11 @@ sub testOtherMore(t as object)
     eq(t, "admin movie More", labelsOf(DetailActions_moreItems({ itemType: "Movie", canAddToChannel: true })), "Add to Channel|Add to Favorites")
     eq(t, "movie More", labelsOf(DetailActions_moreItems({ itemType: "Movie" })), "Add to Favorites")
     eq(t, "admin series More has no Shuffle", labelsOf(DetailActions_moreItems({ itemType: "Series", canAddToChannel: true })), "Add to Channel|Add to Favorites")
+    ' Seerr says aired seasons are missing: offer to request them (Apple's
+    ' SeerrMissingSeasonsOffer).
+    eq(t, "series missing seasons", labelsOf(DetailActions_moreItems({ itemType: "Series", missingSeasons: true })), "Request Missing Seasons|Add to Favorites")
+    eq(t, "not for another server's series", labelsOf(DetailActions_moreItems({ itemType: "Series", missingSeasons: true, pinnedLabel: "Other" })), "Add to Favorites")
+    eq(t, "not for a movie", labelsOf(DetailActions_moreItems({ itemType: "Movie", missingSeasons: true })), "Add to Favorites")
 end sub
 
 sub testSeasonChipMenu(t as object)

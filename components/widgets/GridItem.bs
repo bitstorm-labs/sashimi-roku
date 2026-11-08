@@ -113,6 +113,30 @@ end sub
 ' these fields; every other cell is reset so a recycled one never keeps them.
 sub applyListMarks(content as object)
     isNew = (not m.isCircular and content.doesExist("isNew") and content.isNew = true)
+    ' A Seerr title's status pill (Search's "Not in your library" row, the
+    ' Requests page) rides the same capsule, sized to its word and tinted.
+    pill = ""
+    if not m.isCircular and content.doesExist("pillText") and content.pillText <> invalid then pill = content.pillText
+    m.newBadgeLabel.text = "NEW"
+    m.newBadge.uri = "pkg:/images/badge_capsule.9.png"
+    m.newBadge.blendColor = "#FFFFFFFF"
+    m.newBadge.width = 62
+    m.newBadgeLabel.width = 62
+    m.newBadge.translation = [140, 8]
+    m.newBadgeLabel.translation = [140, 8]
+    if pill <> ""
+        w = 24 + Len(pill) * 10
+        m.newBadgeLabel.text = pill
+        m.newBadge.width = w
+        m.newBadgeLabel.width = w
+        m.newBadge.translation = [202 - w, 8]
+        m.newBadgeLabel.translation = [202 - w, 8]
+        if content.doesExist("pillColor") and content.pillColor <> invalid and content.pillColor <> ""
+            m.newBadge.uri = "pkg:/images/pill_white.9.png"
+            m.newBadge.blendColor = content.pillColor
+        end if
+        isNew = true
+    end if
     m.newBadge.visible = isNew
     m.newBadgeLabel.visible = isNew
     m.watchedBadge.visible = (not isNew and not m.isCircular and content.doesExist("listPlayed") and content.listPlayed = true)

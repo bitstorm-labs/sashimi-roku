@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!-- Dashboard for administrators (layout A of the approved design):
      Now playing cards on top, Recent activity and Health side by side below.
-     Pushed full-width (the rail is hidden on pushed screens). Everything it
+     A side-menu root screen, scaled into the space beside the rail. Everything it
      shows comes from source/utils/AdminDash.bs. -->
 <component name="AdminDashboardScreen" extends="Group">
     <interface>
         <!-- Back, or the server refused (401/403): MainScene pops the screen. -->
         <field id="done" type="boolean" alwaysNotify="true" />
+        <!-- True when it is the side menu's Dashboard (a root screen): Back
+             goes Home like any root screen, and polling follows `visible`. -->
+        <field id="embedded" type="boolean" value="false" />
     </interface>
     <children>
         <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />

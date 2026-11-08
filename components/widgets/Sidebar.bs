@@ -2,6 +2,7 @@ import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/RailItems.bs"
+import "pkg:/source/utils/Seerr.bs"
 
 ' Virtual-focus widget (the sidebar node holds focus; rows never do). Up/down
 ' roams the highlight, switching content on the move (Plex behavior); OK/right
@@ -73,6 +74,10 @@ sub init()
 
     m.top.observeField("focusedChild", "onFocusChanged")
     m.global.observeFieldScoped("homeRowsVersion", "onHomeRowsChanged")
+    ' Requests comes and goes with the Seerr account, the Dashboard with the
+    ' administrator flag.
+    m.global.observeFieldScoped("seerrState", "onHomeRowsChanged")
+    m.global.observeFieldScoped("isAdministrator", "onHomeRowsChanged")
 
     buildItems()
     syncSelection()
@@ -210,11 +215,14 @@ sub buildItems()
         libraryIds.push(lib.Id)
     end for
     pool["lists"] = { id: "lists", kind: "lists", title: "Lists", iconLocal: "pkg:/images/nav_lists.png", iconSelected: "pkg:/images/nav_lists_selected.png" }
+    pool["requests"] = { id: "requests", kind: "requests", title: "Requests", iconLocal: "pkg:/images/nav_requests.png", iconSelected: "pkg:/images/nav_requests_selected.png" }
+    pool["dashboard"] = { id: "dashboard", kind: "dashboard", title: "Dashboard", iconLocal: "pkg:/images/nav_dashboard.png", iconSelected: "pkg:/images/nav_dashboard_selected.png" }
     pool["search"] = { id: "search", kind: "search", title: "Search", iconLocal: "pkg:/images/nav_search.png", iconSelected: "pkg:/images/nav_search_selected.png" }
     pool["settings"] = { id: "settings", kind: "settings", title: "Settings", iconLocal: "pkg:/images/nav_settings.png", iconSelected: "pkg:/images/nav_settings_selected.png" }
     ' Which of them show, and in what order: Settings > Home & Side Menu.
     m.items = []
-    for each id in RailItems.ids(libraryIds, Registry.readJson("settings", "homeRowOrder"))
+    available = { requests: Seerr.menuAvailable(m.global.seerrState), dashboard: m.global.isAdministrator = true }
+    for each id in RailItems.ids(libraryIds, Registry.readJson("settings", "homeRowOrder"), available)
         if pool.DoesExist(id) then m.items.push(pool[id])
     end for
 end sub
