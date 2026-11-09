@@ -30,6 +30,7 @@ namespace ListsApi
         if op = "move" then return result(Http.send("POST", "/Playlists/" + request.listId + "/Items/" + request.entryId + "/Move/" + request.index.ToStr()))
         if op = "delete" then return result(Http.send("DELETE", "/Items/" + request.listId))
         if op = "watchlist" then return watchlistPage(me)
+        if op = "watchlistView" then return watchlistView()
         if op = "watchlistAdd" then return WatchlistApi.add(request.body)
         if op = "watchlistRemove" then return WatchlistApi.remove(request.entryId)
         if op = "watchlistDismiss" then return WatchlistApi.dismissCard()
@@ -190,6 +191,12 @@ namespace ListsApi
         v = WatchlistApi.view()
         if not v.available then return invalid
         return { count: v.entries.count(), cover: Watchlist.coverSources(v.entries) }
+    end function
+
+    ' Just the plugin's view (a Seerr title's Add to List): no library items.
+    function watchlistView() as object
+        v = WatchlistApi.view()
+        return { success: not v.failed, available: v.available, failed: v.failed, view: v }
     end function
 
     ' The Watchlist page: the plugin's view, plus the library items of the

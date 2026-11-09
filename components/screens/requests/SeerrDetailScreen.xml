@@ -52,5 +52,7 @@
             <Group id="pickerRows" translation="[560, 200]" />
         </Group>
         <SeerrTask id="seerrTask" />
+        <!-- The Watchlist (Sashimi Lists plugin): Add to List on this title. -->
+        <JellyfinApi id="apiTask" />
     </children>
 </component>
