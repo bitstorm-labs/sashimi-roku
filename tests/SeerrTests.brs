@@ -266,12 +266,12 @@ sub testRowLabels(t as object)
         id: 8, status: 2, type: "tv", createdAt: "2026-11-02T10:00:00.000Z",
         seasons: [{ seasonNumber: 1 }, { seasonNumber: 2 }, { seasonNumber: 3 }],
         media: { tmdbId: 5, mediaType: "tv", status: 3, downloadStatus: [{ size: 100, sizeLeft: 25 }] },
-        requestedBy: { id: 3, displayName: "chad" }
+        requestedBy: { id: 3, displayName: "alex" }
     }
     r = Seerr_row(request, { "tv-5": { title: "Dune: Prophecy", posterPath: "", mediaInfo: invalid } }, nowSecs(), 0)
     eq(t, "kind label", Seerr_kindLabel(r), "Series " + Chr(183) + " S1" + Chr(8211) + "3")
     eq(t, "display title", Seerr_displayTitle(r), "Dune: Prophecy " + Chr(183) + " S1" + Chr(8211) + "3")
-    eq(t, "requester", Seerr_requesterName(r.request.requestedBy), "chad")
+    eq(t, "requester", Seerr_requesterName(r.request.requestedBy), "alex")
     eq(t, "request status", Seerr_requestStatusLabel(r.request).label + "/" + Seerr_requestStatusLabel(r.request).tone, "Approved/coming")
     eq(t, "media status", Seerr_mediaStatusLabel(r.request).label, "Processing")
     near(t, "progress", Seerr_progress(r.request.media), 0.75)
