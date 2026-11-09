@@ -72,7 +72,7 @@ sub testFromResponse(t as object)
     eq(t, "0 fails", Watchlist_fromResponse(0, invalid).failed, true)
     eq(t, "200 junk fails", Watchlist_fromResponse(200, "nope").failed, true)
     body = {
-        plex: { username: "chad", needsReconnect: false }, cardDismissed: true,
+        plex: { username: "alex", needsReconnect: false }, cardDismissed: true,
         entries: [
             { id: "a", type: "Movie", title: "Arrival", year: 2016, tmdbId: "329865", itemId: "abc", addedAt: "2026-11-09T00:00:00Z" },
             { id: "b", type: "Series", title: "Severance", tvdbId: "371980", itemId: invalid },
@@ -83,7 +83,7 @@ sub testFromResponse(t as object)
     v = Watchlist_fromResponse(200, body)
     eq(t, "200 available", v.available, true)
     eq(t, "200 not failed", v.failed, false)
-    eq(t, "plex username", v.plex.username, "chad")
+    eq(t, "plex username", v.plex.username, "alex")
     eq(t, "plex reconnect", v.plex.needsReconnect, false)
     eq(t, "card dismissed", v.cardDismissed, true)
     eq(t, "movies and series with an id only", v.entries.count(), 2)
@@ -196,8 +196,8 @@ end sub
 sub testPlexCard(t as object)
     unlinked = { plex: invalid, cardDismissed: false }
     dismissed = { plex: invalid, cardDismissed: true }
-    linked = { plex: { username: "chad", needsReconnect: false }, cardDismissed: false }
-    paused = { plex: { username: "chad", needsReconnect: true }, cardDismissed: true }
+    linked = { plex: { username: "alex", needsReconnect: false }, cardDismissed: false }
+    paused = { plex: { username: "alex", needsReconnect: true }, cardDismissed: true }
     eq(t, "card when unlinked", Watchlist_showCard(unlinked), true)
     eq(t, "no card once dismissed", Watchlist_showCard(dismissed), false)
     eq(t, "no card when linked", Watchlist_showCard(linked), false)
@@ -219,13 +219,13 @@ sub testZones(t as object)
 end sub
 
 sub testLinkOutcome(t as object)
-    ok = Watchlist_linkOutcome(200, { username: "chad", needsReconnect: false })
+    ok = Watchlist_linkOutcome(200, { username: "alex", needsReconnect: false })
     eq(t, "linked", ok.kind, "linked")
-    eq(t, "linked name", ok.username, "chad")
-    c = Watchlist_linkOutcome(409, { username: "mondo", newUsername: "chad" })
+    eq(t, "linked name", ok.username, "alex")
+    c = Watchlist_linkOutcome(409, { username: "sam", newUsername: "alex" })
     eq(t, "conflict", c.kind, "conflict")
-    eq(t, "conflict current", c.username, "mondo")
-    eq(t, "conflict wanted", c.newUsername, "chad")
+    eq(t, "conflict current", c.username, "sam")
+    eq(t, "conflict wanted", c.newUsername, "alex")
     eq(t, "conflict junk body", Watchlist_linkOutcome(409, invalid).newUsername, "")
     eq(t, "plex rejected the token", Watchlist_linkOutcome(422, invalid).kind, "rejected")
     ' 401 is the Jellyfin session, not Plex: never "Plex didn't accept that sign-in".
@@ -238,11 +238,11 @@ sub testAutoLink(t as object)
     eq(t, "no watchlist: skip", Watchlist_autoLinkStep({ available: false, plex: invalid }), "skip")
     eq(t, "unlinked: first", Watchlist_autoLinkStep({ available: true, plex: invalid }), "first")
     eq(t, "linked: refresh", Watchlist_autoLinkStep({ available: true, plex: { username: "x", needsReconnect: false } }), "refresh")
-    p = Watchlist_replacePrompt("chad", "mondo")
-    eq(t, "prompt title", p.title, "Sync your Watchlist with Plex account chad instead?")
-    eq(t, "prompt message", p.message, "It syncs with mondo now.")
-    eq(t, "prompt without a name", Watchlist_replacePrompt("", "mondo").title, "Sync your Watchlist with this Plex account instead?")
-    eq(t, "switch label", Watchlist_switchLabel("chad"), "Switch to chad")
+    p = Watchlist_replacePrompt("alex", "sam")
+    eq(t, "prompt title", p.title, "Sync your Watchlist with Plex account alex instead?")
+    eq(t, "prompt message", p.message, "It syncs with sam now.")
+    eq(t, "prompt without a name", Watchlist_replacePrompt("", "sam").title, "Sync your Watchlist with this Plex account instead?")
+    eq(t, "switch label", Watchlist_switchLabel("alex"), "Switch to alex")
     eq(t, "switch label without a name", Watchlist_switchLabel(""), "Switch Account")
 end sub
 
@@ -263,7 +263,7 @@ end sub
 
 sub testMetaLine(t as object)
     unlinked = { plex: invalid, cardDismissed: false }
-    linked = { plex: { username: "chad", needsReconnect: false }, cardDismissed: false }
+    linked = { plex: { username: "alex", needsReconnect: false }, cardDismissed: false }
     eq(t, "one title", Watchlist_metaLine(1, unlinked), "1 title")
     eq(t, "many titles", Watchlist_metaLine(12, unlinked), "12 titles")
     eq(t, "empty", Watchlist_metaLine(0, unlinked), "")
