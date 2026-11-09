@@ -1,6 +1,8 @@
 import "pkg:/source/utils/Http.bs"
 import "pkg:/source/utils/SharedLists.bs"
 import "pkg:/source/utils/ListsModel.bs"
+import "pkg:/source/utils/Watchlist.bs"
+import "pkg:/source/utils/WatchlistApi.bs"
 
 ' Shared lists over the network, on the JellyfinApi task thread (one action,
 ' "lists", dispatches here by `op`). Lists are ordinary Jellyfin playlists;
@@ -27,6 +29,12 @@ namespace ListsApi
         if op = "remove" then return result(Http.send("DELETE", "/Playlists/" + request.listId + "/Items?entryIds=" + request.entryId))
         if op = "move" then return result(Http.send("POST", "/Playlists/" + request.listId + "/Items/" + request.entryId + "/Move/" + request.index.ToStr()))
         if op = "delete" then return result(Http.send("DELETE", "/Items/" + request.listId))
+        if op = "watchlist" then return watchlistPage(me)
+        if op = "watchlistView" then return watchlistView()
+        if op = "watchlistAdd" then return WatchlistApi.add(request.body)
+        if op = "watchlistRemove" then return WatchlistApi.remove(request.entryId)
+        if op = "watchlistDismiss" then return WatchlistApi.dismissCard()
+        if op = "watchlistUnlink" then return WatchlistApi.unlink()
         return { success: false }
     end function
 
@@ -174,7 +182,38 @@ namespace ListsApi
                 subscribed: subscribed.DoesExist(p.Id)
             })
         end for
-        return { success: true, lists: lists }
+        return { success: true, lists: lists, watchlist: watchlistCard() }
+    end function
+
+    ' The Lists page's Watchlist card, or invalid when the server has no
+    ' Watchlist (or it failed to load: the rest of the page still draws).
+    function watchlistCard() as dynamic
+        v = WatchlistApi.view()
+        if not v.available then return invalid
+        return { count: v.entries.count(), cover: Watchlist.coverSources(v.entries) }
+    end function
+
+    ' Just the plugin's view (a Seerr title's Add to List): no library items.
+    function watchlistView() as object
+        v = WatchlistApi.view()
+        return { success: not v.failed, available: v.available, failed: v.failed, view: v }
+    end function
+
+    ' The Watchlist page: the plugin's view, plus the library items of the
+    ' entries on the server (one /Items call) so tiles get posters and OK
+    ' opens a full detail page.
+    function watchlistPage(me as string) as object
+        v = WatchlistApi.view()
+        out = { success: not v.failed, available: v.available, failed: v.failed, view: v, items: {} }
+        for each ids in Watchlist.itemIdBatches(v.entries, 100)
+            r = Http.send("GET", "/Items?Ids=" + ids + "&userId=" + me + "&Fields=PrimaryImageAspectRatio,ProductionYear,ProviderIds&EnableUserData=true")
+            if r.ok and type(r.data) = "roAssociativeArray" and type(r.data.Items) = "roArray"
+                for each it in r.data.Items
+                    if SharedLists.isStr(it.Id) then out.items[it.Id] = it
+                end for
+            end if
+        end for
+        return out
     end function
 
     ' One list for its page. Opening it is what clears its "new": seen becomes
@@ -252,9 +291,20 @@ namespace ListsApi
     ' Add to List: what would be added (a show's first episode, never the
     ' series id), and the viewer's own lists with whether it is already there.
     function picker(me as string, item as object) as object
+        ' The Watchlist stores ids, not an episode, so a show with no
+        ' episodes yet can still go on it.
+        row = invalid
+        if Watchlist.accepts(item)
+            v = WatchlistApi.view()
+            if v.available then row = Watchlist.pickerRow(v, Watchlist.idsOfItem(item))
+        end if
         target = targetFor(me, item)
-        if target = invalid then return { success: false, error: "noAnchor" }
+        if target = invalid
+            if row <> invalid then return { success: true, lists: [row], allowNew: false, targetId: "", seriesId: "" }
+            return { success: false, error: "noAnchor" }
+        end if
         lists = []
+        if row <> invalid then lists.push(row)
         who = {}
         all = allLists(me)
         owners = pluginOwners(idsOf(all))
@@ -271,7 +321,7 @@ namespace ListsApi
                 already: ListsModel.hasTitle(e.items, target.targetId, target.seriesId)
             })
         end for
-        return { success: true, lists: lists, targetId: target.targetId, seriesId: target.seriesId }
+        return { success: true, lists: lists, allowNew: true, targetId: target.targetId, seriesId: target.seriesId }
     end function
 
     function targetFor(me as string, item as object) as dynamic

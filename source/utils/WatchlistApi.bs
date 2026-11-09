@@ -1,0 +1,51 @@
+import "pkg:/source/utils/Http.bs"
+import "pkg:/source/utils/Watchlist.bs"
+
+' The Watchlist's plugin calls, over Http.send against the active server.
+' They run on any Task thread: JellyfinApi for the page and Add to List,
+' SeerrTask for linking Plex, so the Plex token stays on that one thread.
+' Every decision about the answers is Watchlist's (tested off-device).
+namespace WatchlistApi
+
+    function view() as object
+        r = Http.send("GET", Watchlist.PATH)
+        return Watchlist.fromResponse(r.code, r.data)
+    end function
+
+    ' added=false: an entry with an agreeing id was already there.
+    function add(body as object) as object
+        r = Http.send("POST", Watchlist.PATH + "/Items", body)
+        out = { success: r.ok, added: false, entry: invalid, statusCode: r.code }
+        if r.ok and type(r.data) = "roAssociativeArray"
+            out.added = Watchlist.isTrue(r.data.added)
+            out.entry = Watchlist.normalised(r.data.entry)
+        end if
+        return out
+    end function
+
+    ' 204, also when it was already gone.
+    function remove(entryId as string) as object
+        return result(Http.send("DELETE", Watchlist.PATH + "/Items/" + entryId))
+    end function
+
+    function dismissCard() as object
+        return result(Http.send("POST", Watchlist.PATH + "/DismissCard"))
+    end function
+
+    ' The Watchlist's entries stay; only the Plex sync stops.
+    function unlink() as object
+        return result(Http.send("DELETE", Watchlist.PATH + "/Plex"))
+    end function
+
+    ' The token goes in the body and nowhere else; what comes back is only
+    ' the outcome and account names.
+    function link(token as string, replace as boolean) as object
+        r = Http.send("POST", Watchlist.PATH + "/Plex", { token: token, replace: replace })
+        return Watchlist.linkOutcome(r.code, r.data)
+    end function
+
+    function result(r as object) as object
+        return { success: r.ok, statusCode: r.code }
+    end function
+
+end namespace

@@ -1,5 +1,7 @@
 import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/SeerrSeasons.bs"
+import "pkg:/source/utils/ListsModel.bs"
+import "pkg:/source/utils/Watchlist.bs"
 
 ' A Seerr title's request page. The rules (the main button, the season plan,
 ' the quota line) are Seerr.bs / SeerrSeasons.bs; this draws them. Focus is
@@ -24,6 +26,14 @@ sub init()
     m.task = m.top.findNode("seerrTask")
     m.task.observeFieldScoped("response", "onResponse")
     m.task.control = "RUN"
+    ' A second task for the Watchlist, with its own one-at-a-time queue: task
+    ' fields coalesce same-tick writes.
+    m.api = m.top.findNode("apiTask")
+    m.api.observeFieldScoped("response", "onApiResponse")
+    m.api.control = "RUN"
+    m.queue = []
+    m.inFlight = false
+    m.watchlist = invalid    ' the plugin's view; Add to List only when available
 
     m.details = invalid
     m.plan = invalid
@@ -86,6 +96,7 @@ sub onResponse()
             return
         end if
         render()
+        if m.watchlist = invalid then send({ action: "lists", op: "watchlistView" })
     else if r.action = "requestMovie" or r.action = "requestShow"
         m.busy = false
         if r.success = true
@@ -139,6 +150,7 @@ sub render()
         m.statusLabel.text = m.action.text
     end if
     if m.libraryItem <> invalid then defs.push({ kind: "library", label: "Open in Library" })
+    if d <> invalid and m.watchlist <> invalid and m.watchlist.available then defs.push({ kind: "addToList", label: "Add to List" })
     m.buttons = defs
     if m.btnIdx >= defs.count() then m.btnIdx = 0
     ' A status line and buttons share the row: buttons move down under it.
@@ -197,7 +209,79 @@ sub activate()
         openPicker()
     else if kind = "library"
         m.top.openLibraryItem = m.libraryItem
+    else if kind = "addToList"
+        showListPicker()
     end if
+end sub
+
+' ---------- Add to List (the Watchlist only) ----------
+' Other lists are Jellyfin playlists and take library items only, so a title
+' that is not on the server can go on the Watchlist alone.
+
+sub send(req as object)
+    m.queue.push(req)
+    pump()
+end sub
+
+sub pump()
+    if m.inFlight or m.queue.count() = 0 then return
+    m.inFlight = true
+    m.api.request = m.queue.shift()
+end sub
+
+function titleIds() as object
+    d = m.details
+    return { tmdbId: Seerr.numStr(d.tmdbId), tvdbId: d.tvdbId, imdbId: d.imdbId }
+end function
+
+sub showListPicker()
+    if m.details = invalid or m.watchlist = invalid then return
+    m.listRow = Watchlist.pickerRow(m.watchlist, titleIds())
+    dialog = CreateObject("roSGNode", "StandardMessageDialog")
+    dialog.title = ListsModel.pickerTitle(m.details.title)
+    buttons = ListsModel.pickerLabels([m.listRow], false)
+    buttons.push("Cancel")
+    dialog.buttons = buttons
+    dialog.observeFieldScoped("buttonSelected", "onListPickerButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onListPickerButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    dialog.close = true
+    m.top.setFocus(true)
+    drawButtons()
+    if idx <> 0 or m.listRow = invalid then return
+    if m.listRow.already
+        m.global.toastMessage = { message: ListsModel.addedMessage(Watchlist.NAME(), true) }
+    else
+        send({ action: "lists", op: "watchlistAdd", body: Watchlist.bodyForSeerr(m.details) })
+    end if
+end sub
+
+sub onApiResponse()
+    r = m.api.response
+    if r = invalid then return
+    m.inFlight = false
+    if r.action = "lists" and r.op = "watchlistView"
+        ' No Watchlist on this server (or it failed): no button, nothing else changes.
+        if r.success = true
+            m.watchlist = r.view
+            render()
+        end if
+    else if r.action = "lists" and r.op = "watchlistAdd"
+        if r.success = true
+            if r.added = true then m.global.listsVersion = m.global.listsVersion + 1
+            m.global.toastMessage = { message: ListsModel.addedMessage(Watchlist.NAME(), r.added <> true) }
+            ' Re-read so the picker says "Already on this list" next time.
+            send({ action: "lists", op: "watchlistView" })
+        else
+            m.global.toastMessage = { message: "Couldn't add it. Check your connection." }
+        end if
+    end if
+    pump()
 end sub
 
 ' ---------- The season picker ----------

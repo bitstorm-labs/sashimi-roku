@@ -640,8 +640,15 @@ namespace Seerr
         if isAA(raw.mediaInfo) then info = raw.mediaInfo
         tmdbStatus = ""
         if kind = "tv" then tmdbStatus = getStr(raw, "status")
+        ' The Watchlist matches on any agreeing id, so keep the others TMDB knows.
+        ext = raw.externalIds
+        imdbId = getStr(ext, "imdbId")
+        if imdbId = "" then imdbId = getStr(raw, "imdbId")
+        tvdbId = getStr(ext, "tvdbId")
+        if tvdbId = "" and getInt(ext, "tvdbId", 0) > 0 then tvdbId = numStr(getInt(ext, "tvdbId"))
         return {
             tmdbId: id, kind: kind, title: title, date: date, year: year(date),
+            imdbId: imdbId, tvdbId: tvdbId,
             overview: getStr(raw, "overview"), posterPath: getStr(raw, "posterPath"),
             backdropPath: getStr(raw, "backdropPath"), genres: genres, mediaInfo: info,
             tmdbStatus: tmdbStatus, seasons: seasons, contentRating: contentRating(raw)
@@ -1245,5 +1252,22 @@ namespace Seerr
     ' The code expires after 15 minutes; poll every 2 s until then.
     const PLEX_POLL_SECONDS = 2
     const PLEX_PIN_SECONDS = 900
+
+    ' Where a linked Plex code's token goes. "watchlist" (Connect Plex on the
+    ' Watchlist) needs no Seerr at all: Requests may never have been set up.
+    function plexCheckRoute(purpose as string, server as string) as string
+        if purpose = "watchlist" then return "watchlist"
+        if server = "" then return "noServer"
+        return "seerr"
+    end function
+
+    ' What a poll tick does: "expire" once the code is too old, "wait" while
+    ' the last check is still running (a linked code's check signs in and
+    ' links the Watchlist, and must not run twice), else "check".
+    function plexPollStep(started as integer, now as integer, checking as boolean) as string
+        if now - started > PLEX_PIN_SECONDS then return "expire"
+        if checking then return "wait"
+        return "check"
+    end function
 
 end namespace

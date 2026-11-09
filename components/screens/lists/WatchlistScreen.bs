@@ -1,0 +1,416 @@
+import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/Confirm.bs"
+import "pkg:/source/utils/Seerr.bs"
+import "pkg:/source/utils/Watchlist.bs"
+
+' The Watchlist page. One "watchlist" request draws it at once with every
+' missing title saying "Not on server"; only then, and only with a Seerr
+' session, does a status check upgrade some to "Requested", so a slow or
+' failing Seerr never blanks the page or blocks OK.
+'
+' Focus is virtual outside the grid (as on the Seerr screens): in the "card"
+' and "none" zones a FocusSink holds real focus and m.cardIdx is drawn as the
+' highlight, so an empty Watchlist with nothing focusable still answers Back
+' and *. Not the screen itself: setFocus on it while the grid holds focus
+' leaves focus on the grid (seen on device: OK then both selected a tile and
+' pressed the card's button). Only "grid" gives the MarkupGrid real focus (it
+' needs it to scroll).
+
+sub init()
+    m.metaLabel = m.top.findNode("metaLabel")
+    m.card = m.top.findNode("card")
+    m.top.findNode("cardTitle").text = Watchlist.CARD_TITLE()
+    m.top.findNode("cardBody").text = Watchlist.CARD_BODY()
+    m.cardButtons = m.top.findNode("cardButtons")
+    m.grid = m.top.findNode("grid")
+    m.keySink = m.top.findNode("keySink")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.apiTask = m.top.findNode("apiTask")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.seerrTask = m.top.findNode("seerrTask")
+    m.seerrTask.observeFieldScoped("response", "onSeerrResponse")
+    m.seerrTask.control = "RUN"
+    m.grid.observeFieldScoped("itemSelected", "onGridSelected")
+    m.top.observeField("focusedChild", "onFocusDelegate")
+
+    m.queue = []
+    m.inFlight = false
+    m.view = invalid        ' Watchlist.fromResponse of the last good load
+    m.entries = []
+    m.items = {}            ' itemId -> the library item, for on-server tiles
+    m.requested = {}        ' Seerr itemKey -> true
+    m.statusBusy = false
+    m.statusAgain = false
+    m.cardHidden = false    ' "Not now" pressed on this visit
+    m.cardIdx = 0           ' 0 Connect Plex, 1 Not now
+    m.zone = "none"
+    m.menu = invalid
+    m.pending = invalid     ' the entry a Remove dialog is about
+    m.loadedVersion = -1
+    load()
+end sub
+
+sub send(req as object)
+    m.queue.push(req)
+    pump()
+end sub
+
+sub pump()
+    if m.inFlight or m.queue.count() = 0 then return
+    m.inFlight = true
+    m.apiTask.request = m.queue.shift()
+end sub
+
+sub load()
+    m.loadedVersion = m.global.listsVersion
+    send({ action: "lists", op: "watchlist" })
+end sub
+
+sub changed()
+    m.global.listsVersion = m.global.listsVersion + 1
+end sub
+
+sub toast(text as string)
+    m.global.toastMessage = { message: text }
+end sub
+
+sub onFocusDelegate()
+    if not m.top.hasFocus() then return
+    ' Back from a title, Connect Plex or a dialog: reload if anything changed.
+    if m.view <> invalid and m.loadedVersion <> m.global.listsVersion then load()
+    focusZone(m.zone)
+end sub
+
+sub focusZone(zone as string)
+    m.zone = zone
+    if zone = "grid" then m.grid.setFocus(true) else m.keySink.setFocus(true)
+    drawCardButtons()
+end sub
+
+function cardShown() as boolean
+    return m.view <> invalid and Watchlist.showCard(m.view) and not m.cardHidden
+end function
+
+' ---------- Responses ----------
+
+sub onApiResponse()
+    r = m.apiTask.response
+    if r = invalid then return
+    m.inFlight = false
+    if r.action = "lists"
+        if r.op = "watchlist"
+            onWatchlist(r)
+        else if r.op = "watchlistDismiss"
+            if r.success = true
+                m.view.cardDismissed = true
+            else
+                toast("Couldn't save that. Check your connection.")
+            end if
+        else if r.op = "watchlistRemove" or r.op = "watchlistUnlink"
+            if r.success = true then changed() else toast("Couldn't update. Check your connection.")
+            load()
+        end if
+    end if
+    pump()
+end sub
+
+sub onWatchlist(r as object)
+    if r.available <> true and r.failed <> true
+        toast("This server doesn't have the Watchlist.")
+        m.top.closed = true
+        return
+    end if
+    if r.failed = true
+        if m.view = invalid
+            m.statusLabel.text = "Couldn't load your Watchlist. Check your connection."
+            m.statusLabel.visible = true
+        else
+            toast("Couldn't load your Watchlist. Check your connection.")
+        end if
+        return
+    end if
+    m.view = r.view
+    m.entries = r.view.entries
+    m.items = r.items
+    if m.items = invalid then m.items = {}
+    render()
+    checkRequested()
+end sub
+
+' The "Requested" pills, after the page is already up. One check at a time
+' (task fields coalesce); a reload meanwhile asks again once it answers.
+sub checkRequested()
+    if not Seerr.isActive(m.global.seerrState) then return
+    targets = Watchlist.statusTargets(m.entries)
+    if targets.count() = 0 then return
+    if m.statusBusy
+        m.statusAgain = true
+        return
+    end if
+    m.statusBusy = true
+    m.seerrTask.request = { action: "watchlistStatus", items: targets }
+end sub
+
+sub onSeerrResponse()
+    r = m.seerrTask.response
+    if r = invalid or r.action <> "watchlistStatus" then return
+    m.statusBusy = false
+    if r.success = true and r.requested <> invalid
+        keys = {}
+        for each k in r.requested
+            keys[k] = true
+        end for
+        m.requested = keys
+        drawGrid()
+    end if
+    if m.statusAgain
+        m.statusAgain = false
+        checkRequested()
+    end if
+end sub
+
+' ---------- Drawing ----------
+
+sub render()
+    if m.view = invalid then return
+    m.metaLabel.text = Watchlist.metaLine(m.entries.count(), m.view)
+    shown = cardShown()
+    m.card.visible = shown
+    if shown then m.grid.translation = [105, 440] else m.grid.translation = [105, 350]
+    m.statusLabel.text = Watchlist.EMPTY_TEXT()
+    m.statusLabel.visible = (m.entries.count() = 0)
+    drawGrid()
+    ' Keep the zone the person is in while it still exists.
+    zone = m.zone
+    if (zone = "card" and not shown) or (zone = "grid" and m.entries.count() = 0) or zone = "none"
+        zone = Watchlist.firstZone(shown, m.entries.count())
+    end if
+    if m.top.isInFocusChain() then focusZone(zone) else m.zone = zone
+    drawCardButtons()
+end sub
+
+sub drawGrid()
+    focusedAt = m.grid.itemFocused
+    content = CreateObject("roSGNode", "ContentNode")
+    for each e in m.entries
+        t = Watchlist.tile(e, m.requested.DoesExist(Watchlist.seerrKey(e)))
+        c = content.createChild("ContentNode")
+        c.title = t.title
+        ' GridItem reads the caption from shortDescriptionLine1 first.
+        c.shortDescriptionLine1 = t.title
+        c.HDPosterUrl = posterFor(e)
+        pillColor = ""
+        if t.pill = "Requested" then pillColor = Seerr.toneColor("pending")
+        if t.pill = "Not on server" then pillColor = "#5A5A66FF"
+        c.addFields({ dimmed: t.dimmed, pillText: t.pill, pillColor: pillColor })
+    end for
+    m.grid.content = content
+    if focusedAt <> invalid and focusedAt >= 0 and content.getChildCount() > 0
+        if focusedAt >= content.getChildCount() then focusedAt = content.getChildCount() - 1
+        m.grid.jumpToItem = focusedAt
+    end if
+end sub
+
+function posterFor(e as object) as string
+    if e.itemId <> ""
+        item = m.items[e.itemId]
+        if item <> invalid then return ImageUrl.primary(e.itemId, 210, ImageUrl.primaryTag(item))
+        return ImageUrl.primary(e.itemId, 210, "")
+    end if
+    return e.posterUrl
+end function
+
+' The card's two capsules, highlighted only while the card zone has focus.
+sub drawCardButtons()
+    while m.cardButtons.getChildCount() > 0
+        m.cardButtons.removeChildIndex(0)
+    end while
+    labels = [Watchlist.CONNECT_LABEL(), Watchlist.NOT_NOW_LABEL()]
+    x = 0
+    for i = 0 to 1
+        isOn = m.zone = "card" and m.cardIdx = i and m.top.isInFocusChain()
+        w = 190
+        if i = 1 then w = 150
+        bg = CreateObject("roSGNode", "Poster")
+        bg.translation = [x, 0]
+        bg.width = w
+        bg.height = 60
+        if isOn then bg.uri = "pkg:/images/btn_white_focus.9.png" else bg.uri = "pkg:/images/btn_dark.9.png"
+        m.cardButtons.appendChild(bg)
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = labels[i]
+        lbl.translation = [x, 0]
+        lbl.width = w
+        lbl.height = 60
+        lbl.horizAlign = "center"
+        lbl.vertAlign = "center"
+        f = CreateObject("roSGNode", "Font")
+        f.uri = "pkg:/fonts/Inter-Bold.ttf"
+        f.size = 24
+        lbl.font = f
+        if isOn then lbl.color = "#000000FF" else lbl.color = "#FFFFFFFF"
+        m.cardButtons.appendChild(lbl)
+        x = x + w + 20
+    end for
+end sub
+
+' ---------- The card ----------
+
+sub activateCard()
+    if m.cardIdx = 0
+        m.top.connectPlex = true
+        return
+    end if
+    ' Not now: gone at once; the plugin remembers it for every device.
+    m.cardHidden = true
+    send({ action: "lists", op: "watchlistDismiss" })
+    render()
+end sub
+
+' ---------- Tiles ----------
+
+sub onGridSelected()
+    idx = m.grid.itemSelected
+    if idx < 0 or idx >= m.entries.count() then return
+    e = m.entries[idx]
+    pick = Watchlist.onSelect(e, Seerr.isActive(m.global.seerrState))
+    if pick.kind = "item"
+        item = m.items[pick.itemId]
+        if item = invalid then item = { Id: pick.itemId, Type: e.type, Name: e.title }
+        m.top.selectedItem = item
+    else if pick.kind = "seerr"
+        m.top.selectedItem = { _seerr: pick.target }
+    else
+        dialog = CreateObject("roSGNode", "StandardMessageDialog")
+        dialog.title = pick.title
+        dialog.message = [pick.message]
+        dialog.buttons = ["OK"]
+        dialog.observeFieldScoped("buttonSelected", "onExplainButton")
+        m.top.getScene().dialog = dialog
+    end if
+end sub
+
+sub onExplainButton()
+    dialog = m.top.getScene().dialog
+    if dialog <> invalid then dialog.close = true
+    focusZone(m.zone)
+end sub
+
+function focusedEntry() as dynamic
+    if m.zone <> "grid" then return invalid
+    idx = m.grid.itemFocused
+    if idx = invalid or idx < 0 or idx >= m.entries.count() then return invalid
+    return m.entries[idx]
+end function
+
+' ---------- The * menu ----------
+
+sub showOptions()
+    if m.view = invalid then return
+    m.pending = focusedEntry()
+    m.menu = Watchlist.optionsMenu(m.view, m.pending <> invalid)
+    dialog = CreateObject("roSGNode", "StandardMessageDialog")
+    dialog.title = Watchlist.NAME()
+    labels = []
+    for each it in m.menu
+        labels.push(it.label)
+    end for
+    labels.push("Cancel")
+    dialog.buttons = labels
+    dialog.observeFieldScoped("buttonSelected", "onOptionsButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+function menuPick() as string
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return ""
+    idx = dialog.buttonSelected
+    dialog.close = true
+    items = m.menu
+    m.menu = invalid
+    if items = invalid or idx = invalid or idx < 0 or idx >= items.count() then return ""
+    return items[idx].kind
+end function
+
+sub onOptionsButton()
+    kind = menuPick()
+    focusZone(m.zone)
+    if kind = "remove" and m.pending <> invalid
+        dialog = CreateObject("roSGNode", "StandardMessageDialog")
+        ' The title goes in the message: a dialog title is one line and cut a
+        ' long name off mid-word on device.
+        dialog.title = "Remove from Watchlist?"
+        dialog.message = [Chr(8220) + m.pending.title + Chr(8221)]
+        dialog.buttons = Confirm.buttons("Remove")
+        dialog.observeFieldScoped("buttonSelected", "onRemoveButton")
+        m.top.getScene().dialog = dialog
+    else if kind = "connect" or kind = "reconnect"
+        m.top.connectPlex = true
+    else if kind = "disconnect"
+        dialog = CreateObject("roSGNode", "StandardMessageDialog")
+        dialog.title = "Disconnect Plex?"
+        dialog.message = ["Your Watchlist stays as it is and stops syncing with Plex."]
+        dialog.buttons = Confirm.buttons("Disconnect")
+        dialog.observeFieldScoped("buttonSelected", "onDisconnectButton")
+        m.top.getScene().dialog = dialog
+    end if
+end sub
+
+sub onRemoveButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
+    dialog.close = true
+    focusZone(m.zone)
+    e = m.pending
+    m.pending = invalid
+    if confirmed and e <> invalid then send({ action: "lists", op: "watchlistRemove", entryId: e.id })
+end sub
+
+sub onDisconnectButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
+    dialog.close = true
+    focusZone(m.zone)
+    if confirmed then send({ action: "lists", op: "watchlistUnlink" })
+end sub
+
+' ---------- Keys ----------
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "back"
+        m.top.closed = true
+        return true
+    end if
+    if key = "options"
+        showOptions()
+        return true
+    end if
+    if m.zone = "grid"
+        ' fixedFocus stops the grid wrapping; its top row hands up to the card.
+        if key = "up" and m.grid.itemFocused < 6 and cardShown()
+            m.cardIdx = 0
+            focusZone("card")
+            return true
+        end if
+        return false
+    end if
+    if m.zone = "card"
+        if key = "left" or key = "right"
+            if key = "left" then m.cardIdx = 0 else m.cardIdx = 1
+            drawCardButtons()
+            return true
+        else if key = "OK"
+            activateCard()
+            return true
+        else if key = "down" and m.entries.count() > 0
+            focusZone("grid")
+            return true
+        end if
+    end if
+    ' "none" (and the card's other keys): the screen keeps focus.
+    return true
+end function

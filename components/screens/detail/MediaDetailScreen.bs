@@ -10,6 +10,7 @@ import "pkg:/source/utils/SeriesMeta.bs"
 import "pkg:/source/utils/RowWindow.bs"
 import "pkg:/source/utils/WatchState.bs"
 import "pkg:/source/utils/LanguagePrefs.bs"
+import "pkg:/source/utils/Watchlist.bs"
 import "pkg:/source/utils/AppSettings.bs"
 import "pkg:/source/utils/DetailActions.bs"
 import "pkg:/source/utils/SeasonPage.bs"
@@ -1563,7 +1564,8 @@ sub runAction(kind as string)
         enqueue({ action: act, itemId: item.Id })
         enqueue({ action: "getItem", itemId: item.Id })
     else if kind = "addToList"
-        if m.pinned = invalid then enqueue({ action: "lists", op: "picker", item: { Id: item.Id, Type: m.itemType, Name: item.Name } })
+        ' ProviderIds and the year let the Watchlist row decide and build its body.
+        if m.pinned = invalid then enqueue({ action: "lists", op: "picker", item: { Id: item.Id, Type: m.itemType, Name: item.Name, ProductionYear: item.ProductionYear, ProviderIds: item.ProviderIds } })
     else if kind = "more"
         showMoreDialog()
     end if
@@ -1585,6 +1587,13 @@ sub onListsResponse(response as object)
             return
         end if
         showListPicker(response)
+    else if response.op = "watchlistAdd"
+        if response.success = true
+            if response.added = true then m.global.listsVersion = m.global.listsVersion + 1
+            m.global.toastMessage = { message: ListsModel.addedMessage(Watchlist.NAME(), response.added <> true) }
+        else
+            m.global.toastMessage = { message: "Couldn't add it. Check your connection." }
+        end if
     else if response.op = "add"
         if response.success = true
             if response.already <> true then m.global.listsVersion = m.global.listsVersion + 1
@@ -1608,7 +1617,9 @@ sub showListPicker(response as object)
     name = ""
     if m.item.Name <> invalid then name = m.item.Name
     dialog.title = ListsModel.pickerTitle(name)
-    buttons = ListsModel.pickerLabels(response.lists)
+    ' allowNew is false for a show with no episodes yet: only the Watchlist,
+    ' which stores ids, can take it.
+    buttons = ListsModel.pickerLabels(response.lists, response.allowNew <> false)
     buttons.push("Cancel")
     dialog.buttons = buttons
     dialog.observeFieldScoped("buttonSelected", "onListPickerButton")
@@ -1628,10 +1639,12 @@ sub onListPickerButton()
         l = lists[idx]
         if l.already = true
             m.global.toastMessage = { message: ListsModel.addedMessage(l.name, true) }
+        else if Watchlist.isTrue(l.isWatchlist)
+            enqueue({ action: "lists", op: "watchlistAdd", body: Watchlist.bodyForItem(m.item) })
         else
             enqueue({ action: "lists", op: "add", listId: l.id, listName: l.name, targetId: pick.targetId, seriesId: pick.seriesId })
         end if
-    else if idx = lists.count()
+    else if idx = lists.count() and pick.allowNew <> false
         m.newListPublic = false
         showNewListDialog()
     end if

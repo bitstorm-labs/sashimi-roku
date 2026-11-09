@@ -3,6 +3,12 @@
     <interface>
         <field id="itemContent" type="node" onChange="onItemContentChanged" />
         <field id="focusPercent" type="float" onChange="onFocusChanged" />
+        <!-- Set by a MarkupGrid on its item components. A grid that has lost
+             focus still reports its focused cell's focusPercent, so without
+             this the cell kept its ring next to a screen's own highlight
+             (two things looked focused). Default true: other parents never
+             set it. -->
+        <field id="gridHasFocus" type="boolean" value="true" onChange="onFocusChanged" />
     </interface>
     <children>
         <!-- All card visuals sit in a group inset from the cell's top-left so

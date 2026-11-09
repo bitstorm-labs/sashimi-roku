@@ -200,6 +200,9 @@ sub onItemContentChanged()
     else
         m.posterImage.uri = ""
     end if
+    ' The Watchlist's titles that are not on the server. Set on every item:
+    ' a recycled cell would otherwise keep the last title's dimming.
+    if content.doesExist("dimmed") and content.dimmed = true then m.posterImage.opacity = 0.45 else m.posterImage.opacity = 1.0
 
     if content.shortDescriptionLine1 <> invalid
         m.titleLabel.text = content.shortDescriptionLine1
@@ -230,6 +233,7 @@ end sub
 sub onFocusChanged()
     if m.initialized = invalid then return
     fp = m.top.focusPercent
+    if not m.top.gridHasFocus then fp = 0.0
     ' Marquee only while highlighted (tvOS behavior)
     if fp > 0.5
         m.titleLabel.repeatCount = -1

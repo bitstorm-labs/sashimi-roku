@@ -5,6 +5,8 @@
     <interface>
         <!-- { listId } : MainScene pushes the list's page. -->
         <field id="openList" type="assocarray" alwaysNotify="true" />
+        <!-- The Watchlist card: MainScene pushes the Watchlist page. -->
+        <field id="openWatchlist" type="boolean" alwaysNotify="true" />
     </interface>
     <children>
         <Rectangle width="1920" height="1080" color="#18171F" />

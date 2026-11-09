@@ -367,12 +367,17 @@ namespace ListsModel
         return "Add " + Chr(8220) + name + Chr(8221) + " to" + Chr(8230)
     end function
 
-    ' One button per own list, then New List. lists: [{ name, isPublic, count, already }].
-    function pickerLabels(lists as object) as object
+    ' One button per own list, then New List. lists: [{ name, isPublic, count, already }];
+    ' a Watchlist row (isWatchlist) is always private, so it says only its
+    ' count. allowNew is false when there is nothing a new playlist could take
+    ' (a show with no episodes yet).
+    function pickerLabels(lists as object, allowNew = true as boolean) as object
         out = []
         for each l in lists
             if l.already = true
                 detail = "Already on this list"
+            else if l.DoesExist("isWatchlist") and l.isWatchlist = true
+                detail = l.count.ToStr()
             else
                 detail = "Private"
                 if l.isPublic = true then detail = "Public"
@@ -380,7 +385,7 @@ namespace ListsModel
             end if
             out.push(l.name + "  " + Chr(183) + "  " + detail)
         end for
-        out.push(NEW_LIST_LABEL())
+        if allowNew then out.push(NEW_LIST_LABEL())
         return out
     end function
 

@@ -18,6 +18,7 @@ sub main()
     testHomeRows(t)
     testMoves(t)
     testPicker(t)
+    testPickerWithoutAnchor(t)
     testDetailPage(t)
     testCreateBody(t)
     testPluginOwner(t)
@@ -311,6 +312,10 @@ end sub
 sub testPicker(t as object)
     lists = [{ name: "Date Night", isPublic: true, count: 12, already: false }, { name: "Holiday", isPublic: false, count: 1, already: true }]
     eq(t, "picker labels", joined(ListsModel_pickerLabels(lists)), "Date Night  " + Chr(183) + "  Public " + Chr(183) + " 12,Holiday  " + Chr(183) + "  Already on this list,+ New List" + Chr(8230))
+    wl = { isWatchlist: true, id: "", name: "Watchlist", count: 3, already: false }
+    eq(t, "watchlist row first", ListsModel_pickerLabels([wl, lists[0]])[0], "Watchlist  " + Chr(183) + "  3")
+    wl.already = true
+    eq(t, "watchlist row already", ListsModel_pickerLabels([wl])[0], "Watchlist  " + Chr(183) + "  Already on this list")
     eq(t, "picker title", ListsModel_pickerTitle("Klaus"), "Add " + Chr(8220) + "Klaus" + Chr(8221) + " to" + Chr(8230))
     eq(t, "public toggle label", ListsModel_publicLabel(false), "Public: Off")
     eq(t, "added", ListsModel_addedMessage("Holiday", false), "Added to Holiday")
@@ -353,4 +358,11 @@ sub testCreateBody(t as object)
     eq(t, "create user", b.UserId, "u1")
     eq(t, "create media type", b.MediaType, "Video")
     eq(t, "create carries no items", b.DoesExist("Ids"), false)
+end sub
+
+sub testPickerWithoutAnchor(t as object)
+    ' A show with no episodes yet: the Watchlist stores ids, so it is still
+    ' offered; a playlist needs an episode, so New List is not.
+    labels = ListsModel_pickerLabels([{ isWatchlist: true, name: "Watchlist", count: 0, already: false }], false)
+    eq(t, "watchlist only", joined(labels), "Watchlist  " + Chr(183) + "  0")
 end sub

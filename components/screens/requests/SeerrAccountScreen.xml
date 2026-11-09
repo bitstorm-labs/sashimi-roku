@@ -6,10 +6,14 @@
     <interface>
         <!-- Back: MainScene pops the screen. -->
         <field id="closed" type="boolean" alwaysNotify="true" />
+        <!-- "" = Requests (Settings). "watchlist" = Connect Plex for the
+             Watchlist: the same plex.tv code, handed to the Watchlist plugin
+             instead of Seerr, so no Seerr server is needed. -->
+        <field id="purpose" type="string" onChange="onPurpose" />
     </interface>
     <children>
         <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
-        <Label text="Requests" color="#FFFFFF" translation="[160, 90]">
+        <Label id="headingLabel" text="Requests" color="#FFFFFF" translation="[160, 90]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="56" />
         </Label>
         <Label id="statusLabel" text="" color="#BFBFBF" width="1500" wrap="true" maxLines="3" translation="[160, 176]">

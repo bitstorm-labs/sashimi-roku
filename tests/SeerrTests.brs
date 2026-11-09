@@ -26,6 +26,7 @@ sub main()
     testQuota(t)
     testSearchMerge(t)
     testDetails(t)
+    testDetailsExternalIds(t)
     testSession(t)
     testPlex(t)
 
@@ -265,12 +266,12 @@ sub testRowLabels(t as object)
         id: 8, status: 2, type: "tv", createdAt: "2026-11-02T10:00:00.000Z",
         seasons: [{ seasonNumber: 1 }, { seasonNumber: 2 }, { seasonNumber: 3 }],
         media: { tmdbId: 5, mediaType: "tv", status: 3, downloadStatus: [{ size: 100, sizeLeft: 25 }] },
-        requestedBy: { id: 3, displayName: "chad" }
+        requestedBy: { id: 3, displayName: "alex" }
     }
     r = Seerr_row(request, { "tv-5": { title: "Dune: Prophecy", posterPath: "", mediaInfo: invalid } }, nowSecs(), 0)
     eq(t, "kind label", Seerr_kindLabel(r), "Series " + Chr(183) + " S1" + Chr(8211) + "3")
     eq(t, "display title", Seerr_displayTitle(r), "Dune: Prophecy " + Chr(183) + " S1" + Chr(8211) + "3")
-    eq(t, "requester", Seerr_requesterName(r.request.requestedBy), "chad")
+    eq(t, "requester", Seerr_requesterName(r.request.requestedBy), "alex")
     eq(t, "request status", Seerr_requestStatusLabel(r.request).label + "/" + Seerr_requestStatusLabel(r.request).tone, "Approved/coming")
     eq(t, "media status", Seerr_mediaStatusLabel(r.request).label, "Processing")
     near(t, "progress", Seerr_progress(r.request.media), 0.75)
@@ -513,4 +514,29 @@ sub testPlex(t as object)
     eq(t, "not linked yet", p.token, "")
     eq(t, "linked", Seerr_plexPin({ id: 42, code: "AB12", authToken: "tok" }).token, "tok")
     eq(t, "garbage", Seerr_plexPin({ code: "X" }) = invalid, true)
+    ' One check at a time: a linked code makes a check sign in and link the
+    ' Watchlist, which must not run again on every tick while it is going.
+    eq(t, "poll: check", Seerr_plexPollStep(100, 130, false), "check")
+    eq(t, "poll: a check is running", Seerr_plexPollStep(100, 130, true), "wait")
+    eq(t, "poll: expired", Seerr_plexPollStep(100, 1001, false), "expire")
+    eq(t, "poll: expired while checking", Seerr_plexPollStep(100, 1001, true), "expire")
+    ' Connect Plex for the Watchlist works with Requests never set up: the code
+    ' is plex.tv's and the token goes to the Watchlist plugin, not to Seerr.
+    eq(t, "watchlist without a Seerr server", Seerr_plexCheckRoute("watchlist", ""), "watchlist")
+    eq(t, "watchlist with a Seerr server", Seerr_plexCheckRoute("watchlist", "https://requests.example.com"), "watchlist")
+    eq(t, "requests sign-in", Seerr_plexCheckRoute("", "https://requests.example.com"), "seerr")
+    eq(t, "requests sign-in without a server", Seerr_plexCheckRoute("", ""), "noServer")
+end sub
+
+sub testDetailsExternalIds(t as object)
+    mv = Seerr_details({ id: 2, title: "Arrival", externalIds: { imdbId: "tt2543164" } })
+    eq(t, "movie imdb from externalIds", mv.imdbId, "tt2543164")
+    eq(t, "movie without tvdb", mv.tvdbId, "")
+    eq(t, "movie top-level imdb", Seerr_details({ id: 3, title: "X", imdbId: "tt1" }).imdbId, "tt1")
+    tv = Seerr_details({ id: 95396, name: "Severance", externalIds: { tvdbId: 371980 } })
+    eq(t, "tv tvdb as a string", tv.tvdbId, "371980")
+    eq(t, "tv without imdb", tv.imdbId, "")
+    none = Seerr_details({ id: 4, title: "Y" })
+    eq(t, "no ids: imdb empty", none.imdbId, "")
+    eq(t, "no ids: tvdb empty", none.tvdbId, "")
 end sub
