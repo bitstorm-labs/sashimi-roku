@@ -233,6 +233,7 @@ end sub
 sub onFocusChanged()
     if m.initialized = invalid then return
     fp = m.top.focusPercent
+    if not m.top.gridHasFocus then fp = 0.0
     ' Marquee only while highlighted (tvOS behavior)
     if fp > 0.5
         m.titleLabel.repeatCount = -1

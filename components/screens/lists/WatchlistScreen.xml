@@ -22,7 +22,7 @@
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
         </Label>
         <Group id="card" translation="[120, 262]" visible="false">
-            <Poster uri="pkg:/images/card_r16.9.png" width="1000" height="150" blendColor="#1D2A3AFF" />
+            <Poster uri="pkg:/images/pill_white.9.png" width="1000" height="150" blendColor="#1D2A3AFF" />
             <Label id="cardTitle" text="" color="#FFFFFFFF" translation="[32, 22]">
                 <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
             </Label>
@@ -48,6 +48,9 @@
         <Label id="hintLabel" text="Press * for options" color="#888888FF" translation="[120, 1010]">
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
+        <!-- Real focus outside the grid (the card and "none" zones), so this
+             screen's onKeyEvent gets the keys. -->
+        <FocusSink id="keySink" />
         <JellyfinApi id="apiTask" />
         <SeerrTask id="seerrTask" />
     </children>

@@ -9,10 +9,12 @@ import "pkg:/source/utils/Watchlist.bs"
 ' failing Seerr never blanks the page or blocks OK.
 '
 ' Focus is virtual outside the grid (as on the Seerr screens): in the "card"
-' and "none" zones the screen itself holds focus and m.cardIdx is drawn as
-' the highlight, so an empty Watchlist with nothing focusable still answers
-' Back and *. Only "grid" gives the MarkupGrid real focus (it needs it to
-' scroll).
+' and "none" zones a FocusSink holds real focus and m.cardIdx is drawn as the
+' highlight, so an empty Watchlist with nothing focusable still answers Back
+' and *. Not the screen itself: setFocus on it while the grid holds focus
+' leaves focus on the grid (seen on device: OK then both selected a tile and
+' pressed the card's button). Only "grid" gives the MarkupGrid real focus (it
+' needs it to scroll).
 
 sub init()
     m.metaLabel = m.top.findNode("metaLabel")
@@ -21,6 +23,7 @@ sub init()
     m.top.findNode("cardBody").text = Watchlist.CARD_BODY()
     m.cardButtons = m.top.findNode("cardButtons")
     m.grid = m.top.findNode("grid")
+    m.keySink = m.top.findNode("keySink")
     m.statusLabel = m.top.findNode("statusLabel")
     m.apiTask = m.top.findNode("apiTask")
     m.apiTask.observeFieldScoped("response", "onApiResponse")
@@ -81,11 +84,7 @@ end sub
 
 sub focusZone(zone as string)
     m.zone = zone
-    if zone = "grid"
-        m.grid.setFocus(true)
-    else if not m.top.hasFocus()
-        m.top.setFocus(true)
-    end if
+    if zone = "grid" then m.grid.setFocus(true) else m.keySink.setFocus(true)
     drawCardButtons()
 end sub
 
