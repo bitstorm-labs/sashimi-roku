@@ -7,6 +7,7 @@ import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/Filmography.bs"
 import "pkg:/source/utils/RailItems.bs"
 import "pkg:/source/utils/Seerr.bs"
+import "pkg:/source/utils/Watchlist.bs"
 
 ' tvOS Settings parity: card rows (maxWidth 800), focus = accent fill + scale.
 ' Pickers cycle values on OK (TV-simple equivalent of tvOS picker subscreens).
@@ -107,10 +108,104 @@ sub init()
     ' The Dashboard is a side-menu entry now (Home & Side Menu), as on Apple.
     m.items = m.allItems
     buildRows()
+    ' The Plex row (Watchlist.settingsRow) appears after Requests once the
+    ' server says it has the Watchlist; a 404 or a failure leaves it out.
+    m.plexRow = invalid
+    m.plexVersion = -1
+    m.wlTask = m.top.findNode("wlTask")
+    m.wlTask.observeFieldScoped("response", "onWatchlistResponse")
+    m.wlTask.control = "RUN"
+    loadPlex()
     m.top.observeField("focusedChild", "onFocusGained")
     ' The Requests row says who is signed in to Seerr.
     m.global.observeFieldScoped("seerrState", "onSeerrChanged")
     m.global.observeFieldScoped("seerrUser", "onSeerrChanged")
+end sub
+
+' ---------- Plex (the Watchlist's sync) ----------
+
+sub loadPlex()
+    m.plexVersion = m.global.listsVersion
+    m.wlTask.request = { action: "lists", op: "watchlistView" }
+end sub
+
+sub onWatchlistResponse()
+    r = m.wlTask.response
+    if r = invalid or r.action <> "lists" then return
+    if r.op = "watchlistView"
+        row = invalid
+        if r.success = true and r.view <> invalid then row = Watchlist.settingsRow(r.view)
+        if row <> invalid and not row.visible then row = invalid
+        m.plexRow = row
+        applyItems()
+    else if r.op = "watchlistUnlink"
+        if r.success = true
+            m.global.listsVersion = m.global.listsVersion + 1
+        else
+            m.global.toastMessage = { message: "Couldn't update. Check your connection." }
+        end if
+        loadPlex()
+    end if
+end sub
+
+' m.allItems with the Plex row after Requests while it is shown, keeping
+' focus on the same row.
+sub applyItems()
+    focused = invalid
+    if m.focusIndex < m.items.count() then focused = m.items[m.focusIndex]
+    items = []
+    for each it in m.allItems
+        items.push(it)
+        if it.kind = "seerr" and m.plexRow <> invalid then items.push({ key: "", title: m.plexRow.title, kind: "plex" })
+    end for
+    m.items = items
+    m.focusIndex = 0
+    for i = 0 to items.count() - 1
+        if focused <> invalid and items[i].kind = focused.kind and items[i].title = focused.title then m.focusIndex = i
+    end for
+    buildRows()
+end sub
+
+sub showPlexDialog()
+    if m.plexRow = invalid then return
+    dialog = createObject("roSGNode", "StandardMessageDialog")
+    dialog.title = m.plexRow.title
+    dialog.message = [m.plexRow.detail]
+    labels = []
+    for each a in m.plexRow.actions
+        labels.push(a.label)
+    end for
+    labels.push("Cancel")
+    dialog.buttons = labels
+    dialog.observeFieldScoped("buttonSelected", "onPlexButton")
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onPlexButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    idx = dialog.buttonSelected
+    dialog.close = true
+    if m.plexRow = invalid or idx = invalid or idx < 0 or idx >= m.plexRow.actions.count() then return
+    kind = m.plexRow.actions[idx].kind
+    if kind = "connect" or kind = "reconnect"
+        m.top.connectPlex = true
+    else if kind = "disconnect"
+        d = createObject("roSGNode", "StandardMessageDialog")
+        d.title = "Disconnect Plex?"
+        d.message = ["Your Watchlist stays as it is and stops syncing with Plex."]
+        d.buttons = Confirm.buttons("Disconnect")
+        d.observeFieldScoped("buttonSelected", "onPlexDisconnectButton")
+        m.top.getScene().dialog = d
+    end if
+end sub
+
+sub onPlexDisconnectButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
+    dialog.close = true
+    if confirmed then m.wlTask.request = { action: "lists", op: "watchlistUnlink" }
 end sub
 
 sub onSeerrChanged()
@@ -132,6 +227,9 @@ function currentValueLabel(item as object) as string
         return "Off"
     else if item.kind = "info"
         return item.value
+    else if item.kind = "plex"
+        if m.plexRow <> invalid then return m.plexRow.value
+        return ""
     else if item.kind = "seerr"
         name = ""
         if m.global.seerrUser <> invalid and m.global.seerrUser.name <> invalid then name = m.global.seerrUser.name
@@ -201,6 +299,8 @@ sub buildRows()
 end sub
 
 sub onFocusGained()
+    ' Back from Connect Plex, or a link changed elsewhere: re-read the row.
+    if m.top.isInFocusChain() and m.wlTask <> invalid and m.plexVersion <> m.global.listsVersion then loadPlex()
     updateFocus()
 end sub
 
@@ -273,6 +373,8 @@ sub activateRow(index as integer)
         openHomeRowsEditor()
     else if item.kind = "seerr"
         m.top.openSeerr = true
+    else if item.kind = "plex"
+        showPlexDialog()
     else if item.kind = "signout"
         showSignOutDialog()
     else if item.kind = "info"

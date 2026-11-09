@@ -4,6 +4,9 @@
         <field id="signOut" type="boolean" value="false" alwaysNotify="true" />
         <!-- Requests row: MainScene pushes the Seerr account screen. -->
         <field id="openSeerr" type="boolean" alwaysNotify="true" />
+        <!-- Plex row (the Watchlist's Plex sync): MainScene pushes the
+             Connect Plex code screen. -->
+        <field id="connectPlex" type="boolean" alwaysNotify="true" />
     </interface>
     <children>
         <!-- Background gradient (matches Home) -->
@@ -25,5 +28,7 @@
              This screen had no task node, so the revoke dispatch dereferenced
              invalid and aborted the handler before it cleared credentials. -->
         <JellyfinApi id="apiTask" />
+        <!-- The Watchlist's state for the Plex row; one request at a time. -->
+        <JellyfinApi id="wlTask" />
     </children>
 </component>

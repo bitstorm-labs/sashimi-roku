@@ -349,6 +349,24 @@ namespace Watchlist
         return out
     end function
 
+    ' ---------- Settings > Plex ----------
+
+    ' The Plex row in Settings: a second way to the same link as the card, so
+    ' anyone who pressed "Not now" can still find it. Hidden when the server
+    ' has no Watchlist.
+    function settingsRow(view as object) as object
+        row = { visible: view.available = true, title: "Plex", value: "Not connected", detail: "Keeps your Watchlist in sync with your Plex watchlist.", actions: [] }
+        if view.plex = invalid
+            row.actions.push({ kind: "connect", label: CONNECT_LABEL() })
+            return row
+        end if
+        row.value = "Connected"
+        if view.plex.username <> "" then row.value = "Connected as " + view.plex.username
+        if view.plex.needsReconnect then row.actions.push({ kind: "reconnect", label: "Reconnect Plex" })
+        row.actions.push({ kind: "disconnect", label: "Disconnect" })
+        return row
+    end function
+
     ' ---------- The Lists page card ----------
 
     function cardMeta(count as integer) as string

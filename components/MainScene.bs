@@ -817,6 +817,7 @@ function getOrCreateRootScreen(choice as object) as object
         screen = createObject("roSGNode", "SettingsScreen")
         screen.observeFieldScoped("signOut", "onSignOut")
         screen.observeFieldScoped("openSeerr", "onOpenSeerr")
+        screen.observeFieldScoped("connectPlex", "onConnectPlex")
     else if kind = "requests"
         screen = createObject("roSGNode", "RequestsScreen")
         screen.observeFieldScoped("selectedItem", "onItemSelected")

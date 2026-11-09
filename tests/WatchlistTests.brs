@@ -23,6 +23,7 @@ sub main()
     testLinkErrors(t)
     testItemBatches(t)
     testLinkResult(t)
+    testSettingsRow(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -317,4 +318,25 @@ sub testLinkResult(t as object)
     eq(t, "conflict current", c.watchlistConflict.current, "sam")
     eq(t, "conflict wanted", c.watchlistConflict.wanted, "alex")
     eq(t, "conflict never carries success", c.DoesExist("success"), false)
+end sub
+
+sub testSettingsRow(t as object)
+    ' Settings > Plex: a second way to the same link, hidden without the plugin.
+    eq(t, "no plugin: hidden", Watchlist_settingsRow({ available: false, plex: invalid }).visible, false)
+    un = Watchlist_settingsRow({ available: true, plex: invalid })
+    eq(t, "unlinked shown", un.visible, true)
+    eq(t, "row title", un.title, "Plex")
+    eq(t, "unlinked value", un.value, "Not connected")
+    eq(t, "the line", un.detail, "Keeps your Watchlist in sync with your Plex watchlist.")
+    eq(t, "unlinked actions", kinds(un.actions), "connect")
+    eq(t, "connect label", un.actions[0].label, "Connect Plex")
+    ln = Watchlist_settingsRow({ available: true, plex: { username: "alex", needsReconnect: false } })
+    eq(t, "linked value", ln.value, "Connected as alex")
+    eq(t, "linked actions", kinds(ln.actions), "disconnect")
+    eq(t, "disconnect label", ln.actions[0].label, "Disconnect")
+    pz = Watchlist_settingsRow({ available: true, plex: { username: "alex", needsReconnect: true } })
+    eq(t, "paused value", pz.value, "Connected as alex")
+    eq(t, "paused actions", kinds(pz.actions), "reconnect,disconnect")
+    eq(t, "reconnect label", pz.actions[0].label, "Reconnect Plex")
+    eq(t, "linked without a name", Watchlist_settingsRow({ available: true, plex: { username: "", needsReconnect: false } }).value, "Connected")
 end sub
