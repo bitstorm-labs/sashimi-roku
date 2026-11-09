@@ -1,5 +1,6 @@
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/ListsModel.bs"
+import "pkg:/source/utils/Watchlist.bs"
 
 ' The Lists page. Everything comes from one "overview" request (the task fans
 ' out per list), reloaded when the page comes back to the front after a list
@@ -84,6 +85,8 @@ sub showLists(r as object)
     content = CreateObject("roSGNode", "ContentNode")
     mine = content.createChild("ContentNode")
     mine.title = "Your lists"
+    ' The Watchlist, pinned first; absent when the server has no Watchlist.
+    if r.watchlist <> invalid then addWatchlistCard(mine, r.watchlist)
     others = invalid
     for each l in r.lists
         if l.isMine
@@ -133,6 +136,20 @@ sub addCard(row as object, l as object)
     c.addFields({ listId: l.id, subscribed: l.subscribed = true, isNewTile: false, coverUrls: urls })
 end sub
 
+sub addWatchlistCard(row as object, w as object)
+    c = row.createChild("ContentNode")
+    c.title = Watchlist.NAME()
+    c.description = Watchlist.cardMeta(w.count)
+    urls = []
+    width = 330
+    if w.cover.count() = 1 then width = 660
+    for each p in w.cover
+        ' A title not on the server draws its stored (TMDB) poster.
+        if p.itemId <> "" then urls.push(ImageUrl.primary(p.itemId, width, "")) else urls.push(p.posterUrl)
+    end for
+    c.addFields({ listId: "", isWatchlist: true, subscribed: false, isNewTile: false, coverUrls: urls })
+end sub
+
 sub onSelected()
     sel = m.rowList.rowItemSelected
     if sel = invalid or sel.count() < 2 then return
@@ -140,7 +157,9 @@ sub onSelected()
     if row = invalid then return
     card = row.getChild(sel[1])
     if card = invalid then return
-    if card.isNewTile = true
+    if card.doesExist("isWatchlist") and card.isWatchlist = true
+        m.top.openWatchlist = true
+    else if card.isNewTile = true
         m.newListPublic = false
         showNewListDialog()
     else if card.listId <> invalid and card.listId <> ""
