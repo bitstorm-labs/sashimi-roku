@@ -805,6 +805,7 @@ function getOrCreateRootScreen(choice as object) as object
     else if kind = "lists"
         screen = createObject("roSGNode", "ListsScreen")
         screen.observeFieldScoped("openList", "onOpenList")
+        screen.observeFieldScoped("openWatchlist", "onOpenWatchlist")
     else if kind = "fintv"
         screen = createObject("roSGNode", "GuideScreen")
         screen.observeFieldScoped("playItem", "onPlayItem")
@@ -960,6 +961,27 @@ sub onOpenList(event as object)
     screen.observeFieldScoped("closed", "onListClosed")
     pushScreen(screen)
     screen.listId = req.listId
+end sub
+
+'' The Watchlist page, from its card on the Lists page.
+sub onOpenWatchlist()
+    screen = createObject("roSGNode", "WatchlistScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("selectedItem", "onItemSelected")
+    screen.observeFieldScoped("playItem", "onPlayItem")
+    screen.observeFieldScoped("connectPlex", "onConnectPlex")
+    screen.observeFieldScoped("closed", "onListClosed")
+    pushScreen(screen)
+end sub
+
+' Connect Plex for the Watchlist: the Requests Plex code screen in its
+' Watchlist mode (plex.tv only, no Seerr server needed).
+sub onConnectPlex()
+    screen = createObject("roSGNode", "SeerrAccountScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("closed", "onPushedClosed")
+    pushScreen(screen)
+    screen.purpose = "watchlist"
 end sub
 
 sub onListClosed(event as object)

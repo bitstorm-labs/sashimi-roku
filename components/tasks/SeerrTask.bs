@@ -2,6 +2,7 @@ import "pkg:/source/utils/Http.bs"
 import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/SeerrSeasons.bs"
 import "pkg:/source/utils/SeerrStore.bs"
+import "pkg:/source/utils/Watchlist.bs"
 
 ' Seerr's API as the signed-in person (a Plex or Seerr username sign-in, never
 ' an admin API key), plus plex.tv's PIN sign-in. The rules live in
@@ -63,6 +64,8 @@ sub processRequest()
         out = doAct(r)
     else if a = "missingSeasons"
         out = doMissingSeasons(r)
+    else if a = "watchlistStatus"
+        out = doWatchlistStatus(r)
     end if
     if out = invalid then out = { success: false, error: "Unknown request." }
     out.action = a
@@ -229,6 +232,22 @@ sub fillTitles(targets as object, titles as object)
         end if
     end while
 end sub
+
+' The Watchlist's "Requested" pills: which of these missing titles the
+' person has a pending or coming request for. A title whose details fail
+' to load is just not requested; the page already shows "Not on server".
+function doWatchlistStatus(r as object) as object
+    targets = []
+    if Seerr.isArr(r.items) then targets = r.items
+    titles = {}
+    fillTitles(targets, titles)
+    uid = seerrUserId()
+    requested = []
+    for each key in titles
+        if Watchlist.isRequested(Seerr.badge(titles[key].mediaInfo, uid)) then requested.push(key)
+    end for
+    return { success: true, requested: requested }
+end function
 
 ' ---------- Account ----------
 

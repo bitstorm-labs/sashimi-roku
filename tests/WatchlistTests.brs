@@ -19,6 +19,7 @@ sub main()
     testLinkOutcome(t)
     testAutoLink(t)
     testCover(t)
+    testMetaLine(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -256,4 +257,14 @@ sub testCover(t as object)
     eq(t, "skips entries with neither", c.count(), 1)
     eq(t, "missing title's poster", c[0].posterUrl, poster.posterUrl)
     eq(t, "nothing drawable", Watchlist_coverSources([bare]).count(), 0)
+end sub
+
+sub testMetaLine(t as object)
+    unlinked = { plex: invalid, cardDismissed: false }
+    linked = { plex: { username: "chad", needsReconnect: false }, cardDismissed: false }
+    eq(t, "one title", Watchlist_metaLine(1, unlinked), "1 title")
+    eq(t, "many titles", Watchlist_metaLine(12, unlinked), "12 titles")
+    eq(t, "empty", Watchlist_metaLine(0, unlinked), "")
+    eq(t, "with the Plex line", Watchlist_metaLine(2, linked), "2 titles   " + Chr(183) + "   " + Chr(10003) + " Synced with Plex")
+    eq(t, "empty but linked", Watchlist_metaLine(0, linked), Chr(10003) + " Synced with Plex")
 end sub

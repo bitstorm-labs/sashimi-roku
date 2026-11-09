@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- The Watchlist page (Sashimi Lists plugin 0.2+): the person's private
+     Watchlist, with titles the server doesn't have drawn dimmed with a
+     "Not on server" / "Requested" pill, the "Use Plex too?" card until it is
+     answered, and Connect / Reconnect / Disconnect Plex on the * menu. -->
+<component name="WatchlistScreen" extends="Group">
+    <interface>
+        <!-- A Jellyfin item, or { _seerr: target } for a title not on the server. -->
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+        <field id="playItem" type="assocarray" alwaysNotify="true" />
+        <!-- Connect (or reconnect) Plex: MainScene pushes the code screen. -->
+        <field id="connectPlex" type="boolean" alwaysNotify="true" />
+        <!-- Back, or no Watchlist on this server: MainScene pops it. -->
+        <field id="closed" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="#18171FFF" />
+        <Label id="titleLabel" text="Watchlist" color="#FFFFFFFF" translation="[120, 124]">
+            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="64" />
+        </Label>
+        <Label id="metaLabel" text="" color="#A8A6B3FF" width="1680" translation="[120, 212]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
+        </Label>
+        <Group id="card" translation="[120, 262]" visible="false">
+            <Poster uri="pkg:/images/card_r16.9.png" width="1000" height="150" blendColor="#1D2A3AFF" />
+            <Label id="cardTitle" text="" color="#FFFFFFFF" translation="[32, 22]">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="30" />
+            </Label>
+            <Label id="cardBody" text="" color="#C9C7D1FF" width="560" wrap="true" maxLines="2" translation="[32, 64]">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
+            </Label>
+            <Group id="cardButtons" translation="[620, 45]" />
+        </Group>
+        <MarkupGrid
+            id="grid"
+            translation="[105, 350]"
+            itemSize="[240, 380]"
+            itemSpacing="[30, 40]"
+            numColumns="6"
+            numRows="2"
+            vertFocusAnimationStyle="fixedFocus"
+            drawFocusFeedback="false"
+            itemComponentName="GridItem"
+        />
+        <Label id="statusLabel" text="Loading..." color="#888888FF" width="1920" horizAlign="center" translation="[0, 620]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="28" />
+        </Label>
+        <Label id="hintLabel" text="Press * for options" color="#888888FF" translation="[120, 1010]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
+        </Label>
+        <JellyfinApi id="apiTask" />
+        <SeerrTask id="seerrTask" />
+    </children>
+</component>

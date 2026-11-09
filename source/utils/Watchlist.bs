@@ -239,6 +239,16 @@ namespace Watchlist
         return Chr(10003) + " Synced with Plex"
     end function
 
+    ' The page's line under its title: how many, then the Plex state.
+    function metaLine(count as integer, view as object) as string
+        parts = []
+        if count = 1 then parts.push("1 title")
+        if count > 1 then parts.push(count.ToStr() + " titles")
+        line = plexLine(view)
+        if line <> "" then parts.push(line)
+        return parts.Join("   " + Chr(183) + "   ")
+    end function
+
     function optionsMenu(view as object, tileFocused as boolean) as object
         out = []
         if tileFocused then out.push({ kind: "remove", label: "Remove from Watchlist" })
@@ -253,8 +263,8 @@ namespace Watchlist
 
     ' Where focus starts. "none" means nothing is focusable, so the screen
     ' holds focus itself and Back and * still work.
-    function firstZone(cardShown as boolean, count as integer) as string
-        if cardShown then return "card"
+    function firstZone(withCard as boolean, count as integer) as string
+        if withCard then return "card"
         if count > 0 then return "grid"
         return "none"
     end function
