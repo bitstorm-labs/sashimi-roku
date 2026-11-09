@@ -27,6 +27,7 @@ sub init()
     m.btnIdx = 0
     m.buttons = []
     m.conflictOpen = false   ' the "Switch to ...?" dialog is up
+    m.checking = false       ' a plexCheck is with the task
     m.global.observeFieldScoped("seerrState", "render")
     m.top.observeField("focusedChild", "render")
     render()
@@ -232,13 +233,15 @@ end sub
 
 sub onPoll()
     if m.pin = invalid then return
-    if CreateObject("roDateTime").AsSeconds() - m.pin.started > 900
-        ' Plex codes last 15 minutes.
+    stage = Seerr.plexPollStep(m.pin.started, CreateObject("roDateTime").AsSeconds(), m.checking = true)
+    if stage = "expire"
         stopPlex()
         showError("The Plex code expired. Try again.")
         render()
         return
     end if
+    if stage = "wait" then return
+    m.checking = true
     m.task.request = { action: "plexCheck", pinId: m.pin.id, purpose: m.top.purpose }
 end sub
 
@@ -256,6 +259,7 @@ sub onResponse()
         end if
         render()
     else if r.action = "plexCheck"
+        m.checking = false
         if m.pin = invalid or r.waiting = true then return
         stopPlex()
         if r.success <> true then showError(r.error)
@@ -290,13 +294,14 @@ sub onWatchlistLink(r as object)
         if forWatchlist() then m.top.closed = true
     else if r.watchlistConflict <> invalid
         showConflict(r.watchlistConflict)
-    else if r.watchlistError <> invalid and forWatchlist()
-        if r.watchlistError = "rejected"
-            showError("Plex didn't accept that sign-in. Try again.")
+    else if r.watchlistError <> invalid and Watchlist.showsLinkError(r.action, forWatchlist())
+        text = Watchlist.linkErrorText(r.watchlistError)
+        if forWatchlist()
+            showError(text)
+            render()
         else
-            showError("Couldn't connect Plex. Check your connection.")
+            m.global.toastMessage = { message: text }
         end if
-        render()
     end if
 end sub
 

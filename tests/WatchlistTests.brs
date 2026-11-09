@@ -20,6 +20,8 @@ sub main()
     testAutoLink(t)
     testCover(t)
     testMetaLine(t)
+    testLinkErrors(t)
+    testItemBatches(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -267,4 +269,31 @@ sub testMetaLine(t as object)
     eq(t, "empty", Watchlist_metaLine(0, unlinked), "")
     eq(t, "with the Plex line", Watchlist_metaLine(2, linked), "2 titles   " + Chr(183) + "   " + Chr(10003) + " Synced with Plex")
     eq(t, "empty but linked", Watchlist_metaLine(0, linked), Chr(10003) + " Synced with Plex")
+end sub
+
+sub testLinkErrors(t as object)
+    ' Connect Plex reports every failure; a Requests sign-in's quiet auto-link
+    ' doesn't, but a switch the person confirmed always does.
+    eq(t, "connect: shown", Watchlist_showsLinkError("plexCheck", true), true)
+    eq(t, "requests sign-in: quiet", Watchlist_showsLinkError("plexCheck", false), false)
+    eq(t, "switch from Requests: shown", Watchlist_showsLinkError("watchlistReplace", false), true)
+    eq(t, "switch from Connect Plex: shown", Watchlist_showsLinkError("watchlistReplace", true), true)
+    eq(t, "rejected text", Watchlist_linkErrorText("rejected"), "Plex didn't accept that sign-in. Try again.")
+    eq(t, "other text", Watchlist_linkErrorText("failed"), "Couldn't connect Plex. Check your connection.")
+end sub
+
+sub testItemBatches(t as object)
+    ' A big Watchlist's library lookup goes in batches, so the /Items?Ids=
+    ' request line stays well under a server's 8 KB limit.
+    entries = []
+    for i = 1 to 250
+        entries.push(entry("e" + i.ToStr(), "Movie", "item" + i.ToStr(), ""))
+    end for
+    entries.push(entry("missing", "Movie", "", "9"))
+    b = Watchlist_itemIdBatches(entries, 100)
+    eq(t, "three batches", b.count(), 3)
+    eq(t, "first batch", Left(b[0], 12), "item1,item2,")
+    eq(t, "last batch ends with the last on-server id", Right(b[2], 7), "item250")
+    eq(t, "missing titles left out", Instr(1, b[2], ",," ) = 0 and Instr(1, b[2], "missing") = 0, true)
+    eq(t, "none on the server", Watchlist_itemIdBatches([entry("m", "Movie", "", "1")], 100).count(), 0)
 end sub

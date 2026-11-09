@@ -283,6 +283,17 @@ namespace Watchlist
         return { kind: "failed" }
     end function
 
+    ' Connect Plex says why a link failed; a Requests sign-in's auto-link is
+    ' quiet, but a switch the person confirmed always reports a failure.
+    function showsLinkError(action as string, connecting as boolean) as boolean
+        return connecting or action = "watchlistReplace"
+    end function
+
+    function linkErrorText(kind as string) as string
+        if kind = "rejected" then return "Plex didn't accept that sign-in. Try again."
+        return "Couldn't connect Plex. Check your connection."
+    end function
+
     ' A Requests Plex sign-in links the Watchlist too, but never silently
     ' over a different account: "first" links, "refresh" re-sends the token
     ' (the plugin answers 409 if it is someone else), "skip" does nothing.
@@ -303,6 +314,24 @@ namespace Watchlist
     function switchLabel(wanted as string) as string
         if wanted = "" then return "Switch Account"
         return "Switch to " + wanted
+    end function
+
+    ' The on-server entries' ids for /Items?Ids=, comma-joined, at most
+    ' `size` per batch: a few hundred ids in one request line would pass a
+    ' server's 8 KB limit and lose every tile's artwork at once.
+    function itemIdBatches(entries as object, size as integer) as object
+        out = []
+        cur = []
+        for each e in entries
+            if e.itemId = "" then continue for
+            cur.push(e.itemId)
+            if cur.count() = size
+                out.push(cur.Join(","))
+                cur = []
+            end if
+        end for
+        if cur.count() > 0 then out.push(cur.Join(","))
+        return out
     end function
 
     ' ---------- The Lists page card ----------

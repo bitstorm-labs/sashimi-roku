@@ -514,6 +514,12 @@ sub testPlex(t as object)
     eq(t, "not linked yet", p.token, "")
     eq(t, "linked", Seerr_plexPin({ id: 42, code: "AB12", authToken: "tok" }).token, "tok")
     eq(t, "garbage", Seerr_plexPin({ code: "X" }) = invalid, true)
+    ' One check at a time: a linked code makes a check sign in and link the
+    ' Watchlist, which must not run again on every tick while it is going.
+    eq(t, "poll: check", Seerr_plexPollStep(100, 130, false), "check")
+    eq(t, "poll: a check is running", Seerr_plexPollStep(100, 130, true), "wait")
+    eq(t, "poll: expired", Seerr_plexPollStep(100, 1001, false), "expire")
+    eq(t, "poll: expired while checking", Seerr_plexPollStep(100, 1001, true), "expire")
 end sub
 
 sub testDetailsExternalIds(t as object)
