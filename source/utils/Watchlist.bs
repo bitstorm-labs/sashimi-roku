@@ -285,6 +285,18 @@ namespace Watchlist
         return { kind: "failed" }
     end function
 
+    ' What linking came to, as the task's response fields. auto (a Requests
+    ' sign-in) never reports a failure, so the Watchlist can't fail or hold
+    ' up that sign-in; a re-sent token for the same account stays quiet.
+    function linkResult(o as object, auto as boolean, stage as string) as object
+        if o.kind = "linked" then return { watchlistLinked: (not auto) or stage = "first" }
+        if o.kind = "conflict"
+            return { watchlistConflict: { current: Seerr.getStr(o, "username"), wanted: Seerr.getStr(o, "newUsername") } }
+        end if
+        if auto then return {}
+        return { watchlistError: o.kind }
+    end function
+
     ' Connect Plex says why a link failed; a Requests sign-in's auto-link is
     ' quiet, but a switch the person confirmed always reports a failure.
     function showsLinkError(action as string, connecting as boolean) as boolean

@@ -266,6 +266,11 @@ sub onResponse()
         m.btnIdx = 0
         render()
         onWatchlistLink(r)
+        ' Signed in: now link the Watchlist, as its own request so it can't
+        ' hold up or fail the sign-in above.
+        if r.autoLink = true then m.task.request = { action: "watchlistAutoLink" }
+    else if r.action = "watchlistAutoLink"
+        onWatchlistLink(r)
     else if r.action = "watchlistReplace"
         onWatchlistLink(r)
         if forWatchlist() and r.watchlistError = invalid then m.top.closed = true

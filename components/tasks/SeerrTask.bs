@@ -69,6 +69,8 @@ sub processRequest()
         out = doWatchlistStatus(r)
     else if a = "watchlistReplace"
         out = doWatchlistReplace(r)
+    else if a = "watchlistAutoLink"
+        out = doWatchlistAutoLink()
     end if
     if out = invalid then out = { success: false, error: "Unknown request." }
     out.action = a
@@ -333,17 +335,37 @@ function doPlexCheck(r as object) as object
         if pin = invalid or pin.token = "" then return { success: true, waiting: true }
         token = pin.token
     end if
-    if purpose = "watchlist"
+    route = Seerr.plexCheckRoute(purpose, m.global.seerrServer)
+    if route = "watchlist"
         out = linkWatchlist(token, false)
         out.success = true
         return out
     end if
+    if route = "noServer" then return { success: false, error: "Set your Seerr server's address first." }
     signIn = send("POST", apiUrl("auth/plex"), { authToken: token }, false)
     out = finishSignIn(signIn)
     if not out.success and out.kind = "invalidCredentials"
         out.error = "That Plex account doesn't have access to " + m.global.seerrTitle + "."
     end if
-    if out.success then out.Append(linkWatchlist(token, true))
+    ' The sign-in answers now; linking the Watchlist is a separate request
+    ' (watchlistAutoLink), so a missing plugin or a slow server never holds
+    ' up or fails it. The token waits here, on this thread, until then.
+    if out.success
+        m.autoLinkToken = token
+        out.autoLink = true
+    end if
+    return out
+end function
+
+' The Requests sign-in's Watchlist link, asked for once the sign-in has
+' answered. Whatever happens, the token is dropped (or held only for a
+' conflict prompt) and nothing here can undo the sign-in.
+function doWatchlistAutoLink() as object
+    token = m.autoLinkToken
+    m.autoLinkToken = invalid
+    if token = invalid then return { success: true }
+    out = linkWatchlist(token, true)
+    out.success = true
     return out
 end function
 
@@ -362,13 +384,8 @@ function linkWatchlist(token as string, auto as boolean) as object
         o = debugLinkOutcome()
     #end if
     if o = invalid then o = WatchlistApi.link(token, false)
-    if o.kind = "linked" then return { watchlistLinked: (not auto) or stage = "first" }
-    if o.kind = "conflict"
-        m.heldPlexToken = token
-        return { watchlistConflict: { current: o.username, wanted: o.newUsername } }
-    end if
-    if auto then return {}
-    return { watchlistError: o.kind }
+    if o.kind = "conflict" then m.heldPlexToken = token
+    return Watchlist.linkResult(o, auto, stage)
 end function
 
 ' The answer to "Sync your Watchlist with Plex account X instead?". The held

@@ -22,6 +22,7 @@ sub main()
     testMetaLine(t)
     testLinkErrors(t)
     testItemBatches(t)
+    testLinkResult(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -300,4 +301,20 @@ sub testItemBatches(t as object)
     eq(t, "last batch ends with the last on-server id", Right(b[2], 7), "item250")
     eq(t, "missing titles left out", Instr(1, b[2], ",," ) = 0 and Instr(1, b[2], "missing") = 0, true)
     eq(t, "none on the server", Watchlist_itemIdBatches([entry("m", "Movie", "", "1")], 100).count(), 0)
+end sub
+
+sub testLinkResult(t as object)
+    ' A Requests sign-in's auto-link never fails the sign-in: every failure
+    ' comes back as nothing at all (no success flag, no error).
+    for each kind in ["rejected", "failed", "unreachable", "unavailable"]
+        eq(t, "auto " + kind + ": nothing", Watchlist_linkResult({ kind: kind }, true, "first").count(), 0)
+        eq(t, "connect " + kind + ": the error", Watchlist_linkResult({ kind: kind }, false, "first").watchlistError, kind)
+    end for
+    eq(t, "auto first link: toast", Watchlist_linkResult({ kind: "linked" }, true, "first").watchlistLinked, true)
+    eq(t, "auto refresh: quiet", Watchlist_linkResult({ kind: "linked" }, true, "refresh").watchlistLinked, false)
+    eq(t, "connect: toast", Watchlist_linkResult({ kind: "linked" }, false, "first").watchlistLinked, true)
+    c = Watchlist_linkResult({ kind: "conflict", username: "sam", newUsername: "alex" }, true, "refresh")
+    eq(t, "conflict current", c.watchlistConflict.current, "sam")
+    eq(t, "conflict wanted", c.watchlistConflict.wanted, "alex")
+    eq(t, "conflict never carries success", c.DoesExist("success"), false)
 end sub

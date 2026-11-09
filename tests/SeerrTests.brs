@@ -520,6 +520,12 @@ sub testPlex(t as object)
     eq(t, "poll: a check is running", Seerr_plexPollStep(100, 130, true), "wait")
     eq(t, "poll: expired", Seerr_plexPollStep(100, 1001, false), "expire")
     eq(t, "poll: expired while checking", Seerr_plexPollStep(100, 1001, true), "expire")
+    ' Connect Plex for the Watchlist works with Requests never set up: the code
+    ' is plex.tv's and the token goes to the Watchlist plugin, not to Seerr.
+    eq(t, "watchlist without a Seerr server", Seerr_plexCheckRoute("watchlist", ""), "watchlist")
+    eq(t, "watchlist with a Seerr server", Seerr_plexCheckRoute("watchlist", "https://requests.example.com"), "watchlist")
+    eq(t, "requests sign-in", Seerr_plexCheckRoute("", "https://requests.example.com"), "seerr")
+    eq(t, "requests sign-in without a server", Seerr_plexCheckRoute("", ""), "noServer")
 end sub
 
 sub testDetailsExternalIds(t as object)

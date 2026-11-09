@@ -1253,6 +1253,14 @@ namespace Seerr
     const PLEX_POLL_SECONDS = 2
     const PLEX_PIN_SECONDS = 900
 
+    ' Where a linked Plex code's token goes. "watchlist" (Connect Plex on the
+    ' Watchlist) needs no Seerr at all: Requests may never have been set up.
+    function plexCheckRoute(purpose as string, server as string) as string
+        if purpose = "watchlist" then return "watchlist"
+        if server = "" then return "noServer"
+        return "seerr"
+    end function
+
     ' What a poll tick does: "expire" once the code is too old, "wait" while
     ' the last check is still running (a linked code's check signs in and
     ' links the Watchlist, and must not run twice), else "check".
