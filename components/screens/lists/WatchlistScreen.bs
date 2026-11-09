@@ -338,7 +338,10 @@ sub onOptionsButton()
     focusZone(m.zone)
     if kind = "remove" and m.pending <> invalid
         dialog = CreateObject("roSGNode", "StandardMessageDialog")
-        dialog.title = "Remove " + Chr(8220) + m.pending.title + Chr(8221) + " from your Watchlist?"
+        ' The title goes in the message: a dialog title is one line and cut a
+        ' long name off mid-word on device.
+        dialog.title = "Remove from Watchlist?"
+        dialog.message = [Chr(8220) + m.pending.title + Chr(8221)]
         dialog.buttons = Confirm.buttons("Remove")
         dialog.observeFieldScoped("buttonSelected", "onRemoveButton")
         m.top.getScene().dialog = dialog
