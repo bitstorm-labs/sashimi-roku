@@ -35,7 +35,8 @@ const suites = {
     'SharedListsTests.brs': ['out/source/utils/SharedLists.brs'],
     'ListsModelTests.brs': ['out/source/utils/SharedLists.brs', 'out/source/utils/ListsModel.brs'],
     'SeerrTests.brs': ['out/source/utils/Seerr.brs', 'out/source/utils/SeerrSeasons.brs'],
-    'SeerrSeasonsTests.brs': ['out/source/utils/Seerr.brs', 'out/source/utils/SeerrSeasons.brs']
+    'SeerrSeasonsTests.brs': ['out/source/utils/Seerr.brs', 'out/source/utils/SeerrSeasons.brs'],
+    'WatchlistTests.brs': ['out/source/utils/Seerr.brs', 'out/source/utils/SeerrSeasons.brs', 'out/source/utils/Watchlist.brs']
 };
 
 // SASHIMI_TEST_MODULE swaps in another build of the module under test, to

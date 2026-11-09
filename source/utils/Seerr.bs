@@ -640,8 +640,15 @@ namespace Seerr
         if isAA(raw.mediaInfo) then info = raw.mediaInfo
         tmdbStatus = ""
         if kind = "tv" then tmdbStatus = getStr(raw, "status")
+        ' The Watchlist matches on any agreeing id, so keep the others TMDB knows.
+        ext = raw.externalIds
+        imdbId = getStr(ext, "imdbId")
+        if imdbId = "" then imdbId = getStr(raw, "imdbId")
+        tvdbId = getStr(ext, "tvdbId")
+        if tvdbId = "" and getInt(ext, "tvdbId", 0) > 0 then tvdbId = numStr(getInt(ext, "tvdbId"))
         return {
             tmdbId: id, kind: kind, title: title, date: date, year: year(date),
+            imdbId: imdbId, tvdbId: tvdbId,
             overview: getStr(raw, "overview"), posterPath: getStr(raw, "posterPath"),
             backdropPath: getStr(raw, "backdropPath"), genres: genres, mediaInfo: info,
             tmdbStatus: tmdbStatus, seasons: seasons, contentRating: contentRating(raw)

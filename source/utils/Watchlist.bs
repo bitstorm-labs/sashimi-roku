@@ -1,0 +1,318 @@
+import "pkg:/source/utils/Seerr.bs"
+
+' The Watchlist (the Sashimi Lists plugin's /SashimiLists/Watchlist): one
+' private list per person that can hold titles the server doesn't have,
+' stored by external id, with optional two-way Plex sync run by the plugin.
+' Every decision the screens and tasks make about it lives here as a pure
+' function, so tests/WatchlistTests.brs runs them off-device: the plugin's
+' 404 (no Watchlist on this server), which titles qualify, the add bodies,
+' the any-agreeing-id check, tiles and their pills, what OK does, the Plex
+' card, line and * menu, and the link outcomes.
+'
+' The Plex token never passes through here: SeerrTask hands it to the plugin
+' on its own thread and nothing it returns carries it.
+namespace Watchlist
+
+    const PATH = "/SashimiLists/Watchlist"
+
+    function NAME() as string
+        return "Watchlist"
+    end function
+
+    function CARD_TITLE() as string
+        return "Use Plex too?"
+    end function
+
+    function CARD_BODY() as string
+        return "Connect it and your Plex watchlist and this one stay the same."
+    end function
+
+    function CONNECT_LABEL() as string
+        return "Connect Plex"
+    end function
+
+    function NOT_NOW_LABEL() as string
+        return "Not now"
+    end function
+
+    function LINKED_TOAST() as string
+        return "Your Watchlist now syncs with Plex"
+    end function
+
+    function EMPTY_TEXT() as string
+        return "Nothing on your Watchlist yet. Add titles with Add to List on any movie or show."
+    end function
+
+    ' ---------- Reading the plugin ----------
+
+    ' GET /SashimiLists/Watchlist. A 404 means the plugin (0.2+) isn't there,
+    ' so the Watchlist is hidden; anything else that isn't a 2xx with a body
+    ' is a failure that hides it for this load only.
+    function fromResponse(code as integer, data as dynamic) as object
+        v = { available: false, failed: false, plex: invalid, cardDismissed: false, entries: [] }
+        if code = 404 then return v
+        if code < 200 or code >= 300 or not Seerr.isAA(data)
+            v.failed = true
+            return v
+        end if
+        v.available = true
+        if Seerr.isAA(data.plex)
+            v.plex = { username: Seerr.getStr(data.plex, "username"), needsReconnect: isTrue(data.plex.needsReconnect) }
+        end if
+        v.cardDismissed = isTrue(data.cardDismissed)
+        for each e in Seerr.getArr(data, "entries")
+            n = normalised(e)
+            if n <> invalid then v.entries.push(n)
+        end for
+        return v
+    end function
+
+    function normalised(e as dynamic) as dynamic
+        if not Seerr.isAA(e) then return invalid
+        id = Seerr.getStr(e, "id")
+        kind = Seerr.getStr(e, "type")
+        if id = "" or (kind <> "Movie" and kind <> "Series") then return invalid
+        return {
+            id: id, type: kind, title: Seerr.getStr(e, "title"), year: Seerr.getInt(e, "year", -1),
+            posterUrl: Seerr.getStr(e, "posterUrl"), tmdbId: idStr(e.tmdbId), tvdbId: idStr(e.tvdbId),
+            imdbId: idStr(e.imdbId), addedAt: Seerr.getStr(e, "addedAt"), itemId: Seerr.getStr(e, "itemId")
+        }
+    end function
+
+    ' A missing field is invalid, and invalid = true is a type mismatch on the device.
+    function isTrue(v as dynamic) as boolean
+        if v = invalid or GetInterface(v, "ifBoolean") = invalid then return false
+        return v
+    end function
+
+    ' An id as a string, whether it arrived as one or as a number.
+    function idStr(v as dynamic) as string
+        if Seerr.isStr(v) then return v
+        if Seerr.isNum(v) then return Seerr.numStr(Int(v))
+        return ""
+    end function
+
+    ' ---------- Which titles qualify ----------
+
+    function idsOfItem(item as dynamic) as object
+        ids = { tmdbId: "", tvdbId: "", imdbId: "" }
+        if not Seerr.isAA(item) or not Seerr.isAA(item.ProviderIds) then return ids
+        for each k in item.ProviderIds
+            key = LCase(k)
+            v = idStr(item.ProviderIds[k])
+            if key = "tmdb" then ids.tmdbId = v
+            if key = "tvdb" then ids.tvdbId = v
+            if key = "imdb" then ids.imdbId = v
+        end for
+        return ids
+    end function
+
+    function hasAnyId(ids as object) as boolean
+        return ids.tmdbId <> "" or ids.tvdbId <> "" or ids.imdbId <> ""
+    end function
+
+    ' Movies and shows with an id the plugin can match on. Episodes, seasons,
+    ' home videos and YouTube never see the Watchlist, so nothing is accepted
+    ' and then silently dropped.
+    function accepts(item as dynamic) as boolean
+        if not Seerr.isAA(item) then return false
+        t = Seerr.getStr(item, "Type")
+        if t <> "Movie" and t <> "Series" then return false
+        return hasAnyId(idsOfItem(item))
+    end function
+
+    ' ---------- Add bodies ----------
+
+    ' A library title. No posterUrl: Jellyfin items have no TMDB path, and the
+    ' plugin fills one from the server's remote images.
+    function bodyForItem(item as dynamic) as object
+        b = { type: Seerr.getStr(item, "Type"), title: Seerr.getStr(item, "Name") }
+        y = Seerr.getInt(item, "ProductionYear", -1)
+        if y > 0 then b.year = y
+        putIds(b, idsOfItem(item))
+        return b
+    end function
+
+    ' A Seerr title (a Seerr.details result).
+    function bodyForSeerr(d as object) as object
+        kind = "Movie"
+        if d.kind = "tv" then kind = "Series"
+        b = { type: kind, title: d.title }
+        if Seerr.isNum(d.year) and d.year > 0 then b.year = d.year
+        putIds(b, { tmdbId: idStr(d.tmdbId), tvdbId: idStr(d.tvdbId), imdbId: idStr(d.imdbId) })
+        poster = Seerr.posterUrl(d.posterPath, 500)
+        if poster <> "" then b.posterUrl = poster
+        return b
+    end function
+
+    sub putIds(b as object, ids as object)
+        if ids.tmdbId <> "" then b.tmdbId = ids.tmdbId
+        if ids.tvdbId <> "" then b.tvdbId = ids.tvdbId
+        if ids.imdbId <> "" then b.imdbId = ids.imdbId
+    end sub
+
+    ' ---------- Already on it ----------
+
+    ' The plugin's rule: one agreeing non-empty id is the same title.
+    function contains(entries as object, ids as object) as boolean
+        for each e in entries
+            if ids.tmdbId <> "" and e.tmdbId = ids.tmdbId then return true
+            if ids.tvdbId <> "" and e.tvdbId = ids.tvdbId then return true
+            if ids.imdbId <> "" and LCase(e.imdbId) = LCase(ids.imdbId) then return true
+        end for
+        return false
+    end function
+
+    ' The Add to List picker's first row.
+    function pickerRow(view as object, ids as object) as object
+        return { isWatchlist: true, id: "", name: NAME(), count: view.entries.count(), already: contains(view.entries, ids) }
+    end function
+
+    ' ---------- Requested status ----------
+
+    function seerrKind(entry as object) as string
+        if entry.type = "Series" then return "tv"
+        return "movie"
+    end function
+
+    function seerrKey(entry as object) as string
+        if entry.tmdbId = "" then return ""
+        return Seerr.itemKey(seerrKind(entry), Val(entry.tmdbId))
+    end function
+
+    ' The titles worth asking Seerr about: not on the server and with a TMDB
+    ' id (the only id Seerr pages take), each once.
+    function statusTargets(entries as object) as object
+        out = []
+        seen = {}
+        for each e in entries
+            if e.itemId <> "" then continue for
+            key = seerrKey(e)
+            if key = "" or seen.DoesExist(key) then continue for
+            seen[key] = true
+            out.push({ kind: seerrKind(e), tmdbId: Int(Val(e.tmdbId)) })
+        end for
+        return out
+    end function
+
+    function isRequested(badge as string) as boolean
+        return badge = "pending" or badge = "coming"
+    end function
+
+    ' ---------- Tiles and OK ----------
+
+    function tile(entry as object, requested as boolean) as object
+        t = { title: entry.title, itemId: entry.itemId, posterUrl: entry.posterUrl, dimmed: false, pill: "" }
+        if entry.itemId = ""
+            t.dimmed = true
+            t.pill = "Not on server"
+            if requested then t.pill = "Requested"
+        end if
+        return t
+    end function
+
+    ' What OK on a tile does. A missing title opens its Seerr page only when
+    ' that can work (signed into Requests, and a TMDB id to open); otherwise
+    ' it explains, so it never lands on a broken page.
+    function onSelect(entry as object, seerrActive as boolean) as object
+        if entry.itemId <> "" then return { kind: "item", itemId: entry.itemId }
+        if entry.tmdbId = ""
+            return { kind: "explain", title: entry.title, message: "Sashimi can't look this title up to request it." }
+        end if
+        if not seerrActive
+            return { kind: "explain", title: entry.title, message: "Sign into Requests to ask for this." }
+        end if
+        return { kind: "seerr", target: { kind: seerrKind(entry), tmdbId: Int(Val(entry.tmdbId)), title: entry.title, posterPath: "" } }
+    end function
+
+    ' ---------- Plex card, line and menu ----------
+
+    function showCard(view as object) as boolean
+        return view.plex = invalid and not view.cardDismissed
+    end function
+
+    ' The spec keeps Reconnect in the * menu; on a TV that is easy to miss, so
+    ' a paused sync says where it is.
+    function plexLine(view as object) as string
+        if view.plex = invalid then return ""
+        if view.plex.needsReconnect then return "Plex sync is paused. Press * to reconnect."
+        return Chr(10003) + " Synced with Plex"
+    end function
+
+    function optionsMenu(view as object, tileFocused as boolean) as object
+        out = []
+        if tileFocused then out.push({ kind: "remove", label: "Remove from Watchlist" })
+        if view.plex = invalid
+            out.push({ kind: "connect", label: CONNECT_LABEL() })
+        else
+            if view.plex.needsReconnect then out.push({ kind: "reconnect", label: "Reconnect Plex" })
+            out.push({ kind: "disconnect", label: "Disconnect Plex" })
+        end if
+        return out
+    end function
+
+    ' Where focus starts. "none" means nothing is focusable, so the screen
+    ' holds focus itself and Back and * still work.
+    function firstZone(cardShown as boolean, count as integer) as string
+        if cardShown then return "card"
+        if count > 0 then return "grid"
+        return "none"
+    end function
+
+    ' ---------- Linking ----------
+
+    ' POST /SashimiLists/Watchlist/Plex. The plugin answers 422 when plex.tv
+    ' rejects the token (a 401 would read as an expired Jellyfin session) and
+    ' 409 { username, newUsername } when the Watchlist syncs with a different
+    ' Plex account.
+    function linkOutcome(code as integer, data as dynamic) as object
+        if code >= 200 and code < 300 then return { kind: "linked", username: Seerr.getStr(data, "username") }
+        if code = 409 then return { kind: "conflict", username: Seerr.getStr(data, "username"), newUsername: Seerr.getStr(data, "newUsername") }
+        if code = 422 then return { kind: "rejected" }
+        if code = 404 then return { kind: "unavailable" }
+        return { kind: "failed" }
+    end function
+
+    ' A Requests Plex sign-in links the Watchlist too, but never silently
+    ' over a different account: "first" links, "refresh" re-sends the token
+    ' (the plugin answers 409 if it is someone else), "skip" does nothing.
+    function autoLinkStep(view as object) as string
+        if not view.available then return "skip"
+        if view.plex = invalid then return "first"
+        return "refresh"
+    end function
+
+    function replacePrompt(wanted as string, current as string) as object
+        who = "this Plex account"
+        if wanted <> "" then who = "Plex account " + wanted
+        msg = "It syncs with another Plex account now."
+        if current <> "" then msg = "It syncs with " + current + " now."
+        return { title: "Sync your Watchlist with " + who + " instead?", message: msg }
+    end function
+
+    function switchLabel(wanted as string) as string
+        if wanted = "" then return "Switch Account"
+        return "Switch to " + wanted
+    end function
+
+    ' ---------- The Lists page card ----------
+
+    function cardMeta(count as integer) as string
+        return "Private " + Chr(183) + " " + count.ToStr()
+    end function
+
+    ' Same rule as ListsModel.coverArt: four posters for a collage, else the
+    ' first full-bleed, else none. A tile draws from its library item or, when
+    ' missing, its stored poster.
+    function coverSources(entries as object) as object
+        out = []
+        for each e in entries
+            if e.itemId = "" and e.posterUrl = "" then continue for
+            out.push({ itemId: e.itemId, posterUrl: e.posterUrl })
+            if out.count() = 4 then return out
+        end for
+        if out.count() = 0 then return []
+        return [out[0]]
+    end function
+
+end namespace
