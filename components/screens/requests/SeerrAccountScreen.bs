@@ -1,6 +1,7 @@
 import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/SeerrStore.bs"
 import "pkg:/source/utils/Confirm.bs"
+import "pkg:/source/utils/Watchlist.bs"
 
 ' The Seerr account (Apple's RequestsSettingsView). Each person signs in as
 ' themselves, with Plex (a PIN shown here, linked at plex.tv/link) or a Seerr
@@ -25,9 +26,27 @@ sub init()
     m.email = ""
     m.btnIdx = 0
     m.buttons = []
+    m.conflictOpen = false   ' the "Switch to ...?" dialog is up
     m.global.observeFieldScoped("seerrState", "render")
     m.top.observeField("focusedChild", "render")
     render()
+end sub
+
+function forWatchlist() as boolean
+    return m.top.purpose = "watchlist"
+end function
+
+' Connect Plex: straight to the code, no Seerr server or account needed.
+sub onPurpose()
+    if not forWatchlist() then return
+    m.top.findNode("headingLabel").text = Watchlist.CONNECT_LABEL()
+    startPlex()
+end sub
+
+sub startPlex()
+    m.busy = true
+    render()
+    m.task.request = { action: "plexStart" }
 end sub
 
 function signedIn() as boolean
@@ -44,6 +63,10 @@ sub render()
         m.codeHint.text = "On your phone or computer, go to plex.tv/link and enter this code. This screen updates once it's linked."
         m.buttonsGroup.translation = [160, 600]
         defs.push({ kind: "cancelPlex", label: "Cancel" })
+    else if forWatchlist()
+        m.statusLabel.text = Watchlist.CARD_BODY()
+        m.buttonsGroup.translation = [160, 340]
+        if not m.busy then defs.push({ kind: "plex", label: "Try Again" })
     else if signedIn()
         name = ""
         if m.global.seerrUser <> invalid and m.global.seerrUser.name <> invalid then name = m.global.seerrUser.name
@@ -129,14 +152,16 @@ sub activate()
         m.editing = "server"
         showKeyboard("Server Address", "https://requests.example.com", m.global.seerrServer, false)
     else if kind = "plex"
-        m.busy = true
-        render()
-        m.task.request = { action: "plexStart" }
+        startPlex()
     else if kind = "local"
         m.editing = "email"
         showKeyboard("Seerr Email or Username", "", m.email, false)
     else if kind = "cancelPlex"
         stopPlex()
+        if forWatchlist()
+            m.top.closed = true
+            return
+        end if
         render()
     else if kind = "signOut"
         dialog = CreateObject("roSGNode", "StandardMessageDialog")
@@ -214,7 +239,7 @@ sub onPoll()
         render()
         return
     end if
-    m.task.request = { action: "plexCheck", pinId: m.pin.id }
+    m.task.request = { action: "plexCheck", pinId: m.pin.id, purpose: m.top.purpose }
 end sub
 
 sub onResponse()
@@ -236,6 +261,10 @@ sub onResponse()
         if r.success <> true then showError(r.error)
         m.btnIdx = 0
         render()
+        onWatchlistLink(r)
+    else if r.action = "watchlistReplace"
+        onWatchlistLink(r)
+        if forWatchlist() and r.watchlistError = invalid then m.top.closed = true
     else if r.action = "signInLocal"
         m.busy = false
         if r.success <> true then showError(r.error)
@@ -249,10 +278,67 @@ sub onResponse()
     end if
 end sub
 
+' ---------- The Watchlist's Plex link ----------
+
+' What linking the Watchlist came to. A Requests sign-in only ever reports
+' a first link (the toast) or a different account (the prompt); Connect
+' Plex also reports failures.
+sub onWatchlistLink(r as object)
+    if r.watchlistLinked = true
+        m.global.toastMessage = { message: Watchlist.LINKED_TOAST() }
+        m.global.listsVersion = m.global.listsVersion + 1
+        if forWatchlist() then m.top.closed = true
+    else if r.watchlistConflict <> invalid
+        showConflict(r.watchlistConflict)
+    else if r.watchlistError <> invalid and forWatchlist()
+        if r.watchlistError = "rejected"
+            showError("Plex didn't accept that sign-in. Try again.")
+        else
+            showError("Couldn't connect Plex. Check your connection.")
+        end if
+        render()
+    end if
+end sub
+
+' Never a silent switch: Cancel comes first (Confirm.bs) and keeps the old link.
+sub showConflict(c as object)
+    wanted = Seerr.getStr(c, "wanted")
+    p = Watchlist.replacePrompt(wanted, Seerr.getStr(c, "current"))
+    dialog = CreateObject("roSGNode", "StandardMessageDialog")
+    dialog.title = p.title
+    dialog.message = [p.message]
+    dialog.buttons = Confirm.buttons(Watchlist.switchLabel(wanted))
+    dialog.observeFieldScoped("buttonSelected", "onConflictButton")
+    ' Back closes the dialog without a button: that is a Cancel too, so the
+    ' task drops the token it is holding.
+    dialog.observeFieldScoped("wasClosed", "onConflictClosed")
+    m.conflictOpen = true
+    m.top.getScene().dialog = dialog
+end sub
+
+sub onConflictButton()
+    dialog = m.top.getScene().dialog
+    if dialog = invalid then return
+    confirmed = Confirm.isConfirmed(dialog.buttonSelected)
+    answerConflict(confirmed)
+    dialog.close = true
+end sub
+
+sub onConflictClosed()
+    answerConflict(false)
+end sub
+
+sub answerConflict(confirmed as boolean)
+    if not m.conflictOpen then return
+    m.conflictOpen = false
+    m.task.request = { action: "watchlistReplace", confirm: confirmed }
+end sub
+
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     if key = "back"
         stopPlex()
+        answerConflict(false)
         m.top.closed = true
         return true
     else if key = "up"

@@ -3,6 +3,7 @@ import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/SeerrSeasons.bs"
 import "pkg:/source/utils/SeerrStore.bs"
 import "pkg:/source/utils/Watchlist.bs"
+import "pkg:/source/utils/WatchlistApi.bs"
 
 ' Seerr's API as the signed-in person (a Plex or Seerr username sign-in, never
 ' an admin API key), plus plex.tv's PIN sign-in. The rules live in
@@ -66,6 +67,8 @@ sub processRequest()
         out = doMissingSeasons(r)
     else if a = "watchlistStatus"
         out = doWatchlistStatus(r)
+    else if a = "watchlistReplace"
+        out = doWatchlistReplace(r)
     end if
     if out = invalid then out = { success: false, error: "Unknown request." }
     out.action = a
@@ -311,20 +314,92 @@ function doPlexStart() as object
     return { success: true, pinId: pin.id, code: pin.code }
 end function
 
-' One poll. Once the code is linked the Plex token goes straight to Seerr and
-' is never kept or handed to a screen.
+' One poll. Once the code is linked the Plex token goes straight to Seerr
+' and/or the Watchlist plugin and is never handed to a screen. purpose
+' "watchlist" (Connect Plex on the Watchlist) never touches Seerr; a Requests
+' sign-in also links the Watchlist, but only once Seerr accepted it.
 function doPlexCheck(r as object) as object
-    res = send("GET", Seerr.plexPinUrl(Seerr.getInt(r, "pinId")), invalid, false, plexHeaders())
-    pin = invalid
-    if ok(res) then pin = Seerr.plexPin(res.data)
-    if pin = invalid or pin.token = "" then return { success: true, waiting: true }
-    signIn = send("POST", apiUrl("auth/plex"), { authToken: pin.token }, false)
+    purpose = Seerr.getStr(r, "purpose")
+    token = ""
+    #if DEBUG
+        ' Drives the Watchlist's link outcomes on a dev box without a Plex
+        ' account (debugWatchlistLink); never compiled into a release.
+        if purpose = "watchlist" and debugWatchlistLink() <> "" then token = "debug"
+    #end if
+    if token = ""
+        res = send("GET", Seerr.plexPinUrl(Seerr.getInt(r, "pinId")), invalid, false, plexHeaders())
+        pin = invalid
+        if ok(res) then pin = Seerr.plexPin(res.data)
+        if pin = invalid or pin.token = "" then return { success: true, waiting: true }
+        token = pin.token
+    end if
+    if purpose = "watchlist"
+        out = linkWatchlist(token, false)
+        out.success = true
+        return out
+    end if
+    signIn = send("POST", apiUrl("auth/plex"), { authToken: token }, false)
     out = finishSignIn(signIn)
     if not out.success and out.kind = "invalidCredentials"
         out.error = "That Plex account doesn't have access to " + m.global.seerrTitle + "."
     end if
+    if out.success then out.Append(linkWatchlist(token, true))
     return out
 end function
+
+' Hands a Plex token to the Watchlist. auto (a Requests sign-in) links only
+' an unlinked Watchlist and stays quiet when it re-sends the same account's
+' token; a different account is never switched silently: the token is held
+' here, on this thread, until the person answers watchlistReplace.
+function linkWatchlist(token as string, auto as boolean) as object
+    stage = "first"
+    if auto
+        stage = Watchlist.autoLinkStep(WatchlistApi.view())
+        if stage = "skip" then return {}
+    end if
+    o = invalid
+    #if DEBUG
+        o = debugLinkOutcome()
+    #end if
+    if o = invalid then o = WatchlistApi.link(token, false)
+    if o.kind = "linked" then return { watchlistLinked: (not auto) or stage = "first" }
+    if o.kind = "conflict"
+        m.heldPlexToken = token
+        return { watchlistConflict: { current: o.username, wanted: o.newUsername } }
+    end if
+    if auto then return {}
+    return { watchlistError: o.kind }
+end function
+
+' The answer to "Sync your Watchlist with Plex account X instead?". The held
+' token is dropped whatever the answer.
+function doWatchlistReplace(r as object) as object
+    token = m.heldPlexToken
+    m.heldPlexToken = invalid
+    if r.confirm <> true or token = invalid then return { success: true, watchlistLinked: false }
+    o = invalid
+    #if DEBUG
+        if debugWatchlistLink() <> "" then o = { kind: "linked" }
+    #end if
+    if o = invalid then o = WatchlistApi.link(token, true)
+    out = { success: true, watchlistLinked: o.kind = "linked" }
+    if o.kind <> "linked" then out.watchlistError = o.kind
+    return out
+end function
+
+#if DEBUG
+    function debugWatchlistLink() as string
+        return CreateObject("roRegistrySection", "debug").Read("debugWatchlistLink")
+    end function
+
+    function debugLinkOutcome() as dynamic
+        k = debugWatchlistLink()
+        if k = "linked" then return { kind: "linked", username: "plex-test" }
+        if k = "conflict" then return { kind: "conflict", username: "plex-current", newUsername: "plex-new" }
+        if k = "rejected" then return { kind: "rejected" }
+        return invalid
+    end function
+#end if
 
 ' Best effort with the server; the local sign-out happens whatever it says.
 function doSignOut() as object
