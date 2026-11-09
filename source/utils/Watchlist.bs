@@ -274,12 +274,14 @@ namespace Watchlist
     ' POST /SashimiLists/Watchlist/Plex. The plugin answers 422 when plex.tv
     ' rejects the token (a 401 would read as an expired Jellyfin session) and
     ' 409 { username, newUsername } when the Watchlist syncs with a different
-    ' Plex account.
+    ' Plex account, and 503 when it can't reach plex.tv.
     function linkOutcome(code as integer, data as dynamic) as object
         if code >= 200 and code < 300 then return { kind: "linked", username: Seerr.getStr(data, "username") }
         if code = 409 then return { kind: "conflict", username: Seerr.getStr(data, "username"), newUsername: Seerr.getStr(data, "newUsername") }
         if code = 422 then return { kind: "rejected" }
         if code = 404 then return { kind: "unavailable" }
+        ' The plugin answers 503 when plex.tv is down: Plex, not the token.
+        if code >= 500 and code < 600 then return { kind: "unreachable" }
         return { kind: "failed" }
     end function
 
@@ -291,6 +293,7 @@ namespace Watchlist
 
     function linkErrorText(kind as string) as string
         if kind = "rejected" then return "Plex didn't accept that sign-in. Try again."
+        if kind = "unreachable" then return "Couldn't reach Plex. Try again."
         return "Couldn't connect Plex. Check your connection."
     end function
 

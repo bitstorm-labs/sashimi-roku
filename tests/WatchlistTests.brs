@@ -232,6 +232,9 @@ sub testLinkOutcome(t as object)
     eq(t, "401 is not a Plex rejection", Watchlist_linkOutcome(401, invalid).kind, "failed")
     eq(t, "no plugin", Watchlist_linkOutcome(404, invalid).kind, "unavailable")
     eq(t, "offline", Watchlist_linkOutcome(0, invalid).kind, "failed")
+    ' 503 when the plugin can't reach plex.tv: not a rejected token.
+    eq(t, "plex unreachable", Watchlist_linkOutcome(503, invalid).kind, "unreachable")
+    eq(t, "any 5xx", Watchlist_linkOutcome(500, invalid).kind, "unreachable")
 end sub
 
 sub testAutoLink(t as object)
@@ -280,6 +283,7 @@ sub testLinkErrors(t as object)
     eq(t, "switch from Connect Plex: shown", Watchlist_showsLinkError("watchlistReplace", true), true)
     eq(t, "rejected text", Watchlist_linkErrorText("rejected"), "Plex didn't accept that sign-in. Try again.")
     eq(t, "other text", Watchlist_linkErrorText("failed"), "Couldn't connect Plex. Check your connection.")
+    eq(t, "unreachable text", Watchlist_linkErrorText("unreachable"), "Couldn't reach Plex. Try again.")
 end sub
 
 sub testItemBatches(t as object)
