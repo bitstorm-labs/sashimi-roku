@@ -45,7 +45,9 @@
         <Label id="statusLabel" text="Loading..." color="#888888FF" width="1920" horizAlign="center" translation="[0, 620]">
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="28" />
         </Label>
-        <Label id="hintLabel" text="Press * for options" color="#888888FF" translation="[120, 1010]">
+        <!-- Top right, level with the title: at the bottom it sat on the
+             grid's second row (seen on device). -->
+        <Label id="hintLabel" text="Press * for options" color="#888888FF" width="600" horizAlign="right" translation="[1200, 150]">
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
         <!-- Real focus outside the grid (the card and "none" zones), so this

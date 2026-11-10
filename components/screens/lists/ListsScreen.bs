@@ -145,7 +145,7 @@ sub addWatchlistCard(row as object, w as object)
     if w.cover.count() = 1 then width = 660
     for each p in w.cover
         ' A title not on the server draws its stored (TMDB) poster.
-        if p.itemId <> "" then urls.push(ImageUrl.primary(p.itemId, width, "")) else urls.push(p.posterUrl)
+        if p.itemId <> "" then urls.push(ImageUrl.primary(p.itemId, width, p.tag)) else urls.push(p.posterUrl)
     end for
     c.addFields({ listId: "", isWatchlist: true, subscribed: false, isNewTile: false, coverUrls: urls })
 end sub

@@ -177,7 +177,9 @@ sub render()
     m.metaLabel.text = Watchlist.metaLine(m.entries.count(), m.view)
     shown = cardShown()
     m.card.visible = shown
-    if shown then m.grid.translation = [105, 440] else m.grid.translation = [105, 350]
+    layout = Watchlist.gridLayout(shown)
+    m.grid.translation = [105, layout.y]
+    m.grid.numRows = layout.rows
     m.statusLabel.text = Watchlist.EMPTY_TEXT()
     m.statusLabel.visible = (m.entries.count() = 0)
     drawGrid()
@@ -390,8 +392,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
         return true
     end if
     if m.zone = "grid"
-        ' fixedFocus stops the grid wrapping; its top row hands up to the card.
-        if key = "up" and m.grid.itemFocused < 6 and cardShown()
+        ' fixedFocus stops the grid wrapping; its top row (all of it when it is
+        ' one strip under the card) hands up to the card.
+        if key = "up" and cardShown() and Watchlist.upToCard(m.grid.itemFocused, m.grid.numRows, 6)
             m.cardIdx = 0
             focusZone("card")
             return true

@@ -49,7 +49,7 @@ namespace Watchlist
     ' so the Watchlist is hidden; anything else that isn't a 2xx with a body
     ' is a failure that hides it for this load only.
     function fromResponse(code as integer, data as dynamic) as object
-        v = { available: false, failed: false, plex: invalid, cardDismissed: false, entries: [] }
+        v = { available: false, failed: false, plex: invalid, cardDismissed: false, plexOptedOut: false, entries: [] }
         if code = 404 then return v
         if code < 200 or code >= 300 or not Seerr.isAA(data)
             v.failed = true
@@ -60,6 +60,9 @@ namespace Watchlist
             v.plex = { username: Seerr.getStr(data.plex, "username"), needsReconnect: isTrue(data.plex.needsReconnect) }
         end if
         v.cardDismissed = isTrue(data.cardDismissed)
+        ' Plugin 0.2.2+: set when the person disconnected Plex. Older plugins
+        ' leave it out, which reads as false.
+        v.plexOptedOut = isTrue(data.plexOptedOut)
         for each e in Seerr.getArr(data, "entries")
             n = normalised(e)
             if n <> invalid then v.entries.push(n)
@@ -269,6 +272,21 @@ namespace Watchlist
         return "none"
     end function
 
+    ' Where the page's grid sits. Under the card a second 380-high row would
+    ' run off the 1080-high screen (seen on device), so it shows one row and
+    ' scrolls; without the card it shows two, like a list's page.
+    function gridLayout(withCard as boolean) as object
+        if withCard then return { y: 440, rows: 1 }
+        return { y: 350, rows: 2 }
+    end function
+
+    ' Whether Up from the grid goes to the card. A one-row MarkupGrid is a
+    ' single strip (every title is in its top row); with more rows only the
+    ' top row hands up.
+    function upToCard(focused as integer, rows as integer, cols as integer) as boolean
+        return rows = 1 or focused < cols
+    end function
+
     ' ---------- Linking ----------
 
     ' POST /SashimiLists/Watchlist/Plex. The plugin answers 422 when plex.tv
@@ -314,6 +332,9 @@ namespace Watchlist
     ' (the plugin answers 409 if it is someone else), "skip" does nothing.
     function autoLinkStep(view as object) as string
         if not view.available then return "skip"
+        ' Disconnected on purpose: a Requests sign-in must not undo that. An
+        ' explicit Connect (card, * menu, Settings) never asks this.
+        if view.DoesExist("plexOptedOut") and isTrue(view.plexOptedOut) then return "skip"
         if view.plex = invalid then return "first"
         return "refresh"
     end function
@@ -346,6 +367,30 @@ namespace Watchlist
             end if
         end for
         if cur.count() > 0 then out.push(cur.Join(","))
+        return out
+    end function
+
+    ' The on-server ids among the Lists card's posters, for one /Items lookup.
+    function coverItemIds(cover as object) as string
+        ids = []
+        for each c in cover
+            if c.itemId <> "" then ids.push(c.itemId)
+        end for
+        return ids.Join(",")
+    end function
+
+    ' The card's posters with their Primary image tag (items: itemId ->
+    ' library item), so ImageUrl's &tag= changes when a poster is replaced.
+    function tagCover(cover as object, items as dynamic) as object
+        out = []
+        for each c in cover
+            tag = ""
+            if c.itemId <> "" and Seerr.isAA(items)
+                it = items[c.itemId]
+                if Seerr.isAA(it) and Seerr.isAA(it.ImageTags) then tag = Seerr.getStr(it.ImageTags, "Primary")
+            end if
+            out.push({ itemId: c.itemId, posterUrl: c.posterUrl, tag: tag })
+        end for
         return out
     end function
 
