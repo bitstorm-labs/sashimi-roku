@@ -24,6 +24,10 @@ sub main()
     testItemBatches(t)
     testLinkResult(t)
     testSettingsRow(t)
+    testOptedOut(t)
+    testCoverTags(t)
+    testGridLayout(t)
+    testUpToCard(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -339,4 +343,50 @@ sub testSettingsRow(t as object)
     eq(t, "paused actions", kinds(pz.actions), "reconnect,disconnect")
     eq(t, "reconnect label", pz.actions[0].label, "Reconnect Plex")
     eq(t, "linked without a name", Watchlist_settingsRow({ available: true, plex: { username: "", needsReconnect: false } }).value, "Connected")
+end sub
+
+sub testOptedOut(t as object)
+    ' Someone who disconnected Plex is not linked again by a Requests sign-in.
+    eq(t, "opted out read", Watchlist_fromResponse(200, { entries: [], plexOptedOut: true }).plexOptedOut, true)
+    eq(t, "missing field is false", Watchlist_fromResponse(200, { entries: [] }).plexOptedOut, false)
+    eq(t, "404 view not opted out", Watchlist_fromResponse(404, invalid).plexOptedOut, false)
+    eq(t, "opted out: skip", Watchlist_autoLinkStep({ available: true, plex: invalid, plexOptedOut: true }), "skip")
+    eq(t, "not opted out: first", Watchlist_autoLinkStep({ available: true, plex: invalid, plexOptedOut: false }), "first")
+    eq(t, "older view without the field: first", Watchlist_autoLinkStep({ available: true, plex: invalid }), "first")
+end sub
+
+sub testCoverTags(t as object)
+    ' The Lists card draws on-server posters with their image tag, so a
+    ' replaced poster gets a new url instead of a stale cached copy.
+    cover = [{ itemId: "a", posterUrl: "" }, { itemId: "", posterUrl: "https://image.tmdb.org/t/p/w500/p.jpg" }, { itemId: "b", posterUrl: "" }]
+    items = { a: { Id: "a", ImageTags: { Primary: "tagA" } }, b: { Id: "b" } }
+    tagged = Watchlist_tagCover(cover, items)
+    eq(t, "on server: its tag", tagged[0].tag, "tagA")
+    eq(t, "not on server: no tag", tagged[1].tag, "")
+    eq(t, "item without tags: none", tagged[2].tag, "")
+    eq(t, "no items at all", Watchlist_tagCover(cover, invalid)[0].tag, "")
+    eq(t, "ids to look up", Watchlist_coverItemIds(cover), "a,b")
+    eq(t, "nothing to look up", Watchlist_coverItemIds([{ itemId: "", posterUrl: "x" }]), "")
+end sub
+
+sub testGridLayout(t as object)
+    ' 1080 tall, 380-high cells 40 apart: with the card the grid starts at 440,
+    ' so a second row would run off the screen. It shows one and scrolls.
+    withCard = Watchlist_gridLayout(true)
+    eq(t, "card: below it", withCard.y, 440)
+    eq(t, "card: one row", withCard.rows, 1)
+    eq(t, "card: the row fits", withCard.y + withCard.rows * 380 + (withCard.rows - 1) * 40 <= 1080, true)
+    noCard = Watchlist_gridLayout(false)
+    eq(t, "no card: higher", noCard.y, 350)
+    eq(t, "no card: two rows", noCard.rows, 2)
+end sub
+
+sub testUpToCard(t as object)
+    ' Under the card the grid is one row, which a MarkupGrid draws as a single
+    ' strip that Left/Right scroll through (seen on device), so Up from any
+    ' title goes to the card; with two rows only the top row does.
+    eq(t, "one row: from the first", Watchlist_upToCard(0, 1, 6), true)
+    eq(t, "one row: from the eighth", Watchlist_upToCard(7, 1, 6), true)
+    eq(t, "two rows: top row", Watchlist_upToCard(5, 2, 6), true)
+    eq(t, "two rows: second row stays in the grid", Watchlist_upToCard(6, 2, 6), false)
 end sub

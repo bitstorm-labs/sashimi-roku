@@ -182,15 +182,26 @@ namespace ListsApi
                 subscribed: subscribed.DoesExist(p.Id)
             })
         end for
-        return { success: true, lists: lists, watchlist: watchlistCard() }
+        return { success: true, lists: lists, watchlist: watchlistCard(me) }
     end function
 
     ' The Lists page's Watchlist card, or invalid when the server has no
     ' Watchlist (or it failed to load: the rest of the page still draws).
-    function watchlistCard() as dynamic
+    function watchlistCard(me as string) as dynamic
         v = WatchlistApi.view()
         if not v.available then return invalid
-        return { count: v.entries.count(), cover: Watchlist.coverSources(v.entries) }
+        cover = Watchlist.coverSources(v.entries)
+        items = {}
+        ids = Watchlist.coverItemIds(cover)
+        if ids <> ""
+            r = Http.send("GET", "/Items?Ids=" + ids + "&userId=" + me + "&EnableImageTypes=Primary")
+            if r.ok and type(r.data) = "roAssociativeArray" and type(r.data.Items) = "roArray"
+                for each it in r.data.Items
+                    if SharedLists.isStr(it.Id) then items[it.Id] = it
+                end for
+            end if
+        end if
+        return { count: v.entries.count(), cover: Watchlist.tagCover(cover, items) }
     end function
 
     ' Just the plugin's view (a Seerr title's Add to List): no library items.
