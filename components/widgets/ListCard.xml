@@ -8,6 +8,7 @@
     <interface>
         <field id="itemContent" type="node" onChange="onContentChanged" />
         <field id="focusPercent" type="float" onChange="onFocusChanged" />
+        <field id="itemHasFocus" type="boolean" onChange="onFocusChanged" />
     </interface>
     <children>
         <!-- Layers back to front; each turns about its bottom centre. -->

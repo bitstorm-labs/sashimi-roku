@@ -33,6 +33,7 @@ sub main()
     testDetailsQuery(t)
     testDetailsResponse(t)
     testDetailsMeta(t)
+    testTitlePage(t)
     testDetailsButtons(t)
     testRequestsAddress(t)
     testEntryOpensDetails(t)
@@ -490,6 +491,23 @@ sub testDetailsMeta(t as object)
     s = { type: "Series", year: 2017, runtimeMinutes: 0, seasonCount: 4, officialRating: "", genres: [], communityRating: 0 }
     eq(t, "series line", Watchlist_detailsMeta(s), "2017" + dot + "4 Seasons")
     eq(t, "one season", Watchlist_detailsMeta({ type: "Series", year: -1, runtimeMinutes: 0, seasonCount: 1, officialRating: "", genres: [], communityRating: 0 }), "1 Season")
+end sub
+
+' The title page's header, split like a movie's detail screen.
+sub testTitlePage(t as object)
+    b = " " + Chr(8226) + " "
+    d = { type: "Movie", year: 2021, runtimeMinutes: 155, seasonCount: 0, officialRating: "PG-13", genres: ["Science Fiction", "Adventure", "Drama", "War"], communityRating: 7.8 }
+    eq(t, "movie meta", Watchlist_titlePageMeta(d), "2021" + b + "2h 35m")
+    eq(t, "score", Watchlist_titlePageScore(d), "7.8")
+    eq(t, "rating then three genres", Watchlist_titlePageTags(d).Join("|"), "PG-13|Science Fiction|Adventure|Drama")
+    s = { type: "Series", year: 2017, runtimeMinutes: 0, seasonCount: 4, officialRating: "", genres: ["Drama"], communityRating: 0 }
+    eq(t, "series meta", Watchlist_titlePageMeta(s), "2017" + b + "4 Seasons")
+    eq(t, "no score", Watchlist_titlePageScore(s), "")
+    eq(t, "no rating, genres only", Watchlist_titlePageTags(s).Join("|"), "Drama")
+    eq(t, "nothing known", Watchlist_titlePageMeta({ type: "Movie", year: -1, runtimeMinutes: 0, seasonCount: 0 }), "")
+    eq(t, "an hour exactly", Watchlist_titlePageMeta({ type: "Movie", year: -1, runtimeMinutes: 60, seasonCount: 0 }), "1h")
+    eq(t, "under an hour", Watchlist_titlePageMeta({ type: "Movie", year: 2020, runtimeMinutes: 45, seasonCount: 0 }), "2020" + b + "45m")
+    eq(t, "no genres", Watchlist_titlePageTags({ officialRating: "R", genres: [] }).Join("|"), "R")
 end sub
 
 sub testDetailsButtons(t as object)

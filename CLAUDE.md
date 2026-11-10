@@ -99,7 +99,8 @@ disconnected: `plexOptedOut`), Settings > Plex, the Lists card's tagged
 posters (dimmed when not on the server), that Connect Plex needs no
 Seerr server (`Seerr.plexCheckRoute`), and Watchlist v2 (plugin 0.3+, a 404
 hides each part): + Add's search and its two groups, the title page for a
-title not on the server (`/Details`, its line and buttons), and the Requests
+title not on the server (`/Details`, its line and buttons, and its header
+split like a movie's detail page: meta line, score, rating and genre chips), and the Requests
 address the server sets (`/SashimiLists/Config`, `Seerr.effectiveServer`))
 and `source/utils/ListLayout.bs` (how every list looks: the Lists page's
 "Poster stack" cover -- its 0-3 layers and their fan on focus -- and the

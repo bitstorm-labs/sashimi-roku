@@ -563,20 +563,8 @@ namespace Watchlist
     function detailsMeta(d as object) as string
         parts = []
         if Seerr.isNum(d.year) and d.year > 0 then parts.push(Int(d.year).ToStr())
-        if d.type = "Series"
-            if d.seasonCount = 1 then parts.push("1 Season")
-            if d.seasonCount > 1 then parts.push(d.seasonCount.ToStr() + " Seasons")
-        else if d.runtimeMinutes > 0
-            h = Int(d.runtimeMinutes / 60)
-            mins = d.runtimeMinutes - h * 60
-            if h = 0
-                parts.push(mins.ToStr() + "m")
-            else if mins = 0
-                parts.push(h.ToStr() + "h")
-            else
-                parts.push(h.ToStr() + "h " + mins.ToStr() + "m")
-            end if
-        end if
+        length = lengthText(d)
+        if length <> "" then parts.push(length)
         if d.officialRating <> "" then parts.push(d.officialRating)
         g = ""
         n = 0
@@ -589,6 +577,51 @@ namespace Watchlist
         if g <> "" then parts.push(g)
         if d.communityRating > 0 then parts.push(Chr(9733) + " " + ratingText(d.communityRating))
         return parts.Join(" " + Chr(183) + " ")
+    end function
+
+    ' "2h 35m" for a movie, "4 Seasons" for a show, "" when unknown.
+    function lengthText(d as object) as string
+        if d.type = "Series"
+            if d.seasonCount = 1 then return "1 Season"
+            if d.seasonCount > 1 then return d.seasonCount.ToStr() + " Seasons"
+            return ""
+        end if
+        if not Seerr.isNum(d.runtimeMinutes) or d.runtimeMinutes <= 0 then return ""
+        h = Int(d.runtimeMinutes / 60)
+        mins = d.runtimeMinutes - h * 60
+        if h = 0 then return mins.ToStr() + "m"
+        if mins = 0 then return h.ToStr() + "h"
+        return h.ToStr() + "h " + mins.ToStr() + "m"
+    end function
+
+    ' The title page is laid out like a movie's detail screen, so it splits
+    ' detailsMeta's one line the same way: "2021 • 2h 35m" under the title,
+    ' the score beside the TMDB logo, and the age rating and genres as chips.
+    function titlePageMeta(d as object) as string
+        parts = []
+        if Seerr.isNum(d.year) and d.year > 0 then parts.push(Int(d.year).ToStr())
+        length = lengthText(d)
+        if length <> "" then parts.push(length)
+        return parts.Join(" " + Chr(8226) + " ")
+    end function
+
+    ' "" when the provider has no score.
+    function titlePageScore(d as object) as string
+        if not Seerr.isNum(d.communityRating) or d.communityRating <= 0 then return ""
+        return ratingText(d.communityRating)
+    end function
+
+    ' The age rating, then genres: four chips at most, as on the detail screen.
+    function titlePageTags(d as object) as object
+        tags = []
+        if Seerr.isStr(d.officialRating) and d.officialRating <> "" then tags.push(d.officialRating)
+        if d.genres <> invalid
+            for each g in d.genres
+                if tags.count() >= 4 then exit for
+                tags.push(g)
+            end for
+        end if
+        return tags
     end function
 
     ' 7.8 -> "7.8", 8 -> "8.0".
