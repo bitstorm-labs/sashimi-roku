@@ -307,7 +307,9 @@ namespace Watchlist
     ' sign-in) never reports a failure, so the Watchlist can't fail or hold
     ' up that sign-in; a re-sent token for the same account stays quiet.
     function linkResult(o as object, auto as boolean, stage as string) as object
-        if o.kind = "linked" then return { watchlistLinked: (not auto) or stage = "first" }
+        ' watchlistLinked is the toast; watchlistChanged is "re-read the link":
+        ' a quiet same-account refresh still clears a paused sync.
+        if o.kind = "linked" then return { watchlistLinked: (not auto) or stage = "first", watchlistChanged: true }
         if o.kind = "conflict"
             return { watchlistConflict: { current: Seerr.getStr(o, "username"), wanted: Seerr.getStr(o, "newUsername") } }
         end if
