@@ -3,6 +3,7 @@ import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/Watchlist.bs"
 import "pkg:/source/utils/ListLayout.bs"
+import "pkg:/source/utils/Entities.bs"
 
 '' The Watchlist page ("Spotlight": ListSpotlight on top, the posters in one
 ' row along the bottom, the buttons between). One "watchlist" request draws
@@ -286,7 +287,7 @@ sub showSpotlight()
             item = entryItem(e)
             info.meta = ListLayout.metaLine(item)
             if info.meta = "" then info.meta = ListLayout.missingMeta(e)
-            if item.Overview <> invalid then info.overview = item.Overview
+            info.overview = Entities.decode(item.Overview)
             b = ListLayout.backdrop(item)
             if b <> invalid then info.backdropUri = ImageUrl.backdrop(b.id, 1280, b.tag)
         else

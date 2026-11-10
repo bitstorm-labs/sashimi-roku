@@ -3,6 +3,7 @@ import "pkg:/source/utils/Quality.bs"
 import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/ListsModel.bs"
 import "pkg:/source/utils/ListLayout.bs"
+import "pkg:/source/utils/Entities.bs"
 
 ' A list's page ("Spotlight": ListSpotlight on top, the posters in one row
 ' along the bottom, the buttons between). The "detail" request also clears the list's "new" for a
@@ -222,7 +223,7 @@ sub showSpotlight()
         info.title = textOf(item.Name)
         if not card.isSeries and item.Type = "Episode" and textOf(item.SeriesName) <> "" then info.title = item.SeriesName
         info.meta = ListLayout.metaLine(item)
-        info.overview = textOf(item.Overview)
+        info.overview = Entities.decode(item.Overview)
         b = ListLayout.backdrop(item)
         if b <> invalid then info.backdropUri = ImageUrl.backdrop(b.id, 1280, b.tag)
         info.posterUri = posterFor(card, ListsModel.cardItem(card))

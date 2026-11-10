@@ -1,0 +1,61 @@
+' HTML character references in text Jellyfin hands back as-is (some metadata
+' providers' overviews carry &#34; and &#39;). Decoded once, left to right,
+' so "&amp;#39;" stays "&#39;". Anything that isn't a complete reference
+' (a lone "&", an unknown name, no ";") is left alone. Pure, so
+' tests/EntitiesTests.brs runs it off-device.
+namespace Entities
+
+    function decode(s as dynamic) as string
+        if s = invalid or GetInterface(s, "ifString") = invalid then return ""
+        if Instr(1, s, "&") = 0 then return s
+        named = { amp: "&", quot: Chr(34), apos: "'", lt: "<", gt: ">", nbsp: " " }
+        out = ""
+        i = 1
+        n = Len(s)
+        while i <= n
+            ch = Mid(s, i, 1)
+            if ch = "&"
+                semi = Instr(i + 1, s, ";")
+                ' References are short; a far-off ";" belongs to something else.
+                if semi > 0 and semi - i <= 10
+                    body = Mid(s, i + 1, semi - i - 1)
+                    rep = invalid
+                    if Left(body, 2) = "#x" or Left(body, 2) = "#X"
+                        hex = Mid(body, 3)
+                        if hex <> "" and isHex(hex) then rep = Chr(Val(hex, 16))
+                    else if Left(body, 1) = "#"
+                        dec = Mid(body, 2)
+                        if dec <> "" and isDigits(dec) then rep = Chr(Val(dec, 10))
+                    else if named.DoesExist(body)
+                        rep = named[body]
+                    end if
+                    if rep <> invalid
+                        out = out + rep
+                        i = semi + 1
+                        continue while
+                    end if
+                end if
+            end if
+            out = out + ch
+            i = i + 1
+        end while
+        return out
+    end function
+
+    function isDigits(s as string) as boolean
+        for k = 1 to Len(s)
+            c = Asc(Mid(s, k, 1))
+            if c < 48 or c > 57 then return false
+        end for
+        return true
+    end function
+
+    function isHex(s as string) as boolean
+        for k = 1 to Len(s)
+            c = Asc(LCase(Mid(s, k, 1)))
+            if not ((c >= 48 and c <= 57) or (c >= 97 and c <= 102)) then return false
+        end for
+        return true
+    end function
+
+end namespace

@@ -107,6 +107,8 @@ and `source/utils/ListLayout.bs` (how every list looks: the Lists page's
 and button (Play / Resume / Request / Requested / Sign in to Requests),
 the list's and the Watchlist's button rows, and Up/Down between the Plex
 card, the buttons and the one-row poster strip).
+`source/utils/Entities.bs` decodes the HTML character references some
+metadata leaves in overviews (`&#34;`, `&#39;`, `&amp;`) before they are drawn.
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that

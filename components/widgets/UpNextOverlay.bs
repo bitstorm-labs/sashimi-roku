@@ -1,5 +1,6 @@
 import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/NextEpisode.bs"
+import "pkg:/source/utils/Entities.bs"
 
 const PLAY_W = 280
 const BTN_H = 64
@@ -81,7 +82,7 @@ sub onEpisode()
     end if
 
     ov = ""
-    if ep.Overview <> invalid then ov = ep.Overview
+    if ep.Overview <> invalid then ov = Entities.decode(ep.Overview)
     m.overviewLabel.text = ov
     layout()
 end sub
