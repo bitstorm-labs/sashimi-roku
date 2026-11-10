@@ -214,18 +214,19 @@ namespace Watchlist
         return t
     end function
 
-    ' What OK on a tile does. A missing title opens its Seerr page only when
-    ' that can work (signed into Requests, and a TMDB id to open); otherwise
-    ' it explains, so it never lands on a broken page.
+    ' What OK on a tile does: a title the server has opens its page; one it
+    ' doesn't opens the Watchlist's own title page (WatchlistTitleScreen,
+    ' Watchlist v2), which explains itself when the plugin is too old.
     function onSelect(entry as object, seerrActive as boolean) as object
         if entry.itemId <> "" then return { kind: "item", itemId: entry.itemId }
-        if entry.tmdbId = ""
-            return { kind: "explain", title: entry.title, message: "Sashimi can't look this title up to request it." }
-        end if
-        if not seerrActive
-            return { kind: "explain", title: entry.title, message: "Sign into Requests to ask for this." }
-        end if
-        return { kind: "seerr", target: { kind: seerrKind(entry), tmdbId: Int(Val(entry.tmdbId)), title: entry.title, posterPath: "" } }
+        return { kind: "details", entry: entry }
+    end function
+
+    ' Seerr's page for a title (Request), or invalid with no TMDB id: Seerr
+    ' pages take nothing else.
+    function seerrTarget(entry as object) as dynamic
+        if entry.tmdbId = "" then return invalid
+        return { kind: seerrKind(entry), tmdbId: Int(Val(entry.tmdbId)), title: entry.title, posterPath: "" }
     end function
 
     ' ---------- Plex card, line and menu ----------
@@ -408,6 +409,230 @@ namespace Watchlist
             if out.count() = 3 then exit for
         end for
         return out
+    end function
+
+    ' ---------- v2: + Add search ----------
+
+    ' The server takes 1-200 characters; under two isn't worth a TMDB call.
+    function searchReady(text as string) as boolean
+        n = Len(text.Trim())
+        return n >= 2 and n <= 200
+    end function
+
+    ' GET /SashimiLists/Watchlist/Search. A 404 means a plugin older than
+    ' 0.3.0: no + Add.
+    function searchFromResponse(code as integer, data as dynamic) as object
+        r = { available: false, failed: false, query: "", onServer: [], notOnServer: [] }
+        if code = 404 then return r
+        if code < 200 or code >= 300 or not Seerr.isAA(data)
+            r.failed = true
+            return r
+        end if
+        r.available = true
+        r.query = Seerr.getStr(data, "query")
+        for each h in Seerr.getArr(data, "onServer")
+            n = hitFrom(h)
+            if n <> invalid then r.onServer.push(n)
+        end for
+        for each h in Seerr.getArr(data, "notOnServer")
+            n = hitFrom(h)
+            if n <> invalid then r.notOnServer.push(n)
+        end for
+        return r
+    end function
+
+    function hitFrom(h as dynamic) as dynamic
+        if not Seerr.isAA(h) then return invalid
+        kind = Seerr.getStr(h, "type")
+        title = Seerr.getStr(h, "title")
+        if (kind <> "Movie" and kind <> "Series") or title = "" then return invalid
+        n = { type: kind, title: title, year: Seerr.getInt(h, "year", -1), tmdbId: idStr(h.tmdbId), tvdbId: idStr(h.tvdbId), imdbId: idStr(h.imdbId), posterUrl: Seerr.getStr(h, "posterUrl"), overview: Seerr.getStr(h, "overview"), itemId: Seerr.getStr(h, "itemId"), onWatchlist: isTrue(h.onWatchlist), entryId: Seerr.getStr(h, "watchlistEntryId") }
+        if not hasAnyId(n) then return invalid
+        return n
+    end function
+
+    ' Which titles were added on this screen, so their + turns to Added.
+    function hitKey(hit as object) as string
+        return hit.type + "|" + hit.tmdbId + "|" + hit.tvdbId + "|" + LCase(hit.imdbId)
+    end function
+
+    ' The results list: each group under its header, "No results" when empty.
+    function searchRows(r as object, added as object) as object
+        rows = []
+        groups = [{ text: "On your server", hits: r.onServer }, { text: "Not on server", hits: r.notOnServer }]
+        for each g in groups
+            rows.push({ kind: "header", text: g.text })
+            if g.hits.count() = 0 then rows.push({ kind: "empty", text: "No results" })
+            for each h in g.hits
+                rows.push({ kind: "hit", hit: h, added: h.onWatchlist or added.DoesExist(hitKey(h)) })
+            end for
+        end for
+        return rows
+    end function
+
+    function hitLine(hit as object) as string
+        parts = []
+        if Seerr.isNum(hit.year) and hit.year > 0 then parts.push(Int(hit.year).ToStr())
+        if hit.type = "Series" then parts.push("Show") else parts.push("Movie")
+        return parts.Join(" " + Chr(183) + " ")
+    end function
+
+    function addLabel(added as boolean) as string
+        if added then return Chr(10003) + " Added"
+        return "+ Add"
+    end function
+
+    ' The add body: the hit's own fields, which match the add route's.
+    function hitBody(hit as object) as object
+        b = { type: hit.type, title: hit.title }
+        if Seerr.isNum(hit.year) and hit.year > 0 then b.year = hit.year
+        if hit.posterUrl <> "" then b.posterUrl = hit.posterUrl
+        putIds(b, hit)
+        return b
+    end function
+
+    ' A library title opens its own page; one the server doesn't have, the
+    ' Watchlist's title page.
+    function hitOpen(hit as object) as object
+        if hit.itemId <> "" then return { kind: "item", item: { Id: hit.itemId, Type: hit.type, Name: hit.title } }
+        return { kind: "details", hit: hit }
+    end function
+
+    ' ---------- v2: the title page for titles not on the server ----------
+
+    ' What the title page starts from (it draws this at once and fills the
+    ' rest from /Details): a Watchlist entry, which is on the Watchlist...
+    function entrySource(e as object) as object
+        return { type: e.type, title: e.title, year: e.year, posterUrl: e.posterUrl, tmdbId: e.tmdbId, tvdbId: e.tvdbId, imdbId: e.imdbId, onWatchlist: true, entryId: e.id }
+    end function
+
+    ' ...or a search hit, which may have just been added on the search screen.
+    function hitSource(h as object, added as boolean) as object
+        return { type: h.type, title: h.title, year: h.year, posterUrl: h.posterUrl, tmdbId: h.tmdbId, tvdbId: h.tvdbId, imdbId: h.imdbId, onWatchlist: h.onWatchlist or added, entryId: h.entryId }
+    end function
+
+    function emptyText(canAdd as boolean) as string
+        if canAdd then return "Nothing on your Watchlist yet. Choose + Add to find something."
+        return EMPTY_TEXT()
+    end function
+
+    ' GET /SashimiLists/Watchlist/Details?<this>: every id there is.
+    function detailsQuery(x as object) as string
+        q = "type=" + LCase(x.type)
+        if x.tmdbId <> "" then q = q + "&tmdbId=" + x.tmdbId
+        if x.tvdbId <> "" then q = q + "&tvdbId=" + x.tvdbId
+        if x.imdbId <> "" then q = q + "&imdbId=" + x.imdbId
+        return q
+    end function
+
+    ' found=false on a 404: no provider knows it, or the plugin is too old;
+    ' the page then draws what the entry knows and keeps Add/Remove working.
+    function detailsFromResponse(code as integer, data as dynamic) as object
+        d = { found: false, failed: false, type: "", title: "", year: -1, overview: "", posterUrl: "", backdropUrl: "", runtimeMinutes: 0, seasonCount: 0, officialRating: "", genres: [], communityRating: 0, source: "", tmdbId: "", tvdbId: "", imdbId: "", itemId: "", onWatchlist: false, entryId: "" }
+        if code = 404 then return d
+        if code < 200 or code >= 300 or not Seerr.isAA(data)
+            d.failed = true
+            return d
+        end if
+        d.found = true
+        d.type = Seerr.getStr(data, "type")
+        d.title = Seerr.getStr(data, "title")
+        d.year = Seerr.getInt(data, "year", -1)
+        d.overview = Seerr.getStr(data, "overview")
+        d.posterUrl = Seerr.getStr(data, "posterUrl")
+        d.backdropUrl = Seerr.getStr(data, "backdropUrl")
+        d.runtimeMinutes = Seerr.getInt(data, "runtimeMinutes", 0)
+        d.seasonCount = Seerr.getInt(data, "seasonCount", 0)
+        d.officialRating = Seerr.getStr(data, "officialRating")
+        for each g in Seerr.getArr(data, "genres")
+            if Seerr.isStr(g) and g <> "" then d.genres.push(g)
+        end for
+        if Seerr.isNum(data.communityRating) then d.communityRating = data.communityRating
+        d.source = Seerr.getStr(data, "source")
+        d.tmdbId = idStr(data.tmdbId)
+        d.tvdbId = idStr(data.tvdbId)
+        d.imdbId = idStr(data.imdbId)
+        d.itemId = Seerr.getStr(data, "itemId")
+        d.onWatchlist = isTrue(data.onWatchlist)
+        d.entryId = Seerr.getStr(data, "watchlistEntryId")
+        return d
+    end function
+
+    ' "2021 · 2h 35m · PG-13 · Science Fiction, Adventure · ★ 7.8"; a show
+    ' gives its seasons. What the provider lacks is left out.
+    function detailsMeta(d as object) as string
+        parts = []
+        if Seerr.isNum(d.year) and d.year > 0 then parts.push(Int(d.year).ToStr())
+        if d.type = "Series"
+            if d.seasonCount = 1 then parts.push("1 Season")
+            if d.seasonCount > 1 then parts.push(d.seasonCount.ToStr() + " Seasons")
+        else if d.runtimeMinutes > 0
+            h = Int(d.runtimeMinutes / 60)
+            mins = d.runtimeMinutes - h * 60
+            if h = 0
+                parts.push(mins.ToStr() + "m")
+            else if mins = 0
+                parts.push(h.ToStr() + "h")
+            else
+                parts.push(h.ToStr() + "h " + mins.ToStr() + "m")
+            end if
+        end if
+        if d.officialRating <> "" then parts.push(d.officialRating)
+        g = ""
+        n = 0
+        for each genre in d.genres
+            if n > 0 then g = g + ", "
+            g = g + genre
+            n = n + 1
+            if n = 2 then exit for
+        end for
+        if g <> "" then parts.push(g)
+        if d.communityRating > 0 then parts.push(Chr(9733) + " " + ratingText(d.communityRating))
+        return parts.Join(" " + Chr(183) + " ")
+    end function
+
+    ' 7.8 -> "7.8", 8 -> "8.0".
+    function ratingText(v as dynamic) as string
+        tenths = Int(v * 10 + 0.5)
+        return Int(tenths / 10).ToStr() + "." + (tenths - Int(tenths / 10) * 10).ToStr()
+    end function
+
+    function detailsSource(d as object) as string
+        if d.source = "" then return ""
+        return "Details from " + d.source
+    end function
+
+    ' Add / On Watchlist toggles; Request, Requested or Sign in to Requests
+    ' when there is a TMDB id for Seerr. Adding never requests.
+    function detailsButtons(isOn as boolean, seerrActive as boolean, requested as boolean, hasTmdb as boolean) as object
+        defs = []
+        if isOn
+            defs.push({ kind: "toggle", label: Chr(10003) + " On Watchlist", primary: false })
+        else
+            defs.push({ kind: "toggle", label: "Add to Watchlist", primary: true })
+        end if
+        if not hasTmdb then return defs
+        if not seerrActive
+            defs.push({ kind: "signin", label: "Sign in to Requests", primary: false })
+        else if requested
+            defs.push({ kind: "requested", label: "Requested", primary: false })
+        else
+            defs.push({ kind: "request", label: "Request", primary: isOn })
+        end if
+        return defs
+    end function
+
+    ' ---------- v2: the Requests address set by the server ----------
+
+    ' GET /SashimiLists/Config: the address when the admin set one, "" when
+    ' not, or on a 404 (older plugin) or any failure: today's address box.
+    function requestsAddress(code as integer, data as dynamic) as string
+        if code < 200 or code >= 300 or not Seerr.isAA(data) then return ""
+        url = Seerr.getStr(data, "requestsUrl")
+        if url = "" then return ""
+        scheme = LCase(Left(url, Instr(1, url, "://") - 1))
+        if Instr(1, url, "://") = 0 or (scheme <> "http" and scheme <> "https") then return ""
+        return Seerr.normalizedServer(url)
     end function
 
 end namespace

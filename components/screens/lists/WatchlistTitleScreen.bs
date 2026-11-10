@@ -1,0 +1,197 @@
+import "pkg:/source/utils/Seerr.bs"
+import "pkg:/source/utils/Watchlist.bs"
+import "pkg:/source/utils/ListLayout.bs"
+
+' The Watchlist's title page (Watchlist v2). It draws what it was opened with
+' at once, asks the plugin for the rest, and never requests anything on its
+' own: Add is the Watchlist, Request is a deliberate tap on Seerr's page.
+
+sub init()
+    m.spot = m.top.findNode("spot")
+    m.buttons = m.top.findNode("buttons")
+    m.sourceLabel = m.top.findNode("sourceLabel")
+    m.apiTask = m.top.findNode("apiTask")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.seerrTask = m.top.findNode("seerrTask")
+    m.seerrTask.observeFieldScoped("response", "onSeerrResponse")
+    m.seerrTask.control = "RUN"
+    m.buttons.observeFieldScoped("activatedKind", "onButton")
+    m.top.observeField("focusedChild", "onFocusDelegate")
+    m.queue = []
+    m.inFlight = false
+    m.busy = false
+    m.t = invalid          ' what is shown: the source, then the details over it
+    m.requested = false
+    m.loaded = false
+end sub
+
+sub send(req as object)
+    m.queue.push(req)
+    pump()
+end sub
+
+sub pump()
+    if m.inFlight or m.queue.count() = 0 then return
+    m.inFlight = true
+    m.apiTask.request = m.queue.shift()
+end sub
+
+sub onSource()
+    s = m.top.source
+    if s = invalid then return
+    m.t = {}
+    m.t.Append(s)
+    m.t.Append({ found: false, overview: "", backdropUrl: "", runtimeMinutes: 0, seasonCount: 0, officialRating: "", genres: [], communityRating: 0, source: "" })
+    draw()
+    send({ action: "lists", op: "watchlistDetails", query: Watchlist.detailsQuery(m.t) })
+    checkRequested()
+end sub
+
+sub onFocusDelegate()
+    if not m.top.hasFocus() then return
+    ' Back from signing into Requests or from Seerr's page.
+    if m.t <> invalid
+        draw()
+        checkRequested()
+    end if
+    m.buttons.setFocus(true)
+end sub
+
+sub checkRequested()
+    if m.t = invalid or m.t.tmdbId = "" or not Seerr.isActive(m.global.seerrState) then return
+    m.seerrTask.request = { action: "watchlistStatus", items: [{ kind: kindForSeerr(), tmdbId: Int(Val(m.t.tmdbId)) }] }
+end sub
+
+function kindForSeerr() as string
+    if m.t.type = "Series" then return "tv"
+    return "movie"
+end function
+
+sub onSeerrResponse()
+    r = m.seerrTask.response
+    if r = invalid or r.action <> "watchlistStatus" or r.success <> true or r.requested = invalid then return
+    m.requested = r.requested.count() > 0
+    draw()
+end sub
+
+sub onApiResponse()
+    r = m.apiTask.response
+    if r = invalid then return
+    m.inFlight = false
+    if r.action = "lists" and r.op = "watchlistDetails"
+        onDetails(r)
+    else if r.action = "lists" and r.op = "watchlistAdd"
+        m.busy = false
+        if r.success = true and r.entry <> invalid
+            m.t.onWatchlist = true
+            m.t.entryId = r.entry.id
+            m.global.listsVersion = m.global.listsVersion + 1
+            m.global.toastMessage = { message: "Added to your Watchlist" }
+        else
+            m.global.toastMessage = { message: "Couldn't add it. Check your connection." }
+        end if
+        draw()
+    else if r.action = "lists" and r.op = "watchlistRemove"
+        m.busy = false
+        if r.success = true
+            m.t.onWatchlist = false
+            m.t.entryId = ""
+            m.global.listsVersion = m.global.listsVersion + 1
+            m.global.toastMessage = { message: "Removed from your Watchlist" }
+        else
+            m.global.toastMessage = { message: "Couldn't update. Check your connection." }
+        end if
+        draw()
+    end if
+    pump()
+end sub
+
+sub onDetails(r as object)
+    m.loaded = true
+    if r.found = true
+        if r.itemId <> ""
+            ' The library has it now: the normal page, with Play.
+            m.top.openLibraryItem = { Id: r.itemId, Type: r.type, Name: r.title }
+            return
+        end if
+        keep = { onWatchlist: r.onWatchlist, entryId: r.entryId }
+        for each k in ["type", "title", "year", "overview", "posterUrl", "backdropUrl", "runtimeMinutes", "seasonCount", "officialRating", "genres", "communityRating", "source"]
+            ' What the provider lacks keeps what the entry knew.
+            if hasValue(r[k]) then m.t[k] = r[k]
+        end for
+        ' The ids the provider knows too, for Add and for Seerr.
+        for each k in ["tmdbId", "tvdbId", "imdbId"]
+            if hasValue(r[k]) then m.t[k] = r[k]
+        end for
+        m.t.found = true
+        m.t.onWatchlist = keep.onWatchlist
+        m.t.entryId = keep.entryId
+        checkRequested()
+    end if
+    draw()
+end sub
+
+sub draw()
+    t = m.t
+    if t = invalid then return
+    note = "Not on your server"
+    if m.requested then note = "Requested"
+    overview = t.overview
+    if m.loaded and not t.found and overview = "" then overview = "Details aren't available."
+    m.spot.info = { headline: "", title: t.title, meta: Watchlist.detailsMeta(detailsLike()), note: note, overview: overview, backdropUri: t.backdropUrl, posterUri: t.posterUrl }
+    m.sourceLabel.text = Watchlist.detailsSource(t)
+    defs = Watchlist.detailsButtons(t.onWatchlist = true, Seerr.isActive(m.global.seerrState), m.requested, t.tmdbId <> "")
+    keep = m.buttons.activatedKind
+    m.buttons.buttonDefs = defs
+    for i = 0 to defs.count() - 1
+        if defs[i].kind = keep or (keep = "request" and defs[i].kind = "requested")
+            m.buttons.setIndex = -1
+            m.buttons.setIndex = i
+        end if
+    end for
+end sub
+
+function hasValue(v as dynamic) as boolean
+    if v = invalid then return false
+    if GetInterface(v, "ifString") <> invalid then return v <> ""
+    if GetInterface(v, "ifArray") <> invalid then return v.count() > 0
+    if Seerr.isNum(v) then return v > 0
+    return true
+end function
+
+' detailsMeta reads the details' shape; the source lacks some fields.
+function detailsLike() as object
+    t = m.t
+    y = -1
+    if Seerr.isNum(t.year) then y = t.year
+    return { type: t.type, year: y, runtimeMinutes: t.runtimeMinutes, seasonCount: t.seasonCount, officialRating: t.officialRating, genres: t.genres, communityRating: t.communityRating }
+end function
+
+sub onButton(event as object)
+    kind = event.getData()
+    if m.t = invalid then return
+    if kind = "toggle"
+        if m.busy then return
+        m.busy = true
+        if m.t.onWatchlist = true and m.t.entryId <> ""
+            send({ action: "lists", op: "watchlistRemove", entryId: m.t.entryId })
+        else
+            send({ action: "lists", op: "watchlistAdd", body: Watchlist.hitBody(m.t) })
+        end if
+    else if kind = "request" or kind = "requested"
+        target = Watchlist.seerrTarget(m.t)
+        if target <> invalid then m.top.selectedItem = { _seerr: target }
+    else if kind = "signin"
+        m.top.openSeerr = true
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "back"
+        m.top.closed = true
+        return true
+    end if
+    return true
+end function

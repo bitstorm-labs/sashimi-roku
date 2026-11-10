@@ -8,11 +8,14 @@
      Remove and Connect / Reconnect / Disconnect Plex. -->
 <component name="WatchlistScreen" extends="Group">
     <interface>
-        <!-- A Jellyfin item, or { _seerr: target } for a title not on the server. -->
+        <!-- A Jellyfin item, { _seerr: target } (Request), or
+             { _watchlistTitle: source } for a title not on the server. -->
         <field id="selectedItem" type="assocarray" alwaysNotify="true" />
         <field id="playItem" type="assocarray" alwaysNotify="true" />
         <!-- Connect (or reconnect) Plex: MainScene pushes the code screen. -->
         <field id="connectPlex" type="boolean" alwaysNotify="true" />
+        <!-- + Add: MainScene pushes the search (WatchlistAddScreen). -->
+        <field id="addTitles" type="boolean" alwaysNotify="true" />
         <!-- Sign in to Requests: MainScene pushes the Requests sign-in. -->
         <field id="openSeerr" type="boolean" alwaysNotify="true" />
         <!-- Back, or no Watchlist on this server: MainScene pops it. -->

@@ -44,6 +44,25 @@ namespace WatchlistApi
         return Watchlist.linkOutcome(r.code, r.data)
     end function
 
+    ' ---------- v2 (plugin 0.3.0+; a 404 means older) ----------
+
+    function search(q as string) as object
+        r = Http.send("GET", Watchlist.PATH + "/Search?q=" + Http.escape(q.Trim()))
+        return Watchlist.searchFromResponse(r.code, r.data)
+    end function
+
+    function details(query as string) as object
+        r = Http.send("GET", Watchlist.PATH + "/Details?" + query)
+        return Watchlist.detailsFromResponse(r.code, r.data)
+    end function
+
+    ' The server's settings for the apps: { code, data } for
+    ' Watchlist.requestsAddress.
+    function config() as object
+        r = Http.send("GET", "/SashimiLists/Config")
+        return { code: r.code, data: r.data }
+    end function
+
     function result(r as object) as object
         return { success: r.ok, statusCode: r.code }
     end function

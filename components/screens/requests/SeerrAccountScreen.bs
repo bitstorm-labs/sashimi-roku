@@ -29,8 +29,11 @@ sub init()
     m.conflictOpen = false   ' the "Switch to ...?" dialog is up
     m.checking = false       ' a plexCheck is with the task
     m.global.observeFieldScoped("seerrState", "render")
+    m.global.observeFieldScoped("seerrLocked", "render")
     m.top.observeField("focusedChild", "render")
     render()
+    ' The server may set (or stop setting) the Requests address at any time.
+    if not forWatchlist() then m.task.request = { action: "serverConfig" }
 end sub
 
 function forWatchlist() as boolean
@@ -71,7 +74,9 @@ sub render()
     else if signedIn()
         name = ""
         if m.global.seerrUser <> invalid and m.global.seerrUser.name <> invalid then name = m.global.seerrUser.name
-        m.statusLabel.text = Seerr.accountLabel("signedIn", name) + Chr(10) + m.global.seerrTitle + " " + Chr(183) + " " + m.global.seerrServer
+        where = m.global.seerrServer
+        if m.global.seerrLocked = true then where = "Set by your server"
+        m.statusLabel.text = Seerr.accountLabel("signedIn", name) + Chr(10) + m.global.seerrTitle + " " + Chr(183) + " " + where
         m.buttonsGroup.translation = [160, 340]
         defs.push({ kind: "signOut", label: "Sign Out" })
     else
@@ -79,9 +84,15 @@ sub render()
         if m.global.seerrState = "expired" then intro = "Your sign-in to " + m.global.seerrTitle + " expired. Sign in again to see and make requests."
         m.statusLabel.text = intro
         m.buttonsGroup.translation = [160, 340]
-        if m.global.seerrServer = "" then m.statusLabel.text = intro + " Start with your Seerr server's address."
+        locked = (m.global.seerrLocked = true)
+        if locked
+            ' Watchlist v2: the address comes from the server, so nobody types one.
+            m.statusLabel.text = intro + Chr(10) + Seerr.lockedServerLine()
+        else if m.global.seerrServer = ""
+            m.statusLabel.text = intro + " Start with your Seerr server's address."
+        end if
         labels = { server: "Server", plex: "Sign in with Plex", local: "Use a Seerr username instead" }
-        for each kind in Seerr.accountButtonKinds(m.global.seerrServer)
+        for each kind in Seerr.accountButtonKinds(m.global.seerrServer, locked)
             b = { kind: kind, label: labels[kind] }
             if kind = "server" then b.value = Seerr.serverLabel(m.global.seerrServer)
             defs.push(b)
@@ -282,7 +293,7 @@ sub onResponse()
     else if r.action = "signOut"
         m.btnIdx = 0
         render()
-    else if r.action = "publicSettings"
+    else if r.action = "publicSettings" or r.action = "serverConfig"
         render()
     end if
 end sub

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Watchlist v2: the title page for a title the server doesn't have (a
+     "Not on server" Watchlist tile or search result). Backdrop, title, year,
+     runtime or seasons, rating, genres, community rating and overview from
+     the server's metadata providers ("Details from TMDB"), then Add to
+     Watchlist / On Watchlist and Request / Requested / Sign in to Requests.
+     Once the library has the title, the normal detail page takes over. -->
+<component name="WatchlistTitleScreen" extends="Group">
+    <interface>
+        <!-- Watchlist.entrySource / hitSource: drawn at once, filled in by
+             /SashimiLists/Watchlist/Details. -->
+        <field id="source" type="assocarray" onChange="onSource" />
+        <!-- { _seerr: target }: MainScene pushes Seerr's page (Request). -->
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+        <!-- The server has it after all: MainScene swaps in its detail page. -->
+        <field id="openLibraryItem" type="assocarray" alwaysNotify="true" />
+        <field id="openSeerr" type="boolean" alwaysNotify="true" />
+        <field id="closed" type="boolean" alwaysNotify="true" />
+    </interface>
+    <children>
+        <ListSpotlight id="spot" />
+        <DetailButtons id="buttons" translation="[120, 520]" />
+        <Label id="sourceLabel" text="" color="#8C8A96FF" translation="[120, 610]">
+            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
+        </Label>
+        <JellyfinApi id="apiTask" />
+        <SeerrTask id="seerrTask" />
+    </children>
+</component>

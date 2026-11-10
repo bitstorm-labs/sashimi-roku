@@ -59,7 +59,9 @@ sub init()
         seerrState = "signedIn"
         seerrUser = SeerrStore.userInfo(saved)
     end if
-    m.global.addFields({ seerrState: seerrState, seerrUser: seerrUser, seerrServer: SeerrStore.server(), seerrTitle: SeerrStore.title(), seerrPartial: true, seerrVersion: 0 })
+    ' seerrLocked: the Jellyfin server sets the Requests address (SeerrTask
+    ' "serverConfig"), so Settings > Requests only offers the sign-ins.
+    m.global.addFields({ seerrState: seerrState, seerrUser: seerrUser, seerrServer: SeerrStore.server(), seerrTitle: SeerrStore.title(), seerrPartial: true, seerrVersion: 0, seerrLocked: SeerrStore.lockedServer() <> "" })
     m.seerrTask = createObject("roSGNode", "SeerrTask")
     m.seerrTask.control = "RUN"
     m.seerrTask.request = { action: "restore" }
@@ -773,6 +775,9 @@ sub enterMainUI()
     ' avatar until a relaunch (#162).
     m.sidebar.callFunc("reloadSession")
     connectRemoteControl()
+    ' The Requests address the server sets, now that its session is in place;
+    ' it re-runs the launch check, so a "restore" coalesced with it isn't lost.
+    m.seerrTask.request = { action: "serverConfig" }
 
     liftOverlays()
     m.sidebar.visible = true
@@ -910,6 +915,11 @@ sub onItemSelected(event as object)
         showSeerrDetail(item._seerr)
         return
     end if
+    ' A Watchlist title the server doesn't have (a tile or a + Add result).
+    if item <> invalid and item._watchlistTitle <> invalid
+        showWatchlistTitle(item._watchlistTitle)
+        return
+    end if
     if item <> invalid and item.Name <> invalid
         ' Item titles are the user's personal library — debug builds only
         #if DEBUG
@@ -972,8 +982,32 @@ sub onOpenWatchlist()
     screen.observeFieldScoped("playItem", "onPlayItem")
     screen.observeFieldScoped("connectPlex", "onConnectPlex")
     screen.observeFieldScoped("openSeerr", "onOpenSeerr")
+    screen.observeFieldScoped("addTitles", "onWatchlistAdd")
     screen.observeFieldScoped("closed", "onListClosed")
     pushScreen(screen)
+end sub
+
+'' + Add on the Watchlist: its search (Watchlist v2).
+sub onWatchlistAdd()
+    screen = createObject("roSGNode", "WatchlistAddScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("selectedItem", "onItemSelected")
+    screen.observeFieldScoped("openTitle", "onItemSelected")
+    screen.observeFieldScoped("closed", "onPushedClosed")
+    pushScreen(screen)
+end sub
+
+'' The Watchlist's page for a title the server doesn't have. When the library
+'' has it after all, its normal detail page replaces this one.
+sub showWatchlistTitle(source as object)
+    screen = createObject("roSGNode", "WatchlistTitleScreen")
+    if screen = invalid then return
+    screen.observeFieldScoped("selectedItem", "onItemSelected")
+    screen.observeFieldScoped("openLibraryItem", "onSeerrOpenLibrary")
+    screen.observeFieldScoped("openSeerr", "onOpenSeerr")
+    screen.observeFieldScoped("closed", "onPushedClosed")
+    pushScreen(screen)
+    screen.source = source
 end sub
 
 ' Connect Plex for the Watchlist: the Requests Plex code screen in its

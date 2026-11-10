@@ -25,6 +25,18 @@ sub main()
     testSettingsRow(t)
     testOptedOut(t)
     testCoverTags(t)
+    testSearchReady(t)
+    testSearchResponse(t)
+    testSearchRows(t)
+    testHitBody(t)
+    testHitOpen(t)
+    testDetailsQuery(t)
+    testDetailsResponse(t)
+    testDetailsMeta(t)
+    testDetailsButtons(t)
+    testRequestsAddress(t)
+    testEntryOpensDetails(t)
+    testTitleSources(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -182,18 +194,12 @@ end sub
 sub testOnSelect(t as object)
     eq(t, "on server opens the item", Watchlist_onSelect(entry("a", "Movie", "x1", "1"), false).kind, "item")
     eq(t, "item id", Watchlist_onSelect(entry("a", "Movie", "x1", "1"), false).itemId, "x1")
-    s = Watchlist_onSelect(entry("b", "Series", "", "42"), true)
-    eq(t, "missing and signed in: seerr page", s.kind, "seerr")
-    eq(t, "seerr kind for a series", s.target.kind, "tv")
-    eq(t, "seerr tmdb id", s.target.tmdbId, 42)
-    eq(t, "seerr title", s.target.title, "T b")
-    e = Watchlist_onSelect(entry("c", "Movie", "", "42"), false)
-    eq(t, "seerr signed out: explain", e.kind, "explain")
-    eq(t, "seerr signed out message", e.message, "Sign into Requests to ask for this.")
-    eq(t, "explain title", e.title, "T c")
-    n = Watchlist_onSelect(entry("d", "Movie", "", ""), true)
-    eq(t, "no tmdb id: explain", n.kind, "explain")
-    eq(t, "no tmdb id message", n.message, "Sashimi can't look this title up to request it.")
+    ' Request (on the Spotlight and the title page) opens Seerr's page.
+    s = Watchlist_seerrTarget(entry("b", "Series", "", "42"))
+    eq(t, "seerr kind for a series", s.kind, "tv")
+    eq(t, "seerr tmdb id", s.tmdbId, 42)
+    eq(t, "seerr title", s.title, "T b")
+    eq(t, "no tmdb id: no seerr page", Watchlist_seerrTarget(entry("d", "Movie", "", "")), invalid)
 end sub
 
 sub testPlexCard(t as object)
@@ -370,3 +376,166 @@ sub testCoverTags(t as object)
     eq(t, "nothing to look up", Watchlist_coverItemIds([{ itemId: "", posterUrl: "x" }]), "")
 end sub
 
+
+' ---------- v2: + Add search ----------
+
+function hitJson(title as string, itemId as dynamic, onWatchlist as boolean) as object
+    return { type: "Movie", title: title, year: 2021, tmdbId: "438631", tvdbId: invalid, imdbId: "tt1160419", posterUrl: "https://image.tmdb.org/t/p/original/a.jpg", overview: "o", itemId: itemId, onWatchlist: onWatchlist, watchlistEntryId: invalid }
+end function
+
+sub testSearchReady(t as object)
+    eq(t, "one letter waits", Watchlist_searchReady("d"), false)
+    eq(t, "two letters search", Watchlist_searchReady("du"), true)
+    eq(t, "spaces don't count", Watchlist_searchReady("  d  "), false)
+    long = String(201, "a")
+    eq(t, "over 200 is refused", Watchlist_searchReady(long), false)
+end sub
+
+sub testSearchResponse(t as object)
+    eq(t, "404: no + Add", Watchlist_searchFromResponse(404, invalid).available, false)
+    eq(t, "404 is not a failure", Watchlist_searchFromResponse(404, invalid).failed, false)
+    eq(t, "500 fails", Watchlist_searchFromResponse(500, invalid).failed, true)
+    data = { query: "dune", onServer: [hitJson("Dune", "abc", true)], notOnServer: [hitJson("Dune: Part Three", invalid, false), { type: "Episode", title: "x", tmdbId: "1" }, { type: "Movie", title: "", tmdbId: "2" }, { type: "Movie", title: "No ids" }] }
+    r = Watchlist_searchFromResponse(200, data)
+    eq(t, "query echoed", r.query, "dune")
+    eq(t, "on server", r.onServer.count(), 1)
+    eq(t, "bad hits dropped", r.notOnServer.count(), 1)
+    h = r.onServer[0]
+    eq(t, "hit item", h.itemId, "abc")
+    eq(t, "null id reads empty", h.tvdbId, "")
+    eq(t, "on watchlist", h.onWatchlist, true)
+    eq(t, "numeric ids read as strings", Watchlist_searchFromResponse(200, { query: "q", onServer: [], notOnServer: [{ type: "Series", title: "S", tvdbId: 81189 }] }).notOnServer[0].tvdbId, "81189")
+    eq(t, "missing groups read empty", Watchlist_searchFromResponse(200, { query: "q" }).onServer.count(), 0)
+end sub
+
+function rowKinds(rows as object) as string
+    out = []
+    for each r in rows
+        out.push(r.kind)
+    end for
+    return joined(out)
+end function
+
+sub testSearchRows(t as object)
+    r = Watchlist_searchFromResponse(200, { query: "dune", onServer: [hitJson("Dune", "abc", true)], notOnServer: [hitJson("Dune Two", invalid, false)] })
+    rows = Watchlist_searchRows(r, {})
+    eq(t, "two groups", rowKinds(rows), "header,hit,header,hit")
+    eq(t, "first header", rows[0].text, "On your server")
+    eq(t, "second header", rows[2].text, "Not on server")
+    eq(t, "already on it", rows[1].added, true)
+    eq(t, "not yet", rows[3].added, false)
+    added = {}
+    added[Watchlist_hitKey(r.notOnServer[0])] = true
+    eq(t, "added on this screen", Watchlist_searchRows(r, added)[3].added, true)
+    empty = Watchlist_searchFromResponse(200, { query: "zz", onServer: [], notOnServer: [] })
+    eq(t, "empty groups say so", rowKinds(Watchlist_searchRows(empty, {})), "header,empty,header,empty")
+    eq(t, "empty text", Watchlist_searchRows(empty, {})[1].text, "No results")
+    eq(t, "hit line movie", Watchlist_hitLine({ type: "Movie", year: 2025 }), "2025 " + Chr(183) + " Movie")
+    eq(t, "hit line show", Watchlist_hitLine({ type: "Series", year: -1 }), "Show")
+    eq(t, "add label", Watchlist_addLabel(false), "+ Add")
+    eq(t, "added label", Watchlist_addLabel(true), Chr(10003) + " Added")
+end sub
+
+sub testHitBody(t as object)
+    h = Watchlist_searchFromResponse(200, { query: "d", onServer: [], notOnServer: [hitJson("Dune", invalid, false)] }).notOnServer[0]
+    b = Watchlist_hitBody(h)
+    eq(t, "type", b.type, "Movie")
+    eq(t, "title", b.title, "Dune")
+    eq(t, "year", b.year, 2021)
+    eq(t, "tmdb", b.tmdbId, "438631")
+    eq(t, "imdb", b.imdbId, "tt1160419")
+    eq(t, "no empty tvdb", b.DoesExist("tvdbId"), false)
+    eq(t, "poster", b.posterUrl, "https://image.tmdb.org/t/p/original/a.jpg")
+    eq(t, "no overview in the body", b.DoesExist("overview"), false)
+end sub
+
+sub testHitOpen(t as object)
+    r = Watchlist_searchFromResponse(200, { query: "d", onServer: [hitJson("Dune", "abc", false)], notOnServer: [hitJson("Dune 3", invalid, false)] })
+    o = Watchlist_hitOpen(r.onServer[0])
+    eq(t, "library title opens its page", o.kind, "item")
+    eq(t, "with its id", o.item.Id, "abc")
+    eq(t, "and type", o.item.Type, "Movie")
+    eq(t, "missing title opens details", Watchlist_hitOpen(r.notOnServer[0]).kind, "details")
+end sub
+
+' ---------- v2: the title page for titles not on the server ----------
+
+sub testDetailsQuery(t as object)
+    eq(t, "every id", Watchlist_detailsQuery({ type: "Movie", tmdbId: "438631", tvdbId: "", imdbId: "tt1160419" }), "type=movie&tmdbId=438631&imdbId=tt1160419")
+    eq(t, "series", Watchlist_detailsQuery({ type: "Series", tmdbId: "", tvdbId: "81189", imdbId: "" }), "type=series&tvdbId=81189")
+end sub
+
+sub testDetailsResponse(t as object)
+    d = Watchlist_detailsFromResponse(200, { type: "Movie", title: "Dune", year: 2021, overview: "o", posterUrl: "p", backdropUrl: "b", runtimeMinutes: 155, officialRating: "PG-13", genres: ["Science Fiction", "Adventure"], communityRating: 7.8, source: "TMDB", tmdbId: "438631", imdbId: "tt1160419", onWatchlist: true, watchlistEntryId: "e1" })
+    eq(t, "found", d.found, true)
+    eq(t, "title", d.title, "Dune")
+    eq(t, "runtime", d.runtimeMinutes, 155)
+    eq(t, "missing tvdb", d.tvdbId, "")
+    eq(t, "on watchlist", d.onWatchlist, true)
+    eq(t, "entry id", d.entryId, "e1")
+    eq(t, "not on the server", d.itemId, "")
+    eq(t, "source line", Watchlist_detailsSource(d), "Details from TMDB")
+    eq(t, "no source, no line", Watchlist_detailsSource({ source: "" }), "")
+    nf = Watchlist_detailsFromResponse(404, invalid)
+    eq(t, "404: not found", nf.found, false)
+    eq(t, "404 is no failure", nf.failed, false)
+    eq(t, "500 fails", Watchlist_detailsFromResponse(500, invalid).failed, true)
+    eq(t, "the library has it", Watchlist_detailsFromResponse(200, { type: "Series", title: "S", itemId: "abc", onWatchlist: false }).itemId, "abc")
+end sub
+
+sub testDetailsMeta(t as object)
+    dot = " " + Chr(183) + " "
+    d = { type: "Movie", year: 2021, runtimeMinutes: 155, seasonCount: 0, officialRating: "PG-13", genres: ["Science Fiction", "Adventure", "Drama"], communityRating: 7.8 }
+    eq(t, "movie line", Watchlist_detailsMeta(d), "2021" + dot + "2h 35m" + dot + "PG-13" + dot + "Science Fiction, Adventure" + dot + Chr(9733) + " 7.8")
+    s = { type: "Series", year: 2017, runtimeMinutes: 0, seasonCount: 4, officialRating: "", genres: [], communityRating: 0 }
+    eq(t, "series line", Watchlist_detailsMeta(s), "2017" + dot + "4 Seasons")
+    eq(t, "one season", Watchlist_detailsMeta({ type: "Series", year: -1, runtimeMinutes: 0, seasonCount: 1, officialRating: "", genres: [], communityRating: 0 }), "1 Season")
+end sub
+
+sub testDetailsButtons(t as object)
+    eq(t, "add, request", kinds(Watchlist_detailsButtons(false, true, false, true)), "toggle,request")
+    eq(t, "add label", Watchlist_detailsButtons(false, true, false, true)[0].label, "Add to Watchlist")
+    eq(t, "on watchlist label", Watchlist_detailsButtons(true, true, false, true)[0].label, Chr(10003) + " On Watchlist")
+    eq(t, "requested", kinds(Watchlist_detailsButtons(true, true, true, true)), "toggle,requested")
+    eq(t, "signed out", kinds(Watchlist_detailsButtons(true, false, false, true)), "toggle,signin")
+    eq(t, "signin label", Watchlist_detailsButtons(true, false, false, true)[1].label, "Sign in to Requests")
+    eq(t, "nothing Seerr can open", kinds(Watchlist_detailsButtons(false, true, false, false)), "toggle")
+end sub
+
+' ---------- v2: the Requests address set by the server ----------
+
+sub testRequestsAddress(t as object)
+    eq(t, "set", Watchlist_requestsAddress(200, { requestsUrl: "https://requests.example.com" }), "https://requests.example.com")
+    eq(t, "trailing slash dropped", Watchlist_requestsAddress(200, { requestsUrl: "https://requests.example.com/seerr/" }), "https://requests.example.com/seerr")
+    eq(t, "null", Watchlist_requestsAddress(200, { requestsUrl: invalid }), "")
+    eq(t, "not http", Watchlist_requestsAddress(200, { requestsUrl: "ftp://x.example.com" }), "")
+    eq(t, "older plugin", Watchlist_requestsAddress(404, invalid), "")
+    eq(t, "failure", Watchlist_requestsAddress(500, invalid), "")
+end sub
+
+sub testEntryOpensDetails(t as object)
+    ' A Watchlist title the server doesn't have opens its title page now,
+    ' signed into Requests or not.
+    missing = entry("m", "Movie", "", "12")
+    eq(t, "signed in", Watchlist_onSelect(missing, true).kind, "details")
+    eq(t, "signed out", Watchlist_onSelect(missing, false).kind, "details")
+    eq(t, "carries the entry", Watchlist_onSelect(missing, false).entry.id, "m")
+    eq(t, "no ids still opens it", Watchlist_onSelect(entry("n", "Movie", "", ""), false).kind, "details")
+end sub
+
+sub testTitleSources(t as object)
+    e = entry("m", "Movie", "", "12")
+    e.posterUrl = "https://image.tmdb.org/t/p/w500/p.jpg"
+    src = Watchlist_entrySource(e)
+    eq(t, "entry: on the watchlist", src.onWatchlist, true)
+    eq(t, "entry: its id to remove", src.entryId, "m")
+    eq(t, "entry: ids", src.tmdbId, "12")
+    eq(t, "entry: poster", src.posterUrl, e.posterUrl)
+    h = Watchlist_searchFromResponse(200, { query: "d", onServer: [], notOnServer: [hitJson("Dune", invalid, false)] }).notOnServer[0]
+    hs = Watchlist_hitSource(h, false)
+    eq(t, "hit: not on it", hs.onWatchlist, false)
+    eq(t, "hit: no entry", hs.entryId, "")
+    eq(t, "hit added on the search screen", Watchlist_hitSource(h, true).onWatchlist, true)
+    eq(t, "empty text with + Add", Watchlist_emptyText(true), "Nothing on your Watchlist yet. Choose + Add to find something.")
+    eq(t, "empty text without", Watchlist_emptyText(false), Watchlist_EMPTY_TEXT())
+end sub
