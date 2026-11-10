@@ -293,9 +293,11 @@ end sub
 ' a first link (the toast) or a different account (the prompt); Connect
 ' Plex also reports failures.
 sub onWatchlistLink(r as object)
+    ' Any change to the link, even a quiet one, makes the Watchlist page and
+    ' Settings > Plex re-read it when they come back to the front.
+    if r.watchlistChanged = true then m.global.listsVersion = m.global.listsVersion + 1
     if r.watchlistLinked = true
         m.global.toastMessage = { message: Watchlist.LINKED_TOAST() }
-        m.global.listsVersion = m.global.listsVersion + 1
         if forWatchlist() then m.top.closed = true
     else if r.watchlistConflict <> invalid
         showConflict(r.watchlistConflict)

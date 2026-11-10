@@ -399,7 +399,7 @@ function doWatchlistReplace(r as object) as object
         if debugWatchlistLink() <> "" then o = { kind: "linked" }
     #end if
     if o = invalid then o = WatchlistApi.link(token, true)
-    out = { success: true, watchlistLinked: o.kind = "linked" }
+    out = { success: true, watchlistLinked: o.kind = "linked", watchlistChanged: o.kind = "linked" }
     if o.kind <> "linked" then out.watchlistError = o.kind
     return out
 end function

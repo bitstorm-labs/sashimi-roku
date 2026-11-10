@@ -317,6 +317,12 @@ sub testLinkResult(t as object)
     end for
     eq(t, "auto first link: toast", Watchlist_linkResult({ kind: "linked" }, true, "first").watchlistLinked, true)
     eq(t, "auto refresh: quiet", Watchlist_linkResult({ kind: "linked" }, true, "refresh").watchlistLinked, false)
+    ' Quiet, but the link did change (a paused sync is running again), so the
+    ' Watchlist page and Settings > Plex must re-read.
+    eq(t, "auto refresh: still a change", Watchlist_linkResult({ kind: "linked" }, true, "refresh").watchlistChanged, true)
+    eq(t, "connect: a change", Watchlist_linkResult({ kind: "linked" }, false, "first").watchlistChanged, true)
+    eq(t, "conflict: no change yet", Watchlist_linkResult({ kind: "conflict", username: "sam", newUsername: "alex" }, true, "refresh").DoesExist("watchlistChanged"), false)
+    eq(t, "connect failure: no change", Watchlist_linkResult({ kind: "failed" }, false, "first").DoesExist("watchlistChanged"), false)
     eq(t, "connect: toast", Watchlist_linkResult({ kind: "linked" }, false, "first").watchlistLinked, true)
     c = Watchlist_linkResult({ kind: "conflict", username: "sam", newUsername: "alex" }, true, "refresh")
     eq(t, "conflict current", c.watchlistConflict.current, "sam")
