@@ -7,6 +7,7 @@ import "pkg:/source/utils/HiddenStore.bs"
 import "pkg:/source/utils/RailItems.bs"
 import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/ListsModel.bs"
+import "pkg:/source/utils/Entities.bs"
 
 sub init()
     m.rowList = m.top.findNode("rowList")
@@ -894,7 +895,7 @@ sub addChannelsRow(cards as object)
         ' What the programme IS, falling back to what the channel is — an item
         ' with no overview would otherwise leave a hole in the card.
         if item.Overview <> invalid and item.Overview <> ""
-            child.synopsis = item.Overview
+            child.synopsis = Entities.decode(item.Overview)
         else
             child.synopsis = card.channelDescription
         end if

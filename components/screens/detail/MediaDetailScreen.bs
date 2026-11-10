@@ -18,6 +18,7 @@ import "pkg:/source/utils/DetailNav.bs"
 import "pkg:/source/utils/DetailLayout.bs"
 import "pkg:/source/utils/ListsModel.bs"
 import "pkg:/source/utils/Seerr.bs"
+import "pkg:/source/utils/Entities.bs"
 
 ' tvOS MediaDetailView parity with a Roku-native focus model:
 '  - Fixed header (backdrop/logo/title/meta/ratings/badges/overview)
@@ -476,7 +477,7 @@ sub onItemLoaded(response as object)
 
     overview = ""
     ' The Season page is the approved mockup's header only: no overview.
-    if item.Overview <> invalid and m.itemType <> "Season" then overview = item.Overview
+    if item.Overview <> invalid and m.itemType <> "Season" then overview = Entities.decode(item.Overview)
     m.overviewLabel.text = overview
 
     reflowHeader()
@@ -1735,7 +1736,7 @@ end sub
 sub showMoreDialog()
     m.moreMenu = DetailActions.moreItems(actionContext())
     overview = ""
-    if m.item.Overview <> invalid then overview = m.item.Overview
+    if m.item.Overview <> invalid then overview = Entities.decode(m.item.Overview)
     dialog = createObject("roSGNode", "StandardMessageDialog")
     dialog.title = m.item.Name
     ' Leave message unset when there is no overview -- [""] renders as a blank
