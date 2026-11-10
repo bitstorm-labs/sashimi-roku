@@ -264,29 +264,6 @@ namespace Watchlist
         return out
     end function
 
-    ' Where focus starts. "none" means nothing is focusable, so the screen
-    ' holds focus itself and Back and * still work.
-    function firstZone(withCard as boolean, count as integer) as string
-        if withCard then return "card"
-        if count > 0 then return "grid"
-        return "none"
-    end function
-
-    ' Where the page's grid sits. Under the card a second 380-high row would
-    ' run off the 1080-high screen (seen on device), so it shows one row and
-    ' scrolls; without the card it shows two, like a list's page.
-    function gridLayout(withCard as boolean) as object
-        if withCard then return { y: 440, rows: 1 }
-        return { y: 350, rows: 2 }
-    end function
-
-    ' Whether Up from the grid goes to the card. A one-row MarkupGrid is a
-    ' single strip (every title is in its top row); with more rows only the
-    ' top row hands up.
-    function upToCard(focused as integer, rows as integer, cols as integer) as boolean
-        return rows = 1 or focused < cols
-    end function
-
     ' ---------- Linking ----------
 
     ' POST /SashimiLists/Watchlist/Plex. The plugin answers 422 when plex.tv
@@ -391,7 +368,7 @@ namespace Watchlist
                 it = items[c.itemId]
                 if Seerr.isAA(it) and Seerr.isAA(it.ImageTags) then tag = Seerr.getStr(it.ImageTags, "Primary")
             end if
-            out.push({ itemId: c.itemId, posterUrl: c.posterUrl, tag: tag })
+            out.push({ itemId: c.itemId, posterUrl: c.posterUrl, tag: tag, dimmed: c.itemId = "" })
         end for
         return out
     end function
@@ -420,18 +397,17 @@ namespace Watchlist
         return "Private " + Chr(183) + " " + count.ToStr()
     end function
 
-    ' Same rule as ListsModel.coverArt: four posters for a collage, else the
-    ' first full-bleed, else none. A tile draws from its library item or, when
-    ' missing, its stored poster.
+    ' Same rule as ListsModel.coverArt: the first three drawable entries. A
+    ' poster draws from its library item or, when missing, its stored poster,
+    ' dimmed like the page's "Not on server" tiles.
     function coverSources(entries as object) as object
         out = []
         for each e in entries
             if e.itemId = "" and e.posterUrl = "" then continue for
-            out.push({ itemId: e.itemId, posterUrl: e.posterUrl })
-            if out.count() = 4 then return out
+            out.push({ itemId: e.itemId, posterUrl: e.posterUrl, dimmed: e.itemId = "" })
+            if out.count() = 3 then exit for
         end for
-        if out.count() = 0 then return []
-        return [out[0]]
+        return out
     end function
 
 end namespace

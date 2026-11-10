@@ -2,18 +2,16 @@ import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Quality.bs"
 import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/ListsModel.bs"
+import "pkg:/source/utils/ListLayout.bs"
 
-' A list's page. The "detail" request also clears the list's "new" for a
+' A list's page ("Spotlight": ListSpotlight on top, the posters in one row
+' along the bottom, the buttons between). The "detail" request also clears the list's "new" for a
 ' subscriber (ListsApi.detail), so the NEW marks drawn here are the ones from
 ' before this visit. Owner tools reload the list after each change; every
 ' change bumps m.global.listsVersion so Home and the Lists page reload too.
 
 sub init()
-    m.avatar = m.top.findNode("avatar")
-    m.avatarLabel = m.top.findNode("avatarLabel")
-    m.bylineLabel = m.top.findNode("bylineLabel")
-    m.nameLabel = m.top.findNode("nameLabel")
-    m.metaLabel = m.top.findNode("metaLabel")
+    m.spot = m.top.findNode("spot")
     m.buttons = m.top.findNode("buttons")
     m.modeLabel = m.top.findNode("modeLabel")
     m.grid = m.top.findNode("grid")
@@ -24,6 +22,7 @@ sub init()
     m.buttons.observeFieldScoped("activatedKind", "onButton")
     m.buttons.observeFieldScoped("goDown", "onButtonsDown")
     m.grid.observeFieldScoped("itemSelected", "onGridSelected")
+    m.grid.observeFieldScoped("itemFocused", "onGridFocused")
     m.top.observeField("focusedChild", "onFocusDelegate")
 
     m.queue = []
@@ -31,7 +30,8 @@ sub init()
     m.list = invalid        ' the last "detail" answer
     m.cards = []
     m.mode = ""             ' "" | "remove" | "reorder"
-    m.zone = "buttons"
+    m.zone = ""             ' "" until the first load picks one
+    m.spotIdx = 0           ' the title the Spotlight shows
     m.menu = invalid        ' items of the dialog on screen
     m.pendingCard = -1      ' the card a remove / move dialog is about
     m.loadedVersion = -1
@@ -66,6 +66,14 @@ sub onFocusDelegate()
 end sub
 
 sub focusZone(zone as string)
+    ' Before the first answer there is nothing to choose between: hold focus
+    ' on the (empty) buttons and choose once the titles arrive.
+    if m.list = invalid
+        m.buttons.setFocus(true)
+        return
+    end if
+    if zone = "" then zone = ListLayout.firstZone(false, m.cards.count())
+    if zone = "strip" then zone = "grid"
     if zone = "grid" and m.cards.count() = 0 then zone = "buttons"
     m.zone = zone
     if zone = "grid" then m.grid.setFocus(true) else m.buttons.setFocus(true)
@@ -116,6 +124,12 @@ sub onApiResponse()
         end if
     else if r.action = "getItems"
         if r.success and r.items <> invalid and r.items.count() > 0 then m.top.playItem = { item: r.items[0], action: "play" }
+    else if r.action = "seriesNextEpisode"
+        if r.success and r.items <> invalid and r.items.count() > 0
+            m.top.playItem = { item: r.items[0], action: ListLayout.titleAction({ item: r.items[0] }).kind }
+        else
+            toast("This show has no episodes to play yet.")
+        end if
     end if
     pump()
 end sub
@@ -142,25 +156,12 @@ sub onDetail(r as object)
     m.statusLabel.text = "Nothing on this list yet."
     if r.isMine then m.statusLabel.text = "Nothing on this list yet. Add titles with Add to List on any movie or show."
 
-    m.avatar.visible = not r.isMine and r.ownerName <> ""
-    m.avatarLabel.text = ListsModel.initial(r.ownerName)
-    m.bylineLabel.text = ListsModel.byline(r.isMine, r.ownerName)
-    if m.avatar.visible then m.bylineLabel.translation = [184, 74] else m.bylineLabel.translation = [120, 74]
-    m.nameLabel.text = r.name
     seen = r.seen
     newCount = 0
     if r.subscribed then newCount = SharedLists.newCount(ListsModel.displayIds(m.cards), seen)
-    m.metaLabel.text = ListsModel.detailLine(r.isMine, r.isPublic, r.subscribed, m.cards.count(), newCount)
-
-    keep = m.buttons.activatedKind
-    defs = ListsModel.detailButtons(r.isMine, r.subscribed, m.cards.count() > 0)
-    m.buttons.buttonDefs = defs
-    for i = 0 to defs.count() - 1
-        if defs[i].kind = keep or (keep = "subscribe" and defs[i].kind = "unsubscribe") or (keep = "unsubscribe" and defs[i].kind = "subscribe")
-            m.buttons.setIndex = -1
-            m.buttons.setIndex = i
-        end if
-    end for
+    m.listLine = ListLayout.listLine(r.isMine, r.ownerName, ListsModel.detailLine(r.isMine, r.isPublic, r.subscribed, m.cards.count(), newCount))
+    m.series = r.series
+    if m.series = invalid then m.series = {}
 
     seenSet = {}
     if r.subscribed
@@ -185,13 +186,71 @@ sub onDetail(r as object)
         c.addFields({ quality: Quality.badge(card.item), communityRating: Quality.rating(card.item) })
     end for
     m.grid.content = content
+    m.spotIdx = 0
     if focusedAt <> invalid and focusedAt >= 0 and content.getChildCount() > 0
         if focusedAt >= content.getChildCount() then focusedAt = content.getChildCount() - 1
         m.grid.jumpToItem = focusedAt
+        m.spotIdx = focusedAt
     end if
+    showSpotlight()
     setMode(m.mode)
     if m.top.isInFocusChain() then focusZone(m.zone)
 end sub
+
+sub onGridFocused()
+    idx = m.grid.itemFocused
+    if idx = invalid or idx < 0 or idx >= m.cards.count() or idx = m.spotIdx then return
+    m.spotIdx = idx
+    showSpotlight()
+end sub
+
+' The item the Spotlight draws for a card: a show's full item when the
+' detail answer fetched it, else what the card has.
+function spotItem(card as object) as object
+    if card.isSeries and m.series.DoesExist(card.id) then return m.series[card.id]
+    return ListsModel.cardItem(card)
+end function
+
+' The Spotlight and the buttons follow the focused title.
+sub showSpotlight()
+    if m.list = invalid then return
+    info = { headline: ListLayout.headline(m.list.name, m.listLine), title: "", meta: "", note: "", overview: "", backdropUri: "", posterUri: "" }
+    action = { kind: "none", label: "" }
+    if m.spotIdx >= 0 and m.spotIdx < m.cards.count()
+        card = m.cards[m.spotIdx]
+        item = spotItem(card)
+        info.title = textOf(item.Name)
+        if not card.isSeries and item.Type = "Episode" and textOf(item.SeriesName) <> "" then info.title = item.SeriesName
+        info.meta = ListLayout.metaLine(item)
+        info.overview = textOf(item.Overview)
+        b = ListLayout.backdrop(item)
+        if b <> invalid then info.backdropUri = ImageUrl.backdrop(b.id, 1280, b.tag)
+        info.posterUri = posterFor(card, ListsModel.cardItem(card))
+        action = ListLayout.titleAction({ item: item })
+    end if
+    m.spot.info = info
+    setButtons(ListLayout.listButtons(action, m.list.isMine, m.list.subscribed, m.cards.count() > 0))
+end sub
+
+' New defs keep the highlighted button where its kind still is (Subscribe
+' and Subscribed are one button).
+sub setButtons(defs as object)
+    keep = m.buttons.activatedKind
+    old = m.buttons.buttonDefs
+    if old <> invalid and FormatJson(old) = FormatJson(defs) then return
+    m.buttons.buttonDefs = defs
+    for i = 0 to defs.count() - 1
+        if defs[i].kind = keep or (keep = "subscribe" and defs[i].kind = "unsubscribe") or (keep = "unsubscribe" and defs[i].kind = "subscribe")
+            m.buttons.setIndex = -1
+            m.buttons.setIndex = i
+        end if
+    end for
+end sub
+
+function textOf(v as dynamic) as string
+    if v = invalid or GetInterface(v, "ifString") = invalid then return ""
+    return v
+end function
 
 function posterFor(card as object, item as object) as string
     if card.isSeries
@@ -224,7 +283,15 @@ end sub
 sub onButton(event as object)
     kind = event.getData()
     if m.list = invalid then return
-    if kind = "subscribe" or kind = "unsubscribe"
+    if kind = "play" or kind = "resume" or kind = "playSeries"
+        if m.spotIdx < 0 or m.spotIdx >= m.cards.count() then return
+        card = m.cards[m.spotIdx]
+        if kind = "playSeries"
+            send({ action: "seriesNextEpisode", seriesId: card.id })
+        else
+            m.top.playItem = { item: card.item, action: kind }
+        end if
+    else if kind = "subscribe" or kind = "unsubscribe"
         send({ action: "lists", op: kind })
     else if kind = "shuffle"
         shuffle()
@@ -365,12 +432,10 @@ function onKeyEvent(key as string, press as boolean) as boolean
         setMode("")
         return true
     end if
+    ' The strip is one row, which ignores Up: the screen moves focus.
     if key = "up" and m.grid.hasFocus()
-        ' fixedFocus stops the grid wrapping; its top row hands back to the row.
-        if m.grid.itemFocused < 6
-            focusZone("buttons")
-            return true
-        end if
+        focusZone(ListLayout.upFrom("strip", false))
+        return true
     end if
     return false
 end function

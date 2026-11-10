@@ -1,17 +1,22 @@
+import "pkg:/source/utils/ListLayout.bs"
+
 sub init()
-    m.coverMask = m.top.findNode("coverMask")
-    m.coverBg = m.top.findNode("coverBg")
-    m.cover = m.top.findNode("cover")
-    m.cells = []
-    for i = 0 to 3
-        m.cells.push(m.top.findNode("cell" + i.ToStr()))
+    m.layers = []
+    m.posters = []
+    m.bgs = []
+    for i = 0 to 2
+        m.layers.push(m.top.findNode("layer" + i.ToStr()))
+        m.posters.push(m.top.findNode("poster" + i.ToStr()))
+        m.bgs.push(m.top.findNode("bg" + i.ToStr()))
     end for
+    m.emptyIcon = m.top.findNode("emptyIcon")
     m.newTileLabel = m.top.findNode("newTileLabel")
     m.focusRing = m.top.findNode("focusRing")
     m.subPill = m.top.findNode("subPill")
     m.subLabel = m.top.findNode("subLabel")
     m.nameLabel = m.top.findNode("nameLabel")
     m.metaLabel = m.top.findNode("metaLabel")
+    m.count = 0
     m.initialized = true
 end sub
 
@@ -23,15 +28,18 @@ sub onContentChanged()
     m.newTileLabel.visible = isNewTile
     urls = []
     if not isNewTile and c.doesExist("coverUrls") and c.coverUrls <> invalid then urls = c.coverUrls
-    collage = (urls.count() = 4)
-    if isNewTile then m.coverBg.color = "#1E1D26" else m.coverBg.color = "#2A2933"
-    ' Recycled: every cell is set or cleared on every item.
-    if not collage and urls.count() > 0 then m.cover.uri = urls[0] else m.cover.uri = ""
-    m.cover.visible = not isNewTile and not collage
-    for i = 0 to 3
-        if collage then m.cells[i].uri = urls[i] else m.cells[i].uri = ""
-        m.cells[i].visible = collage
+    dimmed = []
+    if not isNewTile and c.doesExist("coverDimmed") and c.coverDimmed <> invalid then dimmed = c.coverDimmed
+    m.count = urls.count()
+    if m.count > 3 then m.count = 3
+    ' Recycled: every layer is set or cleared on every item.
+    for i = 0 to 2
+        if i < m.count then m.posters[i].uri = urls[i] else m.posters[i].uri = ""
+        ' "Not on server" Watchlist titles: dimmed, as on the Watchlist page.
+        if i < dimmed.count() and dimmed[i] = true then m.posters[i].opacity = 0.45 else m.posters[i].opacity = 1.0
+        if isNewTile then m.bgs[i].color = "#1E1D26F0" else m.bgs[i].color = "#2A2933F0"
     end for
+    m.emptyIcon.visible = not isNewTile and m.count = 0
     m.nameLabel.text = ""
     if not isNewTile and c.title <> invalid then m.nameLabel.text = c.title
     m.metaLabel.text = ""
@@ -39,15 +47,24 @@ sub onContentChanged()
     subscribed = (c.doesExist("subscribed") and c.subscribed = true)
     m.subPill.visible = subscribed
     m.subLabel.visible = subscribed
-    if subscribed then m.subLabel.text = Chr(10003) + " Subscribed"
+    if subscribed then m.subLabel.text = Chr(10003) + " Subscribed" else m.subLabel.text = ""
     onFocusChanged()
 end sub
 
+' The stack fans out a little as focus arrives (ListLayout.stackLayers).
 sub onFocusChanged()
     if m.initialized = invalid then return
     fp = m.top.focusPercent
-    scale = 1.0 + fp * 0.05
-    m.coverMask.scale = [scale, scale]
-    m.focusRing.scale = [scale, scale]
+    for i = 0 to 2
+        m.layers[i].visible = false
+    end for
+    for each l in ListLayout.stackLayers(m.count, fp)
+        g = m.layers[l.slot]
+        g.visible = true
+        g.translation = [l.x, l.y]
+        g.scaleRotateCenter = [l.cx, l.cy]
+        g.rotation = l.rotation
+        g.opacity = l.opacity
+    end for
     m.focusRing.opacity = fp * 0.9
 end sub

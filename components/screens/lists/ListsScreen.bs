@@ -104,7 +104,7 @@ sub showLists(r as object)
     if others <> invalid then content.appendChild(others)
     m.othersEmpty.visible = (others = invalid)
     m.othersEmpty.text = "Nobody else has shared a list yet."
-    m.othersEmpty.translation = [60, 560]
+    m.othersEmpty.translation = [60, 680]
 
     ' Keep the focused card across a reload.
     focus = m.rowList.rowItemFocused
@@ -123,17 +123,16 @@ sub addCard(row as object, l as object)
     c = row.createChild("ContentNode")
     c.title = l.name
     c.description = ListsModel.cardMeta(l.isMine, l.isPublic, l.ownerName, l.count)
-    ' The cover (ListsModel.coverArt): four posters as a 2x2 collage, or one
-    ' full-bleed.
+    ' The cover (ListsModel.coverArt): up to three posters, stacked by ListCard.
     urls = []
+    dimmed = []
     if l.cover <> invalid
-        width = 330
-        if l.cover.count() = 1 then width = 660
         for each p in l.cover
-            urls.push(ImageUrl.primary(p.id, width, p.tag))
+            urls.push(ImageUrl.primary(p.id, 300, p.tag))
+            dimmed.push(false)
         end for
     end if
-    c.addFields({ listId: l.id, subscribed: l.subscribed = true, isNewTile: false, coverUrls: urls })
+    c.addFields({ listId: l.id, subscribed: l.subscribed = true, isNewTile: false, coverUrls: urls, coverDimmed: dimmed })
 end sub
 
 sub addWatchlistCard(row as object, w as object)
@@ -141,13 +140,13 @@ sub addWatchlistCard(row as object, w as object)
     c.title = Watchlist.NAME()
     c.description = Watchlist.cardMeta(w.count)
     urls = []
-    width = 330
-    if w.cover.count() = 1 then width = 660
+    dimmed = []
     for each p in w.cover
-        ' A title not on the server draws its stored (TMDB) poster.
-        if p.itemId <> "" then urls.push(ImageUrl.primary(p.itemId, width, p.tag)) else urls.push(p.posterUrl)
+        ' A title not on the server draws its stored (TMDB) poster, dimmed.
+        if p.itemId <> "" then urls.push(ImageUrl.primary(p.itemId, 300, p.tag)) else urls.push(p.posterUrl)
+        dimmed.push(p.dimmed = true)
     end for
-    c.addFields({ listId: "", isWatchlist: true, subscribed: false, isNewTile: false, coverUrls: urls })
+    c.addFields({ listId: "", isWatchlist: true, subscribed: false, isNewTile: false, coverUrls: urls, coverDimmed: dimmed })
 end sub
 
 sub onSelected()

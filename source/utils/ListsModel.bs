@@ -104,13 +104,13 @@ namespace ListsModel
         return false
     end function
 
-    ' A list's cover: the posters of its first four different titles, in the
-    ' order the list shows them (after the S1:E1 and repeat rules), as a 2x2
-    ' collage. Two cards that draw the same poster (two episodes of one show)
-    ' count once. With fewer than four, the first poster alone, full-bleed.
-    ' Returns [{ id, tag }] of 4, 1 or 0 images. The server's own playlist
-    ' image is never used: it repeats a show per episode and is not filtered
-    ' by the viewer's parental limits.
+    ' A list's cover (the "Poster stack", ListLayout.stackLayers): the
+    ' posters of its first three different titles, in the order the list
+    ' shows them (after the S1:E1 and repeat rules). Two cards that draw the
+    ' same poster (two episodes of one show) count once. Returns [{ id, tag }]
+    ' of 0-3 images. The server's own playlist image is never used: it
+    ' repeats a show per episode and is not filtered by the viewer's
+    ' parental limits.
     function coverArt(items as dynamic) as object
         posters = []
         seen = {}
@@ -119,10 +119,9 @@ namespace ListsModel
             if p = invalid or seen.DoesExist(p.id) then continue for
             seen[p.id] = true
             posters.push(p)
-            if posters.count() = 4 then return posters
+            if posters.count() = 3 then exit for
         end for
-        if posters.count() = 0 then return []
-        return [posters[0]]
+        return posters
     end function
 
     ' The poster a card draws: a series card's or an episode's show, else the
@@ -334,12 +333,6 @@ namespace ListsModel
         return lead + " " + Chr(183) + " " + titles(n)
     end function
 
-    function byline(isMine as boolean, ownerName as string) as string
-        if isMine then return "Your list"
-        if ownerName = "" then return "Shared list"
-        return "A list by " + ownerName
-    end function
-
     function detailLine(isMine as boolean, isPublic as boolean, subscribed as boolean, n as integer, newCount as integer) as string
         line = titles(n)
         if isMine
@@ -350,11 +343,6 @@ namespace ListsModel
         end if
         if subscribed and newCount > 0 then return line + " " + Chr(183) + " " + newCount.ToStr() + " new since you last looked"
         return line
-    end function
-
-    function initial(name as string) as string
-        if name = "" then return "?"
-        return UCase(Left(name, 1))
     end function
 
     ' ---------- Add to List ----------
@@ -472,22 +460,6 @@ namespace ListsModel
     end function
 
     ' ---------- The list's page ----------
-
-    ' The approved mockup's row: Subscribe (or the checked Subscribed, which
-    ' unsubscribes), Shuffle when there is something to play, and the owner's
-    ' Edit List. Your own list can be subscribed to like anyone's: that is how
-    ' it gets a Home row.
-    function detailButtons(isMine as boolean, subscribed as boolean, hasItems as boolean) as object
-        defs = []
-        if subscribed
-            defs.push({ kind: "unsubscribe", label: Chr(10003) + " Subscribed", primary: true })
-        else
-            defs.push({ kind: "subscribe", label: "Subscribe", primary: true })
-        end if
-        if hasItems then defs.push({ kind: "shuffle", label: "Shuffle", primary: false })
-        if isMine then defs.push({ kind: "edit", label: "Edit List", primary: false })
-        return defs
-    end function
 
     ' Edit List, in the mockup's order. Delete goes through Confirm.
     function editMenu(isPublic as boolean, hasItems as boolean) as object

@@ -36,6 +36,7 @@ const suites = {
     'ListsModelTests.brs': ['out/source/utils/SharedLists.brs', 'out/source/utils/ListsModel.brs'],
     'SeerrTests.brs': ['out/source/utils/Seerr.brs', 'out/source/utils/SeerrSeasons.brs'],
     'SeerrSeasonsTests.brs': ['out/source/utils/Seerr.brs', 'out/source/utils/SeerrSeasons.brs'],
+    'ListLayoutTests.brs': ['out/source/utils/ListLayout.brs'],
     'WatchlistTests.brs': ['out/source/utils/Seerr.brs', 'out/source/utils/SeerrSeasons.brs', 'out/source/utils/Watchlist.brs']
 };
 

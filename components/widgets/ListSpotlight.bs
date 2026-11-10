@@ -1,0 +1,52 @@
+sub init()
+    m.backdrop = m.top.findNode("backdrop")
+    m.fadeLeft = m.top.findNode("fadeLeft")
+    m.fadeBottom = m.top.findNode("fadeBottom")
+    m.poster = m.top.findNode("poster")
+    m.headline = m.top.findNode("headline")
+    m.title = m.top.findNode("title")
+    m.meta = m.top.findNode("meta")
+    m.note = m.top.findNode("note")
+    m.overview = m.top.findNode("overview")
+    m.settle = m.top.findNode("settle")
+    m.settle.observeField("fire", "applyImages")
+    m.pending = { backdropUri: "", posterUri: "", dimmed: false }
+end sub
+
+sub onInfo()
+    i = m.top.info
+    if i = invalid then return
+    m.headline.text = textOf(i.headline)
+    m.title.text = textOf(i.title)
+    m.meta.text = textOf(i.meta)
+    m.note.text = textOf(i.note)
+    m.note.visible = (m.note.text <> "")
+    m.overview.text = textOf(i.overview)
+    m.pending = { backdropUri: textOf(i.backdropUri), posterUri: textOf(i.posterUri), dimmed: i.dimmed = true }
+    ' The text follows focus at once; the pictures once focus settles. The
+    ' first one has nothing to wait for.
+    if m.backdrop.uri = "" and m.poster.uri = ""
+        applyImages()
+    else
+        m.settle.control = "stop"
+        m.settle.control = "start"
+    end if
+end sub
+
+sub applyImages()
+    p = m.pending
+    if m.backdrop.uri <> p.backdropUri then m.backdrop.uri = p.backdropUri
+    hasBackdrop = (p.backdropUri <> "")
+    m.backdrop.visible = hasBackdrop
+    m.fadeLeft.visible = hasBackdrop
+    m.fadeBottom.visible = hasBackdrop
+    showPoster = (not hasBackdrop and p.posterUri <> "")
+    if showPoster then m.poster.uri = p.posterUri else m.poster.uri = ""
+    m.poster.visible = showPoster
+    if p.dimmed then m.poster.opacity = 0.6 else m.poster.opacity = 1.0
+end sub
+
+function textOf(v as dynamic) as string
+    if v = invalid or GetInterface(v, "ifString") = invalid then return ""
+    return v
+end function

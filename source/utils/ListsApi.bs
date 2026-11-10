@@ -1,6 +1,7 @@
 import "pkg:/source/utils/Http.bs"
 import "pkg:/source/utils/SharedLists.bs"
 import "pkg:/source/utils/ListsModel.bs"
+import "pkg:/source/utils/ListLayout.bs"
 import "pkg:/source/utils/Watchlist.bs"
 import "pkg:/source/utils/WatchlistApi.bs"
 
@@ -125,7 +126,7 @@ namespace ListsApi
     ' The viewer's own titles on the list, parental limits applied by the server.
     function entries(listId as string, me as string) as object
         path = "/Playlists/" + listId + "/Items?userId=" + me
-        path += "&Fields=PrimaryImageAspectRatio,ProductionYear,CommunityRating,OfficialRating,Overview,MediaStreams,Path"
+        path += "&Fields=PrimaryImageAspectRatio,MediaStreams,Path," + ListLayout.SPOTLIGHT_FIELDS()
         path += "&EnableImageTypes=Primary,Backdrop,Thumb&EnableUserData=true"
         r = Http.send("GET", path)
         items = []
@@ -217,7 +218,7 @@ namespace ListsApi
         v = WatchlistApi.view()
         out = { success: not v.failed, available: v.available, failed: v.failed, view: v, items: {} }
         for each ids in Watchlist.itemIdBatches(v.entries, 100)
-            r = Http.send("GET", "/Items?Ids=" + ids + "&userId=" + me + "&Fields=PrimaryImageAspectRatio,ProductionYear,ProviderIds&EnableUserData=true")
+            r = Http.send("GET", "/Items?Ids=" + ids + "&userId=" + me + "&Fields=PrimaryImageAspectRatio,ProviderIds," + ListLayout.SPOTLIGHT_FIELDS() + "&EnableUserData=true&EnableImageTypes=Primary,Backdrop")
             if r.ok and type(r.data) = "roAssociativeArray" and type(r.data.Items) = "roArray"
                 for each it in r.data.Items
                     if SharedLists.isStr(it.Id) then out.items[it.Id] = it
@@ -253,6 +254,7 @@ namespace ListsApi
             ownerName: o.name,
             isMine: o.isMine,
             items: e.items,
+            series: seriesOf(e.items, me),
             subscribed: (seen <> invalid),
             seen: []
         }
@@ -262,6 +264,32 @@ namespace ListsApi
             if FormatJson(current) <> FormatJson(seen) then writeSubs(me, { op: "markSeen", id: listId, current: current })
         end if
         return resp
+    end function
+
+    ' The shows on a list, for its Spotlight: a show's card is one of its
+    ' episodes, which carries none of the show's overview, genres or season
+    ' count. seriesId -> the series item, a hundred ids per request.
+    function seriesOf(items as dynamic, me as string) as object
+        out = {}
+        ids = []
+        for each c in ListsModel.cards(items)
+            if c.isSeries then ids.push(c.id)
+        end for
+        i = 0
+        while i < ids.count()
+            batch = []
+            while i < ids.count() and batch.count() < 100
+                batch.push(ids[i])
+                i = i + 1
+            end while
+            r = Http.send("GET", "/Items?Ids=" + batch.Join(",") + "&userId=" + me + "&Fields=" + ListLayout.SPOTLIGHT_FIELDS())
+            if r.ok and type(r.data) = "roAssociativeArray" and type(r.data.Items) = "roArray"
+                for each it in r.data.Items
+                    if SharedLists.isStr(it.Id) then out[it.Id] = it
+                end for
+            end if
+        end while
+        return out
     end function
 
     ' Home's subscribed rows, in subscription order. A list that 404s is left

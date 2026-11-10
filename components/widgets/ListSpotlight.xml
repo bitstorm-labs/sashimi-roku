@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- The "Spotlight" list page's top half (owner, 2026-11-10): the focused
+     title's backdrop flush top-right, faded into the page, with the list's
+     headline, the title, its meta line and overview over it on the left.
+     Purely drawn: the screen owns the buttons and the poster strip. -->
+<component name="ListSpotlight" extends="Group">
+    <interface>
+        <!-- { headline, title, meta, note, overview, backdropUri, posterUri,
+               dimmed } -- posterUri stands in for a title with no backdrop
+             (a Watchlist title the server doesn't have). -->
+        <field id="info" type="assocarray" onChange="onInfo" />
+    </interface>
+    <children>
+        <Rectangle width="1920" height="1080" color="#18171FFF" />
+        <Poster id="backdrop" width="1360" height="765" loadWidth="1280" loadHeight="720"
+                loadDisplayMode="scaleToZoom" translation="[560, 0]" />
+        <!-- scaleToZoom fills the whole region, so fades on its edges sit on
+             the picture's real edges (no scaleToFit seam). -->
+        <Poster id="fadeLeft" uri="pkg:/images/spotlight_fade_left.png" width="720" height="765" translation="[560, 0]" />
+        <Poster id="fadeBottom" uri="pkg:/images/spotlight_fade_bottom.png" width="1360" height="400" translation="[560, 365]" />
+        <!-- Below the Watchlist's Plex card, above the poster strip. -->
+        <Poster id="poster" width="220" height="330" loadWidth="220" loadHeight="330"
+                loadDisplayMode="scaleToZoom" translation="[1600, 296]" visible="false" />
+        <LayoutGroup id="text" translation="[120, 66]" layoutDirection="vert" itemSpacings="[12, 4, 12, 16]">
+            <Label id="headline" text="" color="#A8A6B3FF">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="22" />
+            </Label>
+            <Label id="title" text="" color="#FFFFFFFF" width="960" maxLines="1">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="60" />
+            </Label>
+            <Label id="meta" text="" color="#D9D9D9FF" width="960" maxLines="1">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+            </Label>
+            <Label id="note" text="" color="#F2B84BFF" width="960" maxLines="1">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="24" />
+            </Label>
+            <Label id="overview" text="" color="#C9C7D1FF" width="900" wrap="true" maxLines="3" lineSpacing="6">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+            </Label>
+        </LayoutGroup>
+        <!-- Scrolling the strip fast would start a load per poster passed. -->
+        <Timer id="settle" duration="0.25" repeat="false" />
+    </children>
+</component>
