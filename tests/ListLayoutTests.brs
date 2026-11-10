@@ -181,10 +181,15 @@ sub testListButtons(t as object)
 end sub
 
 sub testWatchlistButtons(t as object)
-    eq(t, "title action then More", kinds(ListLayout_watchlistButtons({ kind: "request", label: "Request" }, true)), "request,shuffle,options")
-    eq(t, "requested is not primary", ListLayout_watchlistButtons({ kind: "requested", label: "Requested" }, true)[0].primary, false)
-    eq(t, "nothing playable: no shuffle", kinds(ListLayout_watchlistButtons({ kind: "none", label: "" }, false)), "options")
-    eq(t, "More label", ListLayout_watchlistButtons({ kind: "none", label: "" }, false)[0].label, "More")
+    eq(t, "title action then More", kinds(ListLayout_watchlistButtons({ kind: "request", label: "Request" }, true, false)), "request,shuffle,options")
+    eq(t, "requested is not primary", ListLayout_watchlistButtons({ kind: "requested", label: "Requested" }, true, false)[0].primary, false)
+    eq(t, "nothing playable: no shuffle", kinds(ListLayout_watchlistButtons({ kind: "none", label: "" }, false, false)), "options")
+    eq(t, "More label", ListLayout_watchlistButtons({ kind: "none", label: "" }, false, false)[0].label, "More")
+    ' Watchlist v2: + Add (search) when the plugin has it, after the title's own.
+    eq(t, "+ Add", kinds(ListLayout_watchlistButtons({ kind: "play", label: "Play" }, true, true)), "play,add,shuffle,options")
+    eq(t, "+ Add leads an empty Watchlist", kinds(ListLayout_watchlistButtons({ kind: "none", label: "" }, false, true)), "add,options")
+    eq(t, "+ Add is primary when it leads", ListLayout_watchlistButtons({ kind: "none", label: "" }, false, true)[0].primary, true)
+    eq(t, "+ Add label", ListLayout_watchlistButtons({ kind: "none", label: "" }, false, true)[0].label, "+ Add")
 end sub
 
 sub testZones(t as object)

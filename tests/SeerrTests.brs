@@ -119,6 +119,11 @@ end sub
 sub testServerAndCookie(t as object)
     eq(t, "no server: only the address can be set", Seerr_accountButtonKinds("").Join(","), "server")
     eq(t, "a server: sign-in offered", Seerr_accountButtonKinds("https://seerr.test").Join(","), "server,plex,local")
+    ' Watchlist v2: an address set by the server is locked; only sign-in.
+    eq(t, "set by the server: no address button", Seerr_accountButtonKinds("https://seerr.test", true).Join(","), "plex,local")
+    eq(t, "the server's address wins", Seerr_effectiveServer("https://set.test", "https://typed.test"), "https://set.test")
+    eq(t, "none set: the device's", Seerr_effectiveServer("", "https://typed.test"), "https://typed.test")
+    eq(t, "locked line", Seerr_lockedServerLine(), "Requests server " + Chr(183) + " Set by your server")
     eq(t, "no server reads as not set", Seerr_serverLabel(""), "Not set")
     eq(t, "a server reads as itself", Seerr_serverLabel("https://seerr.test"), "https://seerr.test")
     eq(t, "bare host gets https", Seerr_normalizedServer("seerr.test"), "https://seerr.test")

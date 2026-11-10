@@ -1,0 +1,330 @@
+import "pkg:/source/utils/ImageUrl.bs"
+import "pkg:/source/utils/Watchlist.bs"
+
+' + Add on the Watchlist (Watchlist v2). Live, debounced search against the
+' plugin (which searches the server's metadata providers on the person's
+' behalf: Jellyfin's own remote search is admin-only). Results are virtual:
+' m.idx is the focused result row (a "hit"), m.col 0 its title, 1 its + Add.
+
+const ROW_H = 118
+const HEADER_H = 64
+const VIEW_H = 900
+
+sub init()
+    m.keyboard = m.top.findNode("keyboard")
+    m.queryLabel = m.top.findNode("queryLabel")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.results = m.top.findNode("results")
+    m.debounce = m.top.findNode("debounce")
+    m.keySink = m.top.findNode("keySink")
+    m.searchTask = m.top.findNode("searchTask")
+    m.searchTask.observeFieldScoped("response", "onSearchResponse")
+    m.searchTask.control = "RUN"
+    m.apiTask = m.top.findNode("apiTask")
+    m.apiTask.observeFieldScoped("response", "onApiResponse")
+    m.apiTask.control = "RUN"
+    m.keyboard.observeFieldScoped("text", "onText")
+    m.debounce.observeFieldScoped("fire", "onDebounce")
+    m.top.observeField("focusedChild", "onFocusDelegate")
+
+    m.zone = "keyboard"
+    m.rows = []             ' Watchlist.searchRows
+    m.hits = []             ' indexes into m.rows of the "hit" rows
+    m.idx = 0               ' index into m.hits
+    m.col = 0
+    m.top0 = 0              ' first row drawn
+    m.last = invalid        ' the last search answer
+    m.added = {}            ' Watchlist.hitKey -> true, added on this screen
+    m.searching = false
+    m.queued = ""           ' a query typed while a search was out
+    m.adding = false
+    m.loadedVersion = m.global.listsVersion
+end sub
+
+sub onFocusDelegate()
+    if not m.top.hasFocus() then return
+    ' Back from a title page that added or removed something: ask again so
+    ' + Add / Added are right.
+    if m.loadedVersion <> m.global.listsVersion and m.last <> invalid then search(m.last.query)
+    m.loadedVersion = m.global.listsVersion
+    focusZone(m.zone)
+end sub
+
+sub focusZone(zone as string)
+    if zone = "results" and m.hits.count() = 0 then zone = "keyboard"
+    m.zone = zone
+    if zone = "keyboard" then m.keyboard.setFocus(true) else m.keySink.setFocus(true)
+    drawRows()
+end sub
+
+' ---------- Searching ----------
+
+sub onText()
+    q = m.keyboard.text
+    if q = invalid then q = ""
+    if q = ""
+        m.queryLabel.text = "Search movies and shows"
+        m.queryLabel.color = "#666666FF"
+    else
+        m.queryLabel.text = q
+        m.queryLabel.color = "#FFFFFFFF"
+    end if
+    m.debounce.control = "stop"
+    if Watchlist.searchReady(q) then m.debounce.control = "start"
+end sub
+
+sub onDebounce()
+    search(m.keyboard.text)
+end sub
+
+' One search out at a time; the newest text waits for it and goes next.
+sub search(q as string)
+    q = q.Trim()
+    if not Watchlist.searchReady(q) then return
+    if m.searching
+        m.queued = q
+        return
+    end if
+    m.searching = true
+    m.queued = ""
+    if m.last = invalid then
+        m.statusLabel.text = "Searching..."
+        m.statusLabel.visible = true
+    end if
+    m.searchTask.request = { action: "lists", op: "watchlistSearch", query: q }
+end sub
+
+sub onSearchResponse()
+    r = m.searchTask.response
+    if r = invalid or r.op <> "watchlistSearch" then return
+    m.searching = false
+    if m.queued <> ""
+        search(m.queued)
+        return
+    end if
+    ' The text moved on since: drop it (the server echoes the trimmed query).
+    current = m.keyboard.text
+    if current = invalid then current = ""
+    if r.available = true and r.query <> current.Trim() then return
+    if r.available <> true
+        m.statusLabel.text = "Couldn't search. Check your connection."
+        if r.failed <> true then m.statusLabel.text = "This server can't search for new titles yet."
+        m.statusLabel.visible = true
+        m.rows = []
+        m.hits = []
+        drawRows()
+        return
+    end if
+    m.last = r
+    m.statusLabel.visible = false
+    rebuild()
+    m.idx = 0
+    m.col = 0
+    m.top0 = 0
+    drawRows()
+end sub
+
+sub rebuild()
+    m.rows = Watchlist.searchRows(m.last, m.added)
+    m.hits = []
+    for i = 0 to m.rows.count() - 1
+        if m.rows[i].kind = "hit" then m.hits.push(i)
+    end for
+    if m.idx >= m.hits.count() then m.idx = m.hits.count() - 1
+    if m.idx < 0 then m.idx = 0
+end sub
+
+' ---------- Drawing ----------
+
+function rowHeight(row as object) as integer
+    if row.kind = "hit" then return ROW_H
+    return HEADER_H
+end function
+
+' Keep the focused row on screen: scroll so it is the last one that fits, or
+' the first when it is above the window.
+sub scrollTo(rowIndex as integer)
+    if rowIndex < m.top0
+        m.top0 = rowIndex
+        ' Show a group's header above its first title.
+        if m.top0 > 0 and m.rows[m.top0 - 1].kind = "header" then m.top0 = m.top0 - 1
+        return
+    end if
+    while true
+        y = 0
+        for i = m.top0 to rowIndex
+            y = y + rowHeight(m.rows[i])
+        end for
+        if y <= VIEW_H or m.top0 >= rowIndex then exit while
+        m.top0 = m.top0 + 1
+    end while
+end sub
+
+sub drawRows()
+    while m.results.getChildCount() > 0
+        m.results.removeChildIndex(0)
+    end while
+    if m.rows.count() = 0 then return
+    focusRow = -1
+    if m.zone = "results" and m.idx < m.hits.count()
+        focusRow = m.hits[m.idx]
+        scrollTo(focusRow)
+    end if
+    y = 0
+    for i = m.top0 to m.rows.count() - 1
+        row = m.rows[i]
+        h = rowHeight(row)
+        if y + h > VIEW_H then exit for
+        if row.kind = "hit"
+            drawHit(row, y, i = focusRow)
+        else
+            lbl = label(UCase(row.text), "pkg:/fonts/Inter-Bold.ttf", 22, "#8C8A96FF")
+            if row.kind = "empty" then lbl = label(row.text, "pkg:/fonts/Inter-Medium.ttf", 24, "#888888FF")
+            lbl.translation = [0, y + 18]
+            m.results.appendChild(lbl)
+        end if
+        y = y + h
+    end for
+end sub
+
+sub drawHit(row as object, y as integer, focused as boolean)
+    hit = row.hit
+    g = CreateObject("roSGNode", "Group")
+    g.translation = [0, y]
+    bg = CreateObject("roSGNode", "Poster")
+    bg.width = 1040
+    bg.height = ROW_H - 12
+    if focused and m.col = 0 then bg.uri = "pkg:/images/card_r16_focus.9.png" else bg.uri = "pkg:/images/card_r16.9.png"
+    g.appendChild(bg)
+    p = CreateObject("roSGNode", "Poster")
+    p.translation = [14, 9]
+    p.width = 59
+    p.height = 88
+    p.loadDisplayMode = "scaleToZoom"
+    if hit.itemId <> "" then p.uri = ImageUrl.primary(hit.itemId, 120, "") else p.uri = hit.posterUrl
+    g.appendChild(p)
+    t = label(hit.title, "pkg:/fonts/Inter-Bold.ttf", 28, "#FFFFFFFF")
+    t.translation = [96, 18]
+    t.width = 700
+    t.maxLines = 1
+    g.appendChild(t)
+    s = label(Watchlist.hitLine(hit), "pkg:/fonts/Inter-Medium.ttf", 22, "#A8A6B3FF")
+    s.translation = [96, 60]
+    g.appendChild(s)
+    ' + Add, or Added once it is on the Watchlist.
+    btnOn = focused and m.col = 1
+    b = CreateObject("roSGNode", "Poster")
+    b.translation = [830, 26]
+    b.width = 190
+    b.height = 54
+    ' A capsule that reads on the row's own dark card.
+    if btnOn
+        b.uri = "pkg:/images/btn_white_focus.9.png"
+    else
+        b.uri = "pkg:/images/pill_white.9.png"
+        b.blendColor = "#3A3946FF"
+    end if
+    g.appendChild(b)
+    bl = label(Watchlist.addLabel(row.added), "pkg:/fonts/Inter-Bold.ttf", 22, "#FFFFFFFF")
+    if btnOn then bl.color = "#000000FF" else if row.added then bl.color = "#9FDCB2FF"
+    bl.translation = [830, 26]
+    bl.width = 190
+    bl.height = 54
+    bl.horizAlign = "center"
+    bl.vertAlign = "center"
+    g.appendChild(bl)
+    m.results.appendChild(g)
+end sub
+
+function label(text as string, fontUri as string, size as integer, color as string) as object
+    l = CreateObject("roSGNode", "Label")
+    l.text = text
+    f = CreateObject("roSGNode", "Font")
+    f.uri = fontUri
+    f.size = size
+    l.font = f
+    l.color = color
+    return l
+end function
+
+' ---------- Acting ----------
+
+function focusedRow() as dynamic
+    if m.idx < 0 or m.idx >= m.hits.count() then return invalid
+    return m.rows[m.hits[m.idx]]
+end function
+
+sub activate()
+    row = focusedRow()
+    if row = invalid then return
+    if m.col = 1
+        if row.added
+            m.global.toastMessage = { message: "Already on your Watchlist" }
+            return
+        end if
+        if m.adding then return
+        m.adding = true
+        m.pendingKey = Watchlist.hitKey(row.hit)
+        m.apiTask.request = { action: "lists", op: "watchlistAdd", body: Watchlist.hitBody(row.hit) }
+        return
+    end if
+    o = Watchlist.hitOpen(row.hit)
+    if o.kind = "item"
+        m.top.selectedItem = o.item
+    else
+        m.top.openTitle = { _watchlistTitle: Watchlist.hitSource(row.hit, row.added) }
+    end if
+end sub
+
+sub onApiResponse()
+    r = m.apiTask.response
+    if r = invalid or r.op <> "watchlistAdd" then return
+    m.adding = false
+    if r.success = true
+        m.added[m.pendingKey] = true
+        m.global.listsVersion = m.global.listsVersion + 1
+        m.loadedVersion = m.global.listsVersion
+        m.global.toastMessage = { message: "Added to your Watchlist" }
+        rebuild()
+        drawRows()
+    else
+        m.global.toastMessage = { message: "Couldn't add it. Check your connection." }
+    end if
+end sub
+
+function onKeyEvent(key as string, press as boolean) as boolean
+    if not press then return false
+    if key = "back"
+        m.top.closed = true
+        return true
+    end if
+    if m.zone = "keyboard"
+        ' The keyboard's right edge hands over to the results.
+        if key = "right" and m.hits.count() > 0
+            m.col = 0
+            focusZone("results")
+            return true
+        end if
+        return false
+    end if
+    if key = "up"
+        if m.idx > 0 then m.idx = m.idx - 1
+        drawRows()
+    else if key = "down"
+        if m.idx < m.hits.count() - 1 then m.idx = m.idx + 1
+        drawRows()
+    else if key = "left"
+        if m.col = 1
+            m.col = 0
+            drawRows()
+        else
+            focusZone("keyboard")
+        end if
+    else if key = "right"
+        m.col = 1
+        drawRows()
+    else if key = "OK"
+        activate()
+    end if
+    return true
+end function

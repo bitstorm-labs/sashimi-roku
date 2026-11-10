@@ -52,6 +52,8 @@ sub init()
     m.spotIdx = 0           ' the title the Spotlight shows
     m.menu = invalid
     m.pending = invalid     ' the entry a Remove dialog is about
+    m.canAdd = false        ' + Add: the plugin has search (0.3+)
+    m.details = {}          ' entry id -> Watchlist.detailsFromResponse
     m.loadedVersion = -1
     load()
 end sub
@@ -134,6 +136,12 @@ sub onApiResponse()
         else if r.op = "watchlistRemove" or r.op = "watchlistUnlink"
             if r.success = true then changed() else toast("Couldn't update. Check your connection.")
             load()
+        else if r.op = "watchlistDetails" and r.key <> invalid
+            ' Kept even when it failed, so a broken title isn't asked again
+            ' on every focus.
+            m.details[r.key] = r
+            e = spotEntry()
+            if e <> invalid and e.id = r.key then showSpotlight()
         end if
     else if r.action = "seriesNextEpisode"
         if r.success and r.items <> invalid and r.items.count() > 0
@@ -164,6 +172,7 @@ sub onWatchlist(r as object)
     m.entries = r.view.entries
     m.items = r.items
     if m.items = invalid then m.items = {}
+    m.canAdd = (r.canAdd = true)
     render()
     checkRequested()
 end sub
@@ -206,7 +215,7 @@ sub render()
     if m.view = invalid then return
     shown = cardShown()
     m.card.visible = shown
-    m.statusLabel.text = Watchlist.EMPTY_TEXT()
+    m.statusLabel.text = Watchlist.emptyText(m.canAdd)
     m.statusLabel.visible = (m.entries.count() = 0)
     drawGrid()
     if m.top.isInFocusChain() then focusZone(m.zone)
@@ -284,10 +293,22 @@ sub showSpotlight()
             info.meta = ListLayout.missingMeta(e)
             info.note = "Not on your server"
             if m.requested.DoesExist(Watchlist.seerrKey(e)) then info.note = "Requested"
+            ' Plugin 0.3+ knows the rest (backdrop, line, overview): asked
+            ' once per title, drawn when it answers.
+            d = m.details[e.id]
+            if d = invalid and m.canAdd
+                m.details[e.id] = { pending: true }
+                send({ action: "lists", op: "watchlistDetails", query: Watchlist.detailsQuery(e), key: e.id })
+            else if d <> invalid and d.found = true
+                line = Watchlist.detailsMeta(d)
+                if line <> "" then info.meta = line
+                info.overview = d.overview
+                info.backdropUri = d.backdropUrl
+            end if
         end if
     end if
     m.spot.info = info
-    setButtons(ListLayout.watchlistButtons(spotAction(e), hasPlayable()))
+    setButtons(ListLayout.watchlistButtons(spotAction(e), hasPlayable(), m.canAdd))
 end sub
 
 function hasPlayable() as boolean
@@ -329,6 +350,8 @@ sub onButton(event as object)
         showOptions()
     else if kind = "shuffle"
         shuffle()
+    else if kind = "add"
+        m.top.addTitles = true
     else if e = invalid
         return
     else if kind = "play" or kind = "resume"
@@ -336,8 +359,8 @@ sub onButton(event as object)
     else if kind = "playSeries"
         send({ action: "seriesNextEpisode", seriesId: e.itemId })
     else if kind = "request" or kind = "requested"
-        pick = Watchlist.onSelect(e, true)
-        if pick.kind = "seerr" then m.top.selectedItem = { _seerr: pick.target }
+        target = Watchlist.seerrTarget(e)
+        if target <> invalid then m.top.selectedItem = { _seerr: target }
     else if kind = "signin"
         m.top.openSeerr = true
     end if
@@ -423,22 +446,10 @@ sub onGridSelected()
     pick = Watchlist.onSelect(e, Seerr.isActive(m.global.seerrState))
     if pick.kind = "item"
         m.top.selectedItem = entryItem(e)
-    else if pick.kind = "seerr"
-        m.top.selectedItem = { _seerr: pick.target }
     else
-        dialog = CreateObject("roSGNode", "StandardMessageDialog")
-        dialog.title = pick.title
-        dialog.message = [pick.message]
-        dialog.buttons = ["OK"]
-        dialog.observeFieldScoped("buttonSelected", "onExplainButton")
-        m.top.getScene().dialog = dialog
+        ' A title the server doesn't have: its title page (Watchlist v2).
+        m.top.selectedItem = { _watchlistTitle: Watchlist.entrySource(e) }
     end if
-end sub
-
-sub onExplainButton()
-    dialog = m.top.getScene().dialog
-    if dialog <> invalid then dialog.close = true
-    focusZone(m.zone)
 end sub
 
 ' The title More's Remove is about: the one the Spotlight shows.

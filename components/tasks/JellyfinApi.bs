@@ -2233,7 +2233,7 @@ sub doLists(request as object)
     resp.action = "lists"
     resp.op = request.op
     resp.context = request.context
-    for each k in ["listId", "listName", "entryId", "isPublic", "name"]
+    for each k in ["listId", "listName", "entryId", "isPublic", "name", "query", "key"]
         if request.DoesExist(k) and not resp.DoesExist(k) then resp[k] = request[k]
     end for
     m.top.response = resp

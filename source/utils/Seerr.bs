@@ -173,9 +173,23 @@ namespace Seerr
     ' The Settings row's value.
     ' Signed out, the account screen offers the server address, and sign-in
     ' only once there is one: there is no default server.
-    function accountButtonKinds(server as string) as object
+    ' locked: the Sashimi Lists plugin sets the address (Watchlist v2), so
+    ' only the sign-ins are offered.
+    function accountButtonKinds(server as string, locked = false as boolean) as object
+        if locked then return ["plex", "local"]
         if server = "" then return ["server"]
         return ["server", "plex", "local"]
+    end function
+
+    ' The address Requests uses: the server's when it sets one, else the one
+    ' typed on this device (kept, so it comes back if the server's is cleared).
+    function effectiveServer(locked as string, stored as string) as string
+        if locked <> "" then return locked
+        return stored
+    end function
+
+    function lockedServerLine() as string
+        return "Requests server " + Chr(183) + " Set by your server"
     end function
 
     function serverLabel(server as string) as string

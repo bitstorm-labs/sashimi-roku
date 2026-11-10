@@ -11,10 +11,27 @@ namespace SeerrStore
 
     const SECTION = "seerr"
 
+    ' The address Requests uses: the one the Jellyfin server sets (Sashimi
+    ' Lists' Requests address, Watchlist v2) when it sets one, else the one
+    ' typed on this device. The typed one is kept either way.
     function server() as string
+        return Seerr.effectiveServer(lockedServer(), storedServer())
+    end function
+
+    function storedServer() as string
         ' "" until the user types one in: there is no default server.
         return Seerr.normalizedServer(Registry.read(SECTION, "server"))
     end function
+
+    ' Remembered between launches, so Requests works before the server's
+    ' answer arrives; "" when the server doesn't set one.
+    function lockedServer() as string
+        return Seerr.normalizedServer(Registry.read(SECTION, "locked"))
+    end function
+
+    sub setLocked(url as string)
+        Registry.write(SECTION, "locked", url)
+    end sub
 
     sub setServer(url as string)
         Registry.write(SECTION, "server", url)

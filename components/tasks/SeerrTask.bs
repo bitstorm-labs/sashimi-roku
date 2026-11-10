@@ -71,6 +71,8 @@ sub processRequest()
         out = doWatchlistReplace(r)
     else if a = "watchlistAutoLink"
         out = doWatchlistAutoLink()
+    else if a = "serverConfig"
+        out = doServerConfig()
     end if
     if out = invalid then out = { success: false, error: "Unknown request." }
     out.action = a
@@ -266,6 +268,25 @@ function doPublicSettings() as object
     end if
     m.global.seerrPartial = res.data.partialRequestsEnabled <> false
     return { success: true }
+end function
+
+' The Requests address the Jellyfin server sets (Sashimi Lists 0.3+'s
+' /SashimiLists/Config), then the launch check against whichever address is
+' in use. Only a clear answer changes it (an address, none, or a 404 from an
+' older plugin); a failed call keeps the last known one, so a blip doesn't
+' swap servers under a signed-in account.
+function doServerConfig() as object
+    before = SeerrStore.server()
+    c = WatchlistApi.config()
+    if c.code = 404 or (c.code >= 200 and c.code < 300) then SeerrStore.setLocked(Watchlist.requestsAddress(c.code, c.data))
+    m.global.seerrLocked = (SeerrStore.lockedServer() <> "")
+    after = SeerrStore.server()
+    if after <> before
+        m.global.seerrServer = after
+        ' A session belongs to the server that issued it.
+        if SeerrStore.cookie() = "" then SeerrStore.publishSignedOut()
+    end if
+    return doRestore()
 end function
 
 ' Launch: no cookie, no network at all. A server that can't be reached keeps

@@ -96,8 +96,11 @@ titles qualify, add bodies from a library item or a Seerr title, the
 any-agreeing-id check, tiles and their pills, what OK does, the Plex card,
 line and `*` menu, link and auto-link outcomes (never after someone
 disconnected: `plexOptedOut`), Settings > Plex, the Lists card's tagged
-posters (dimmed when not on the server), and that Connect Plex needs no
-Seerr server (`Seerr.plexCheckRoute`))
+posters (dimmed when not on the server), that Connect Plex needs no
+Seerr server (`Seerr.plexCheckRoute`), and Watchlist v2 (plugin 0.3+, a 404
+hides each part): + Add's search and its two groups, the title page for a
+title not on the server (`/Details`, its line and buttons), and the Requests
+address the server sets (`/SashimiLists/Config`, `Seerr.effectiveServer`))
 and `source/utils/ListLayout.bs` (how every list looks: the Lists page's
 "Poster stack" cover -- its 0-3 layers and their fan on focus -- and the
 "Spotlight" list page: the focused title's meta line, backdrop, headline
@@ -146,6 +149,10 @@ curl --digest -u "rokudev:$ROKU_DEV_PASSWORD" http://$ROKU_DEV_TARGET/pkgs/dev.j
 # exits as soon as its stdin closes, which looks like "no output".
 nc -d $ROKU_DEV_TARGET 8085
 ```
+
+**ECP names OK `Select`** (`/keypress/OK` answers 400) and types with
+`/keypress/Lit_<url-encoded char>`; a keyboard dialog keeps what was typed
+before, and `/keypress/Backspace` clears it.
 
 **ECP names the Options key `Info`.** `POST /keypress/Options` returns 200 and
 does nothing, which looks exactly like the app ignoring the key. Use

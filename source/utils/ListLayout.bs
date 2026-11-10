@@ -169,12 +169,14 @@ namespace ListLayout
         return defs
     end function
 
-    ' The Watchlist's: the focused title's, Shuffle, then More (the * menu:
-    ' Remove, Connect / Disconnect Plex), on screen so nobody has to know
-    ' about *. "Requested" is a state, not a call to action.
-    function watchlistButtons(action as object, anyOnServer as boolean) as object
+    ' The Watchlist's: the focused title's, + Add (search, plugin 0.3+),
+    ' Shuffle, then More (the * menu: Remove, Connect / Disconnect Plex), on
+    ' screen so nobody has to know about *. "Requested" is a state, not a
+    ' call to action. Whichever leads is the primary one.
+    function watchlistButtons(action as object, anyOnServer as boolean, canAdd as boolean) as object
         defs = []
         if action.kind <> "none" then defs.push({ kind: action.kind, label: action.label, primary: action.kind <> "requested" })
+        if canAdd then defs.push({ kind: "add", label: "+ Add", primary: defs.count() = 0 })
         if anyOnServer then defs.push({ kind: "shuffle", label: "Shuffle", primary: false })
         defs.push({ kind: "options", label: "More", primary: false })
         return defs
