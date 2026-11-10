@@ -122,6 +122,8 @@ sub processRequest()
         doGetItems(request)
     else if action = "getShuffleShowEpisode"
         doGetShuffleShowEpisode(request)
+    else if action = "seriesNextEpisode"
+        doSeriesNextEpisode(request)
     else if action = "getPersonFilmography"
         doGetPersonFilmography(request)
     else if action = "getItem"
@@ -2318,6 +2320,14 @@ sub doGetShuffleShowEpisode(request as object)
         if episode <> invalid then items.push(episode)
     end if
     m.top.response = { success: true, action: "getShuffleShowEpisode", items: items, context: ctx }
+end sub
+
+' A list page's Play on a show: the episode its own Play button would start.
+sub doSeriesNextEpisode(request as object)
+    items = []
+    episode = seriesNextEpisode(request.seriesId)
+    if episode <> invalid then items.push(episode)
+    m.top.response = { success: true, action: "seriesNextEpisode", items: items, seriesId: request.seriesId }
 end sub
 
 ' The episode a series' Play button starts: the server's Next Up, else the

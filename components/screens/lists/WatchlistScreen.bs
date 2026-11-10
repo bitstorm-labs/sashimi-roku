@@ -2,26 +2,26 @@ import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Confirm.bs"
 import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/Watchlist.bs"
+import "pkg:/source/utils/ListLayout.bs"
 
-' The Watchlist page. One "watchlist" request draws it at once with every
-' missing title saying "Not on server"; only then, and only with a Seerr
-' session, does a status check upgrade some to "Requested", so a slow or
-' failing Seerr never blanks the page or blocks OK.
+'' The Watchlist page ("Spotlight": ListSpotlight on top, the posters in one
+' row along the bottom, the buttons between). One "watchlist" request draws
+' it at once with every missing title saying "Not on server"; only then, and
+' only with a Seerr session, does a status check upgrade some to
+' "Requested", so a slow or failing Seerr never blanks the page or blocks OK.
 '
-' Focus is virtual outside the grid (as on the Seerr screens): in the "card"
-' and "none" zones a FocusSink holds real focus and m.cardIdx is drawn as the
-' highlight, so an empty Watchlist with nothing focusable still answers Back
-' and *. Not the screen itself: setFocus on it while the grid holds focus
-' leaves focus on the grid (seen on device: OK then both selected a tile and
-' pressed the card's button). Only "grid" gives the MarkupGrid real focus (it
-' needs it to scroll).
+' Zones top to bottom: "card" (virtual: a FocusSink holds real focus and
+' m.cardIdx is drawn as the highlight), "buttons" (DetailButtons, which
+' always has More, so even an empty Watchlist has something focused that
+' answers Back and *), "grid" (the strip, which needs real focus to scroll).
 
 sub init()
-    m.metaLabel = m.top.findNode("metaLabel")
+    m.spot = m.top.findNode("spot")
     m.card = m.top.findNode("card")
     m.top.findNode("cardTitle").text = Watchlist.CARD_TITLE()
     m.top.findNode("cardBody").text = Watchlist.CARD_BODY()
     m.cardButtons = m.top.findNode("cardButtons")
+    m.buttons = m.top.findNode("buttons")
     m.grid = m.top.findNode("grid")
     m.keySink = m.top.findNode("keySink")
     m.statusLabel = m.top.findNode("statusLabel")
@@ -31,7 +31,11 @@ sub init()
     m.seerrTask = m.top.findNode("seerrTask")
     m.seerrTask.observeFieldScoped("response", "onSeerrResponse")
     m.seerrTask.control = "RUN"
+    m.buttons.observeFieldScoped("activatedKind", "onButton")
+    m.buttons.observeFieldScoped("goDown", "onButtonsDown")
+    m.buttons.observeFieldScoped("goUp", "onButtonsUp")
     m.grid.observeFieldScoped("itemSelected", "onGridSelected")
+    m.grid.observeFieldScoped("itemFocused", "onGridFocused")
     m.top.observeField("focusedChild", "onFocusDelegate")
 
     m.queue = []
@@ -44,7 +48,8 @@ sub init()
     m.statusAgain = false
     m.cardHidden = false    ' "Not now" pressed on this visit
     m.cardIdx = 0           ' 0 Connect Plex, 1 Not now
-    m.zone = "none"
+    m.zone = ""             ' "" until the first load picks one
+    m.spotIdx = 0           ' the title the Spotlight shows
     m.menu = invalid
     m.pending = invalid     ' the entry a Remove dialog is about
     m.loadedVersion = -1
@@ -79,12 +84,31 @@ sub onFocusDelegate()
     if not m.top.hasFocus() then return
     ' Back from a title, Connect Plex or a dialog: reload if anything changed.
     if m.view <> invalid and m.loadedVersion <> m.global.listsVersion then load()
+    ' Back from signing into Requests: Sign in becomes Request, and the
+    ' Requested pills can be asked for now.
+    showSpotlight()
+    checkRequested()
     focusZone(m.zone)
 end sub
 
 sub focusZone(zone as string)
+    ' Before the first answer: hold focus and choose once the titles arrive.
+    if m.view = invalid
+        m.keySink.setFocus(true)
+        return
+    end if
+    if zone = "" then zone = ListLayout.firstZone(cardShown(), m.entries.count())
+    if zone = "strip" then zone = "grid"
+    if zone = "card" and not cardShown() then zone = "buttons"
+    if zone = "grid" and m.entries.count() = 0 then zone = "buttons"
     m.zone = zone
-    if zone = "grid" then m.grid.setFocus(true) else m.keySink.setFocus(true)
+    if zone = "grid"
+        m.grid.setFocus(true)
+    else if zone = "buttons"
+        m.buttons.setFocus(true)
+    else
+        m.keySink.setFocus(true)
+    end if
     drawCardButtons()
 end sub
 
@@ -110,6 +134,12 @@ sub onApiResponse()
         else if r.op = "watchlistRemove" or r.op = "watchlistUnlink"
             if r.success = true then changed() else toast("Couldn't update. Check your connection.")
             load()
+        end if
+    else if r.action = "seriesNextEpisode"
+        if r.success and r.items <> invalid and r.items.count() > 0
+            m.top.playItem = { item: r.items[0], action: ListLayout.titleAction({ item: r.items[0] }).kind }
+        else
+            toast("This show has no episodes to play yet.")
         end if
     end if
     pump()
@@ -174,21 +204,12 @@ end sub
 
 sub render()
     if m.view = invalid then return
-    m.metaLabel.text = Watchlist.metaLine(m.entries.count(), m.view)
     shown = cardShown()
     m.card.visible = shown
-    layout = Watchlist.gridLayout(shown)
-    m.grid.translation = [105, layout.y]
-    m.grid.numRows = layout.rows
     m.statusLabel.text = Watchlist.EMPTY_TEXT()
     m.statusLabel.visible = (m.entries.count() = 0)
     drawGrid()
-    ' Keep the zone the person is in while it still exists.
-    zone = m.zone
-    if (zone = "card" and not shown) or (zone = "grid" and m.entries.count() = 0) or zone = "none"
-        zone = Watchlist.firstZone(shown, m.entries.count())
-    end if
-    if m.top.isInFocusChain() then focusZone(zone) else m.zone = zone
+    if m.top.isInFocusChain() then focusZone(m.zone)
     drawCardButtons()
 end sub
 
@@ -208,9 +229,132 @@ sub drawGrid()
         c.addFields({ dimmed: t.dimmed, pillText: t.pill, pillColor: pillColor })
     end for
     m.grid.content = content
+    m.spotIdx = 0
     if focusedAt <> invalid and focusedAt >= 0 and content.getChildCount() > 0
         if focusedAt >= content.getChildCount() then focusedAt = content.getChildCount() - 1
         m.grid.jumpToItem = focusedAt
+        m.spotIdx = focusedAt
+    end if
+    showSpotlight()
+end sub
+
+sub onGridFocused()
+    idx = m.grid.itemFocused
+    if idx = invalid or idx < 0 or idx >= m.entries.count() or idx = m.spotIdx then return
+    m.spotIdx = idx
+    showSpotlight()
+end sub
+
+function spotEntry() as dynamic
+    if m.spotIdx < 0 or m.spotIdx >= m.entries.count() then return invalid
+    return m.entries[m.spotIdx]
+end function
+
+' The library item of an on-server entry, or what the entry knows when the
+' lookup didn't return it (a title the viewer's limits hide, say).
+function entryItem(e as object) as object
+    item = m.items[e.itemId]
+    if item = invalid then item = { Id: e.itemId, Type: e.type, Name: e.title }
+    return item
+end function
+
+' What the focused title's button does.
+function spotAction(e as dynamic) as object
+    if e = invalid then return { kind: "none", label: "" }
+    if e.itemId <> "" then return ListLayout.titleAction({ item: entryItem(e) })
+    return ListLayout.titleAction({ entry: e, seerrActive: Seerr.isActive(m.global.seerrState), requested: m.requested.DoesExist(Watchlist.seerrKey(e)) })
+end function
+
+' The Spotlight and the buttons follow the focused title.
+sub showSpotlight()
+    if m.view = invalid then return
+    info = { headline: ListLayout.headline(Watchlist.NAME(), Watchlist.metaLine(m.entries.count(), m.view)), title: "", meta: "", note: "", overview: "", backdropUri: "", posterUri: "" }
+    e = spotEntry()
+    if e <> invalid
+        info.title = e.title
+        info.posterUri = posterFor(e)
+        if e.itemId <> ""
+            item = entryItem(e)
+            info.meta = ListLayout.metaLine(item)
+            if info.meta = "" then info.meta = ListLayout.missingMeta(e)
+            if item.Overview <> invalid then info.overview = item.Overview
+            b = ListLayout.backdrop(item)
+            if b <> invalid then info.backdropUri = ImageUrl.backdrop(b.id, 1280, b.tag)
+        else
+            info.meta = ListLayout.missingMeta(e)
+            info.note = "Not on your server"
+            if m.requested.DoesExist(Watchlist.seerrKey(e)) then info.note = "Requested"
+        end if
+    end if
+    m.spot.info = info
+    setButtons(ListLayout.watchlistButtons(spotAction(e), hasPlayable()))
+end sub
+
+function hasPlayable() as boolean
+    for each e in m.entries
+        if e.itemId <> "" then return true
+    end for
+    return false
+end function
+
+' New defs keep the highlighted button where its kind still is.
+sub setButtons(defs as object)
+    keep = m.buttons.activatedKind
+    old = m.buttons.buttonDefs
+    if old <> invalid and FormatJson(old) = FormatJson(defs) then return
+    m.buttons.buttonDefs = defs
+    for i = 0 to defs.count() - 1
+        if defs[i].kind = keep
+            m.buttons.setIndex = -1
+            m.buttons.setIndex = i
+        end if
+    end for
+end sub
+
+sub onButtonsDown()
+    focusZone(ListLayout.downFrom("buttons", m.entries.count()))
+end sub
+
+sub onButtonsUp()
+    if cardShown()
+        m.cardIdx = 0
+        focusZone(ListLayout.upFrom("buttons", true))
+    end if
+end sub
+
+sub onButton(event as object)
+    kind = event.getData()
+    e = spotEntry()
+    if kind = "options"
+        showOptions()
+    else if kind = "shuffle"
+        shuffle()
+    else if e = invalid
+        return
+    else if kind = "play" or kind = "resume"
+        m.top.playItem = { item: entryItem(e), action: kind }
+    else if kind = "playSeries"
+        send({ action: "seriesNextEpisode", seriesId: e.itemId })
+    else if kind = "request" or kind = "requested"
+        pick = Watchlist.onSelect(e, true)
+        if pick.kind = "seerr" then m.top.selectedItem = { _seerr: pick.target }
+    else if kind = "signin"
+        m.top.openSeerr = true
+    end if
+end sub
+
+' A random title the server has: a show starts its next episode.
+sub shuffle()
+    onServer = []
+    for each e in m.entries
+        if e.itemId <> "" then onServer.push(e)
+    end for
+    if onServer.count() = 0 then return
+    e = onServer[Rnd(onServer.count()) - 1]
+    if e.type = "Series"
+        send({ action: "seriesNextEpisode", seriesId: e.itemId })
+    else
+        m.top.playItem = { item: entryItem(e), action: "play" }
     end if
 end sub
 
@@ -278,9 +422,7 @@ sub onGridSelected()
     e = m.entries[idx]
     pick = Watchlist.onSelect(e, Seerr.isActive(m.global.seerrState))
     if pick.kind = "item"
-        item = m.items[pick.itemId]
-        if item = invalid then item = { Id: pick.itemId, Type: e.type, Name: e.title }
-        m.top.selectedItem = item
+        m.top.selectedItem = entryItem(e)
     else if pick.kind = "seerr"
         m.top.selectedItem = { _seerr: pick.target }
     else
@@ -299,11 +441,10 @@ sub onExplainButton()
     focusZone(m.zone)
 end sub
 
+' The title More's Remove is about: the one the Spotlight shows.
 function focusedEntry() as dynamic
-    if m.zone <> "grid" then return invalid
-    idx = m.grid.itemFocused
-    if idx = invalid or idx < 0 or idx >= m.entries.count() then return invalid
-    return m.entries[idx]
+    if m.zone <> "grid" and m.zone <> "buttons" then return invalid
+    return spotEntry()
 end function
 
 ' ---------- The * menu ----------
@@ -392,11 +533,9 @@ function onKeyEvent(key as string, press as boolean) as boolean
         return true
     end if
     if m.zone = "grid"
-        ' fixedFocus stops the grid wrapping; its top row (all of it when it is
-        ' one strip under the card) hands up to the card.
-        if key = "up" and cardShown() and Watchlist.upToCard(m.grid.itemFocused, m.grid.numRows, 6)
-            m.cardIdx = 0
-            focusZone("card")
+        ' The strip is one row, which ignores Up: the screen moves focus.
+        if key = "up"
+            focusZone(ListLayout.upFrom("strip", cardShown()))
             return true
         end if
         return false
@@ -409,11 +548,11 @@ function onKeyEvent(key as string, press as boolean) as boolean
         else if key = "OK"
             activateCard()
             return true
-        else if key = "down" and m.entries.count() > 0
-            focusZone("grid")
+        else if key = "down"
+            focusZone(ListLayout.downFrom("card", m.entries.count()))
             return true
         end if
     end if
-    ' "none" (and the card's other keys): the screen keeps focus.
+    ' The card's other keys: the screen keeps focus.
     return true
 end function

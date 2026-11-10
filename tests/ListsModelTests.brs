@@ -211,12 +211,14 @@ end function
 
 sub testCover(t as object)
     ' Display order, after the S1:E1 and repeat rules; a show's episodes
-    ' draw its poster, so they count once.
+    ' draw its poster, so they count once. The poster stack shows the first
+    ' three different titles.
     items = [episode("e1", "s1", 1, 1), movie("m1"), episode("e2", "s1", 1, 2), movie("m1"), episode("e9", "s2", 3, 4), movie("m2"), movie("m3")]
-    eq(t, "collage of the first four different titles", coverIds(ListsModel_coverArt(items)), "s1:sts1,m1:tm1,s2:sts2,m2:tm2")
-    eq(t, "fewer than four: the first, full-bleed", coverIds(ListsModel_coverArt([movie("m1"), episode("e1", "s1", 1, 1), movie("m1"), episode("e3", "s1", 2, 1)])), "m1:tm1")
-    eq(t, "three: the first", ListsModel_coverArt([movie("a"), movie("b"), movie("c")]).count(), 1)
-    eq(t, "exactly four", ListsModel_coverArt([movie("a"), movie("b"), movie("c"), movie("d"), movie("e")]).count(), 4)
+    eq(t, "stack of the first three different titles", coverIds(ListsModel_coverArt(items)), "s1:sts1,m1:tm1,s2:sts2")
+    eq(t, "two titles: a two-poster stack", coverIds(ListsModel_coverArt([movie("m1"), episode("e1", "s1", 1, 1), movie("m1"), episode("e3", "s1", 2, 1)])), "m1:tm1,s1:sts1")
+    eq(t, "one title: one poster", coverIds(ListsModel_coverArt([movie("a"), movie("a")])), "a:ta")
+    eq(t, "three", ListsModel_coverArt([movie("a"), movie("b"), movie("c")]).count(), 3)
+    eq(t, "never more than three", ListsModel_coverArt([movie("a"), movie("b"), movie("c"), movie("d"), movie("e")]).count(), 3)
     eq(t, "empty list: no cover", ListsModel_coverArt([]).count(), 0)
     eq(t, "no items: no cover", ListsModel_coverArt(invalid).count(), 0)
 end sub
@@ -243,15 +245,10 @@ sub testCopy(t as object)
     eq(t, "own private card", ListsModel_cardMeta(true, false, "", 5), "Private " + Chr(183) + " 5 titles")
     eq(t, "other card", ListsModel_cardMeta(false, true, "Marge", 18), "Marge " + Chr(183) + " 18 titles")
     eq(t, "orphan card", ListsModel_cardMeta(false, true, "", 2), "Shared list " + Chr(183) + " 2 titles")
-    eq(t, "byline", ListsModel_byline(false, "Marge"), "A list by Marge")
-    eq(t, "own byline", ListsModel_byline(true, "Marge"), "Your list")
-    eq(t, "orphan byline", ListsModel_byline(false, ""), "Shared list")
     eq(t, "subscriber line", ListsModel_detailLine(false, true, true, 18, 3), "18 titles " + Chr(183) + " 3 new since you last looked")
     eq(t, "subscriber line nothing new", ListsModel_detailLine(false, true, true, 18, 0), "18 titles")
     eq(t, "owner line public", ListsModel_detailLine(true, true, false, 12, 0), "12 titles " + Chr(183) + " Public: everyone on the server can see and subscribe")
     eq(t, "owner line private", ListsModel_detailLine(true, false, false, 1, 0), "1 title " + Chr(183) + " Private: only you can see it")
-    eq(t, "initial", ListsModel_initial("marge"), "M")
-    eq(t, "initial of nothing", ListsModel_initial(""), "?")
 end sub
 
 function cfgIds(cfg as object) as string
@@ -336,12 +333,6 @@ function kindsOf(defs as object) as string
 end function
 
 sub testDetailPage(t as object)
-    eq(t, "subscriber row", kindsOf(ListsModel_detailButtons(false, false, true)), "subscribe,shuffle")
-    b = ListsModel_detailButtons(false, true, true)
-    eq(t, "subscribed row", kindsOf(b), "unsubscribe,shuffle")
-    eq(t, "subscribed label", b[0].label, Chr(10003) + " Subscribed")
-    eq(t, "owner row", kindsOf(ListsModel_detailButtons(true, false, true)), "subscribe,shuffle,edit")
-    eq(t, "empty list: no shuffle", kindsOf(ListsModel_detailButtons(true, false, false)), "subscribe,edit")
     eq(t, "edit menu public", kindsOf(ListsModel_editMenu(true, true)), "rename,private,reorder,remove,delete")
     eq(t, "edit menu private empty", kindsOf(ListsModel_editMenu(false, false)), "rename,public,delete")
     eq(t, "move menu", kindsOf(ListsModel_moveMenu()), "first,earlier,later,last")

@@ -971,6 +971,7 @@ sub onOpenWatchlist()
     screen.observeFieldScoped("selectedItem", "onItemSelected")
     screen.observeFieldScoped("playItem", "onPlayItem")
     screen.observeFieldScoped("connectPlex", "onConnectPlex")
+    screen.observeFieldScoped("openSeerr", "onOpenSeerr")
     screen.observeFieldScoped("closed", "onListClosed")
     pushScreen(screen)
 end sub

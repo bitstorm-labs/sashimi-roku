@@ -15,7 +15,6 @@ sub main()
     testRequestedKeys(t)
     testOnSelect(t)
     testPlexCard(t)
-    testZones(t)
     testLinkOutcome(t)
     testAutoLink(t)
     testCover(t)
@@ -26,8 +25,6 @@ sub main()
     testSettingsRow(t)
     testOptedOut(t)
     testCoverTags(t)
-    testGridLayout(t)
-    testUpToCard(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -218,12 +215,6 @@ sub testPlexCard(t as object)
     eq(t, "connect label", Watchlist_optionsMenu(unlinked, false)[0].label, "Connect Plex")
 end sub
 
-sub testZones(t as object)
-    eq(t, "card first", Watchlist_firstZone(true, 0), "card")
-    eq(t, "grid when no card", Watchlist_firstZone(false, 3), "grid")
-    eq(t, "nothing focusable", Watchlist_firstZone(false, 0), "none")
-end sub
-
 sub testLinkOutcome(t as object)
     ok = Watchlist_linkOutcome(200, { username: "alex", needsReconnect: false })
     eq(t, "linked", ok.kind, "linked")
@@ -258,15 +249,17 @@ end sub
 sub testCover(t as object)
     eq(t, "card meta", Watchlist_cardMeta(3), "Private " + Chr(183) + " 3")
     five = [entry("a", "Movie", "x", "1"), entry("b", "Movie", "y", "2"), entry("c", "Movie", "z", "3"), entry("d", "Movie", "w", "4"), entry("e", "Movie", "v", "5")]
-    eq(t, "four of five", Watchlist_coverSources(five).count(), 4)
+    eq(t, "the first three of five", Watchlist_coverSources(five).count(), 3)
     two = [entry("a", "Movie", "x", "1"), entry("b", "Movie", "y", "2")]
-    eq(t, "two: one", Watchlist_coverSources(two).count(), 1)
+    eq(t, "two: a two-poster stack", Watchlist_coverSources(two).count(), 2)
+    eq(t, "on the server: sharp", Watchlist_coverSources(two)[0].dimmed, false)
     poster = entry("p", "Movie", "", "1")
     poster.posterUrl = "https://image.tmdb.org/t/p/w500/p.jpg"
     bare = entry("q", "Movie", "", "2")
     c = Watchlist_coverSources([bare, poster])
     eq(t, "skips entries with neither", c.count(), 1)
     eq(t, "missing title's poster", c[0].posterUrl, poster.posterUrl)
+    eq(t, "not on server: dimmed", c[0].dimmed, true)
     eq(t, "nothing drawable", Watchlist_coverSources([bare]).count(), 0)
 end sub
 
@@ -371,28 +364,9 @@ sub testCoverTags(t as object)
     eq(t, "not on server: no tag", tagged[1].tag, "")
     eq(t, "item without tags: none", tagged[2].tag, "")
     eq(t, "no items at all", Watchlist_tagCover(cover, invalid)[0].tag, "")
+    eq(t, "a missing title's poster stays dimmed", Watchlist_tagCover(cover, items)[1].dimmed, true)
+    eq(t, "an on-server poster is sharp", Watchlist_tagCover(cover, items)[0].dimmed, false)
     eq(t, "ids to look up", Watchlist_coverItemIds(cover), "a,b")
     eq(t, "nothing to look up", Watchlist_coverItemIds([{ itemId: "", posterUrl: "x" }]), "")
 end sub
 
-sub testGridLayout(t as object)
-    ' 1080 tall, 380-high cells 40 apart: with the card the grid starts at 440,
-    ' so a second row would run off the screen. It shows one and scrolls.
-    withCard = Watchlist_gridLayout(true)
-    eq(t, "card: below it", withCard.y, 440)
-    eq(t, "card: one row", withCard.rows, 1)
-    eq(t, "card: the row fits", withCard.y + withCard.rows * 380 + (withCard.rows - 1) * 40 <= 1080, true)
-    noCard = Watchlist_gridLayout(false)
-    eq(t, "no card: higher", noCard.y, 350)
-    eq(t, "no card: two rows", noCard.rows, 2)
-end sub
-
-sub testUpToCard(t as object)
-    ' Under the card the grid is one row, which a MarkupGrid draws as a single
-    ' strip that Left/Right scroll through (seen on device), so Up from any
-    ' title goes to the card; with two rows only the top row does.
-    eq(t, "one row: from the first", Watchlist_upToCard(0, 1, 6), true)
-    eq(t, "one row: from the eighth", Watchlist_upToCard(7, 1, 6), true)
-    eq(t, "two rows: top row", Watchlist_upToCard(5, 2, 6), true)
-    eq(t, "two rows: second row stays in the grid", Watchlist_upToCard(6, 2, 6), false)
-end sub

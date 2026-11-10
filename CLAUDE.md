@@ -86,18 +86,24 @@ cards from a list's viewer-filtered entries, counts that never read
 `ItemIds`, a show's first-episode anchor, the duplicate check, the
 DisplayPreferences body that keeps other keys, the 404 prune, creators'
 names, the owner (the Sashimi Lists plugin first, then the self-share, then
-`/Playlists/{id}/Users/{me}`; your own wiped self-share is put back), the 2x2
-cover collage, the Public toggle's re-read and single re-apply, the copy
+`/Playlists/{id}/Users/{me}`; your own wiped self-share is put back), the
+poster-stack cover's first three titles, the Public toggle's re-read and single re-apply, the copy
 ("Your list: ..." on your own Home row), the create body that never carries items (12.4 drops the
-self-share otherwise), the list page's buttons and Edit List menu, Home rows for
+self-share otherwise), the Edit List menu, Home rows for
 subscriptions and where they sit, and the owner's moves)
 and `source/utils/Watchlist.bs` (the Watchlist: the plugin's 404, which
 titles qualify, add bodies from a library item or a Seerr title, the
 any-agreeing-id check, tiles and their pills, what OK does, the Plex card,
 line and `*` menu, link and auto-link outcomes (never after someone
 disconnected: `plexOptedOut`), Settings > Plex, the Lists card's tagged
-posters, the page's grid under the card, and that Connect Plex needs no
-Seerr server (`Seerr.plexCheckRoute`)).
+posters (dimmed when not on the server), and that Connect Plex needs no
+Seerr server (`Seerr.plexCheckRoute`))
+and `source/utils/ListLayout.bs` (how every list looks: the Lists page's
+"Poster stack" cover -- its 0-3 layers and their fan on focus -- and the
+"Spotlight" list page: the focused title's meta line, backdrop, headline
+and button (Play / Resume / Request / Requested / Sign in to Requests),
+the list's and the Watchlist's button rows, and Up/Down between the Plex
+card, the buttons and the one-row poster strip).
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
 mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that
@@ -191,9 +197,8 @@ edges, detail thumbnails) before it was understood as one root cause.
 
 **A one-row MarkupGrid is a horizontal strip.** With `numRows = 1` it ignores
 Up/Down and scrolls Left/Right through every item, so "jump N items on Down"
-logic written for a multi-row grid does nothing. Screens that collapse a grid
-to one row (the Watchlist under its "Use Plex too?" card) must route Up/Down
-themselves.
+logic written for a multi-row grid does nothing. Screens that use a one-row
+grid (the Spotlight list pages' poster strip) must route Up/Down themselves.
 
 **RowList / MarkupGrid recycle their item components.** Every branch of an
 item's content handler must reset *every* field it might set — a missing `else`

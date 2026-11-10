@@ -1,0 +1,219 @@
+' How lists look (owner, 2026-11-10): the Lists page's "Poster stack" cover
+' and the "Spotlight" list page, shared by every list and the Watchlist. Pure
+' functions only, so tests/ListLayoutTests.brs runs them off-device; the
+' screens and ListCard only place nodes where these say.
+namespace ListLayout
+
+    ' The cover's drawing area inside a 330-wide Lists page cell.
+    function COVER_W() as integer
+        return 330
+    end function
+
+    function COVER_H() as integer
+        return 290
+    end function
+
+    ' ---------- Poster stack ----------
+
+    ' The cover's layers, back to front (the drawing order), for a list with
+    ' `count` titles: the first poster full size and upright, the next two
+    ' smaller, offset to the right and tilted about 3 and 7 degrees, the back
+    ' one slightly faded. One title is one poster, two a two-poster stack; an
+    ' empty list gets one placeholder layer. focusPercent (0..1) fans the
+    ' stack out a little. Each layer turns about its bottom centre (cx, cy).
+    ' SceneGraph's positive rotation is anticlockwise, so the tilt is negative.
+    function stackLayers(count as integer, focusPercent as float) as object
+        fp = focusPercent
+        if fp < 0 then fp = 0.0
+        if fp > 1 then fp = 1.0
+        n = count
+        if n < 1 then n = 1
+        if n > 3 then n = 3
+        all = [
+            layer(0, 8, 8, 180, 270, 0.0, 1.0),
+            layer(1, 54 + Int(fp * 14), 16, 166, 249, deg(-(3.0 + fp * 2.0)), 1.0),
+            layer(2, 98 + Int(fp * 30), 26, 154, 231, deg(-(7.0 + fp * 3.0)), 0.8)
+        ]
+        out = []
+        for i = n - 1 to 0 step -1
+            out.push(all[i])
+        end for
+        return out
+    end function
+
+    function layer(slot as integer, x as integer, y as integer, w as integer, h as integer, rotation as float, opacity as float) as object
+        return { slot: slot, x: x, y: y, w: w, h: h, rotation: rotation, opacity: opacity, cx: w / 2, cy: h }
+    end function
+
+    function deg(d as float) as float
+        return d * 3.14159265 / 180.0
+    end function
+
+    ' ---------- Spotlight ----------
+
+    ' What a list's titles are fetched with, so the Spotlight has its line.
+    function SPOTLIGHT_FIELDS() as string
+        return "ProductionYear,CommunityRating,OfficialRating,Overview,Genres,ChildCount"
+    end function
+
+    ' "3h 13m", "47m", "2h"; nothing for no runtime.
+    function runtime(ticks as dynamic) as string
+        if not isNum(ticks) then return ""
+        mins = Int(ticks / 600000000)
+        if mins <= 0 then return ""
+        h = Int(mins / 60)
+        rest = mins - h * 60
+        if h = 0 then return rest.ToStr() + "m"
+        if rest = 0 then return h.ToStr() + "h"
+        return h.ToStr() + "h " + rest.ToStr() + "m"
+    end function
+
+    ' The focused title's line under its name: year, runtime (a show's
+    ' seasons instead), age rating, two genres. An episode on a list says
+    ' which one it is. Fields the item lacks are left out.
+    function metaLine(item as dynamic) as string
+        if type(item) <> "roAssociativeArray" then return ""
+        parts = []
+        kind = textOf(item.Type)
+        if kind = "Episode"
+            if isNum(item.ParentIndexNumber) and isNum(item.IndexNumber) then parts.push("S" + Int(item.ParentIndexNumber).ToStr() + ":E" + Int(item.IndexNumber).ToStr())
+            if textOf(item.Name) <> "" then parts.push(item.Name)
+        else if isNum(item.ProductionYear) and item.ProductionYear > 0
+            parts.push(Int(item.ProductionYear).ToStr())
+        end if
+        if kind = "Series"
+            if isNum(item.ChildCount) and item.ChildCount > 0
+                n = Int(item.ChildCount)
+                if n = 1 then parts.push("1 Season") else parts.push(n.ToStr() + " Seasons")
+            end if
+        else
+            rt = runtime(item.RunTimeTicks)
+            if rt <> "" then parts.push(rt)
+        end if
+        if kind <> "Episode" and textOf(item.OfficialRating) <> "" then parts.push(item.OfficialRating)
+        if kind <> "Episode" and type(item.Genres) = "roArray"
+            g = []
+            for each name in item.Genres
+                if textOf(name) <> "" then g.push(name)
+                if g.count() = 2 then exit for
+            end for
+            if g.count() > 0 then parts.push(g.Join(", "))
+        end if
+        return parts.Join(" " + Chr(183) + " ")
+    end function
+
+    ' A Watchlist title the server doesn't have: what the entry itself knows.
+    function missingMeta(entry as object) as string
+        parts = []
+        if isNum(entry.year) and entry.year > 0 then parts.push(Int(entry.year).ToStr())
+        if entry.type = "Series" then parts.push("Show") else parts.push("Movie")
+        return parts.Join(" " + Chr(183) + " ")
+    end function
+
+    ' The backdrop behind the focused title: its own, else (an episode) its
+    ' show's. { id, tag } for ImageUrl, or invalid.
+    function backdrop(item as dynamic) as dynamic
+        if type(item) <> "roAssociativeArray" then return invalid
+        if type(item.BackdropImageTags) = "roArray" and item.BackdropImageTags.count() > 0 and textOf(item.Id) <> ""
+            return { id: item.Id, tag: textOf(item.BackdropImageTags[0]) }
+        end if
+        if textOf(item.ParentBackdropItemId) <> "" and type(item.ParentBackdropImageTags) = "roArray" and item.ParentBackdropImageTags.count() > 0
+            return { id: item.ParentBackdropItemId, tag: textOf(item.ParentBackdropImageTags[0]) }
+        end if
+        return invalid
+    end function
+
+    ' "WATCHLIST · 8 titles · ✓ Synced with Plex" above the focused title.
+    function headline(name as string, line as string) as string
+        if line = "" then return UCase(name)
+        return UCase(name) + " " + Chr(183) + " " + line
+    end function
+
+    ' A list's line in the headline: whose it is when it isn't yours.
+    function listLine(isMine as boolean, ownerName as string, line as string) as string
+        if isMine or ownerName = "" then return line
+        return "By " + ownerName + " " + Chr(183) + " " + line
+    end function
+
+    ' The focused title's own button. f: { item } for a library title, or
+    ' { entry, seerrActive, requested } for a Watchlist title the server
+    ' doesn't have. A show plays its next episode (resolved on press).
+    function titleAction(f as object) as object
+        item = f.item
+        if type(item) = "roAssociativeArray"
+            if textOf(item.Type) = "Series" then return { kind: "playSeries", label: "Play" }
+            played = 0
+            if type(item.UserData) = "roAssociativeArray" and isNum(item.UserData.PlaybackPositionTicks) then played = item.UserData.PlaybackPositionTicks
+            if played > 0 then return { kind: "resume", label: "Resume" }
+            return { kind: "play", label: "Play" }
+        end if
+        e = f.entry
+        if type(e) <> "roAssociativeArray" or textOf(e.tmdbId) = "" then return { kind: "none", label: "" }
+        if f.seerrActive <> true then return { kind: "signin", label: "Sign in to Requests" }
+        if f.requested = true then return { kind: "requested", label: "Requested" }
+        return { kind: "request", label: "Request" }
+    end function
+
+    ' A list's buttons: the focused title's, then Shuffle, Subscribe and the
+    ' owner's Edit List. Whichever leads is the primary (white) one.
+    function listButtons(action as object, isMine as boolean, subscribed as boolean, hasItems as boolean) as object
+        defs = []
+        if action.kind <> "none" then defs.push({ kind: action.kind, label: action.label, primary: true })
+        if hasItems then defs.push({ kind: "shuffle", label: "Shuffle", primary: false })
+        if subscribed
+            defs.push({ kind: "unsubscribe", label: Chr(10003) + " Subscribed", primary: defs.count() = 0 })
+        else
+            defs.push({ kind: "subscribe", label: "Subscribe", primary: defs.count() = 0 })
+        end if
+        if isMine then defs.push({ kind: "edit", label: "Edit List", primary: false })
+        return defs
+    end function
+
+    ' The Watchlist's: the focused title's, Shuffle, then More (the * menu:
+    ' Remove, Connect / Disconnect Plex), on screen so nobody has to know
+    ' about *. "Requested" is a state, not a call to action.
+    function watchlistButtons(action as object, anyOnServer as boolean) as object
+        defs = []
+        if action.kind <> "none" then defs.push({ kind: action.kind, label: action.label, primary: action.kind <> "requested" })
+        if anyOnServer then defs.push({ kind: "shuffle", label: "Shuffle", primary: false })
+        defs.push({ kind: "options", label: "More", primary: false })
+        return defs
+    end function
+
+    ' ---------- Focus ----------
+
+    ' Zones top to bottom: "card" (the Watchlist's Plex card), "buttons",
+    ' "strip" (the posters). Focus starts on the posters so the backdrop
+    ' follows it at once.
+    function firstZone(withCard as boolean, count as integer) as string
+        if withCard then return "card"
+        if count > 0 then return "strip"
+        return "buttons"
+    end function
+
+    function upFrom(zone as string, withCard as boolean) as string
+        if zone = "strip" then return "buttons"
+        if withCard then return "card"
+        return zone
+    end function
+
+    function downFrom(zone as string, count as integer) as string
+        if zone = "card" then return "buttons"
+        if count > 0 then return "strip"
+        return zone
+    end function
+
+    ' ---------- helpers ----------
+
+    function isNum(v as dynamic) as boolean
+        k = type(v)
+        return k = "Integer" or k = "roInt" or k = "roInteger" or k = "LongInteger" or k = "roLongInteger" or k = "Float" or k = "roFloat" or k = "Double" or k = "roDouble"
+    end function
+
+    function textOf(v as dynamic) as string
+        if v = invalid then return ""
+        if GetInterface(v, "ifString") = invalid then return ""
+        return v
+    end function
+
+end namespace

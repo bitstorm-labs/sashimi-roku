@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<!-- A list on the Lists page (shared lists mockup): rounded cover (a 2x2
-     collage of its first four titles, or one poster), name,
-     "Marge · 18 titles", a "Subscribed" pill, or the dashed New List tile.
+<!-- A list on the Lists page: the "Poster stack" cover (owner, 2026-11-10;
+     ListLayout.stackLayers places it) -- the first title's poster full size,
+     the next two fanned behind it -- then the name, "Marge · 18 titles", a
+     "Subscribed" pill, or the New List tile.
      RowList item component: recycled, so every field is reset per item. -->
 <component name="ListCard" extends="Group">
     <interface>
@@ -9,37 +10,43 @@
         <field id="focusPercent" type="float" onChange="onFocusChanged" />
     </interface>
     <children>
-        <MaskGroup id="coverMask" maskUri="pkg:/images/wide_mask_r16.png" maskSize="[330, 186]"
-                   scaleRotateCenter="[165, 93]">
-            <Rectangle id="coverBg" width="330" height="186" color="#2A2933" />
-            <Poster id="cover" width="330" height="186" loadWidth="330" loadHeight="186"
-                    loadDisplayMode="scaleToZoom" />
-            <!-- The 2x2 collage (ListsModel.coverArt), 2px apart. -->
-            <Poster id="cell0" width="164" height="92" loadWidth="164" loadHeight="92"
-                    loadDisplayMode="scaleToZoom" translation="[0, 0]" visible="false" />
-            <Poster id="cell1" width="164" height="92" loadWidth="164" loadHeight="92"
-                    loadDisplayMode="scaleToZoom" translation="[166, 0]" visible="false" />
-            <Poster id="cell2" width="164" height="92" loadWidth="164" loadHeight="92"
-                    loadDisplayMode="scaleToZoom" translation="[0, 94]" visible="false" />
-            <Poster id="cell3" width="164" height="92" loadWidth="164" loadHeight="92"
-                    loadDisplayMode="scaleToZoom" translation="[166, 94]" visible="false" />
-        </MaskGroup>
-        <Label id="newTileLabel" text="+ New List" color="#C9C7D1" width="330" height="186"
-               horizAlign="center" vertAlign="center" visible="false">
-            <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
-        </Label>
-        <Poster id="focusRing" uri="pkg:/images/focus_ring_r16.9.png" width="330" height="186"
-                scaleRotateCenter="[165, 93]" opacity="0.0" />
-        <Poster id="subPill" uri="pkg:/images/badge_r6.9.png" width="150" height="30"
-                translation="[170, 10]" visible="false" />
-        <Label id="subLabel" text="" color="#FFFFFF" width="150" height="30" horizAlign="center"
-               vertAlign="center" translation="[170, 10]" visible="false">
-            <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="18" />
-        </Label>
-        <Label id="nameLabel" text="" color="#FFFFFF" width="330" maxLines="1" translation="[0, 200]">
+        <!-- Layers back to front; each turns about its bottom centre. -->
+        <Group id="layer2">
+            <MaskGroup id="mask2" maskUri="pkg:/images/poster_mask_r12.png" maskSize="[154, 231]">
+                <Rectangle id="bg2" width="154" height="231" color="#2A2933F0" />
+                <Poster id="poster2" width="154" height="231" loadWidth="154" loadHeight="231" loadDisplayMode="scaleToZoom" />
+            </MaskGroup>
+        </Group>
+        <Group id="layer1">
+            <MaskGroup id="mask1" maskUri="pkg:/images/poster_mask_r12.png" maskSize="[166, 249]">
+                <Rectangle id="bg1" width="166" height="249" color="#2A2933F0" />
+                <Poster id="poster1" width="166" height="249" loadWidth="166" loadHeight="249" loadDisplayMode="scaleToZoom" />
+            </MaskGroup>
+        </Group>
+        <Group id="layer0">
+            <MaskGroup id="mask0" maskUri="pkg:/images/poster_mask_r12.png" maskSize="[180, 270]">
+                <Rectangle id="bg0" width="180" height="270" color="#2A2933F0" />
+                <Poster id="poster0" width="180" height="270" loadWidth="180" loadHeight="270" loadDisplayMode="scaleToZoom" />
+            </MaskGroup>
+            <!-- An empty list's placeholder poster. -->
+            <Poster id="emptyIcon" uri="pkg:/images/nav_lists.png" width="72" height="72" translation="[54, 99]"
+                    blendColor="#6E6C7AFF" visible="false" />
+            <Label id="newTileLabel" text="+ New List" color="#C9C7D1" width="180" height="270"
+                   horizAlign="center" vertAlign="center" visible="false">
+                <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="26" />
+            </Label>
+            <Poster id="focusRing" uri="pkg:/images/focus_ring_r16.9.png" width="180" height="270" opacity="0.0" />
+            <Poster id="subPill" uri="pkg:/images/badge_r6.9.png" width="150" height="30"
+                    translation="[15, 228]" visible="false" />
+            <Label id="subLabel" text="" color="#FFFFFF" width="150" height="30" horizAlign="center"
+                   vertAlign="center" translation="[15, 228]" visible="false">
+                <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="18" />
+            </Label>
+        </Group>
+        <Label id="nameLabel" text="" color="#FFFFFF" width="330" maxLines="1" translation="[0, 300]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="26" />
         </Label>
-        <Label id="metaLabel" text="" color="#A8A6B3" width="330" maxLines="1" translation="[0, 236]">
+        <Label id="metaLabel" text="" color="#A8A6B3" width="330" maxLines="1" translation="[0, 336]">
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="21" />
         </Label>
     </children>
