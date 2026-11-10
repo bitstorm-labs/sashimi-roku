@@ -1,13 +1,21 @@
 import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/Watchlist.bs"
-import "pkg:/source/utils/ListLayout.bs"
+import "pkg:/source/utils/Entities.bs"
 
 ' The Watchlist's title page (Watchlist v2). It draws what it was opened with
 ' at once, asks the plugin for the rest, and never requests anything on its
 ' own: Add is the Watchlist, Request is a deliberate tap on Seerr's page.
 
 sub init()
-    m.spot = m.top.findNode("spot")
+    m.backdrop = m.top.findNode("backdrop")
+    m.poster = m.top.findNode("poster")
+    m.titleLabel = m.top.findNode("titleLabel")
+    m.metaLabel = m.top.findNode("metaLabel")
+    m.ratingsGroup = m.top.findNode("ratingsGroup")
+    m.scoreLabel = m.top.findNode("scoreLabel")
+    m.tagsGroup = m.top.findNode("tagsGroup")
+    m.noteLabel = m.top.findNode("noteLabel")
+    m.overviewLabel = m.top.findNode("overviewLabel")
     m.buttons = m.top.findNode("buttons")
     m.sourceLabel = m.top.findNode("sourceLabel")
     m.apiTask = m.top.findNode("apiTask")
@@ -139,8 +147,17 @@ sub draw()
     if m.requested then note = "Requested"
     overview = t.overview
     if m.loaded and not t.found and overview = "" then overview = "Details aren't available."
-    m.spot.info = { headline: "", title: t.title, meta: Watchlist.detailsMeta(detailsLike()), note: note, overview: overview, backdropUri: t.backdropUrl, posterUri: t.posterUrl }
+    d = detailsLike()
+    m.titleLabel.text = textOf(t.title)
+    m.metaLabel.text = Watchlist.titlePageMeta(d)
+    m.scoreLabel.text = Watchlist.titlePageScore(d)
+    buildTags(Watchlist.titlePageTags(d))
+    m.noteLabel.text = note
+    m.overviewLabel.text = Entities.decode(textOf(overview))
     m.sourceLabel.text = Watchlist.detailsSource(t)
+    setImage(m.backdrop, t.backdropUrl)
+    setImage(m.poster, t.posterUrl)
+    reflow()
     defs = Watchlist.detailsButtons(t.onWatchlist = true, Seerr.isActive(m.global.seerrState), m.requested, t.tmdbId <> "")
     keep = m.buttons.activatedKind
     m.buttons.buttonDefs = defs
@@ -151,6 +168,78 @@ sub draw()
         end if
     end for
 end sub
+
+' The text column beside the poster stacks under the measured title, as
+' MediaDetailScreen's reflowMovieHeader does, leaving out rows with nothing
+' in them. The overview runs full width under the buttons and, with no rows
+' below it, may use the screen down to the source line.
+sub reflow()
+    y = 84 + Int(m.titleLabel.boundingRect().height) + 8
+    m.metaLabel.visible = (m.metaLabel.text <> "")
+    if m.metaLabel.visible
+        m.metaLabel.translation = [360, y]
+        y += 40
+    end if
+    m.ratingsGroup.visible = (m.scoreLabel.text <> "")
+    if m.ratingsGroup.visible
+        m.ratingsGroup.translation = [360, y]
+        y += 40
+    end if
+    m.tagsGroup.visible = (m.tagsGroup.getChildCount() > 0)
+    if m.tagsGroup.visible
+        m.tagsGroup.translation = [360, y]
+        y += 46
+    end if
+    m.noteLabel.translation = [360, y]
+    ' Buttons and overview hold the detail screen's places (under the
+    ' 260x390 poster, which ends at y 450).
+    oh = 0
+    if m.overviewLabel.text <> "" then oh = Int(m.overviewLabel.boundingRect().height)
+    m.sourceLabel.translation = [60, 562 + oh + 24]
+end sub
+
+' The detail screen's outlined chips (buildTags there): age rating, genres.
+sub buildTags(tags as object)
+    while m.tagsGroup.getChildCount() > 0
+        m.tagsGroup.removeChildIndex(0)
+    end while
+    tx = 0
+    for each t in tags
+        bw = 24 + Len(t) * 10
+        bg = CreateObject("roSGNode", "Poster")
+        bg.uri = "pkg:/images/badge_r6.9.png"
+        bg.width = bw
+        bg.height = 30
+        bg.opacity = 0.55
+        bg.translation = [tx, 0]
+        m.tagsGroup.appendChild(bg)
+        lbl = CreateObject("roSGNode", "Label")
+        lbl.text = t
+        lbl.width = bw
+        lbl.height = 30
+        lbl.horizAlign = "center"
+        lbl.vertAlign = "center"
+        lbl.color = "#D9D9D9"
+        f = CreateObject("roSGNode", "Font")
+        f.uri = "pkg:/fonts/Inter-Medium.ttf"
+        f.size = 17
+        lbl.font = f
+        lbl.translation = [tx, 0]
+        m.tagsGroup.appendChild(lbl)
+        tx += bw + 10
+    end for
+end sub
+
+' draw() runs again on every answer; reassigning the same uri would reload it.
+sub setImage(node as object, uri as dynamic)
+    u = textOf(uri)
+    if node.uri <> u then node.uri = u
+end sub
+
+function textOf(v as dynamic) as string
+    if v = invalid or GetInterface(v, "ifString") = invalid then return ""
+    return v
+end function
 
 function hasValue(v as dynamic) as boolean
     if v = invalid then return false

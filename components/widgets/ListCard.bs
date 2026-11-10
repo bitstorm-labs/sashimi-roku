@@ -55,6 +55,10 @@ end sub
 sub onFocusChanged()
     if m.initialized = invalid then return
     fp = m.top.focusPercent
+    ' focusPercent freezes when the other row takes focus, which left a ring
+    ' (and a fanned stack) on both rows' first cards; itemHasFocus is the
+    ' truthful gate, as in HomeItem.
+    if not m.top.itemHasFocus then fp = 0.0
     for i = 0 to 2
         m.layers[i].visible = false
     end for
