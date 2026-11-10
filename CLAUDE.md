@@ -189,6 +189,12 @@ and produce a hard seam. Fix: observe `loadStatus = "ready"` and read
 relative to that. This caused three separate visual bugs (hero seam, backdrop
 edges, detail thumbnails) before it was understood as one root cause.
 
+**A one-row MarkupGrid is a horizontal strip.** With `numRows = 1` it ignores
+Up/Down and scrolls Left/Right through every item, so "jump N items on Down"
+logic written for a multi-row grid does nothing. Screens that collapse a grid
+to one row (the Watchlist under its "Use Plex too?" card) must route Up/Down
+themselves.
+
 **RowList / MarkupGrid recycle their item components.** Every branch of an
 item's content handler must reset *every* field it might set — a missing `else`
 leaves the previous item's artwork, opacity or scale on screen. If you write
