@@ -77,8 +77,13 @@ end sub
 
 sub showLists(r as object)
     if r.success <> true or r.lists = invalid
-        m.statusLabel.text = "Couldn't load lists. Check your connection."
-        m.statusLabel.visible = true
+        ' A reload that fails keeps what is on screen.
+        if m.rowList.visible
+            m.global.toastMessage = { message: "Couldn't load lists. Check your connection." }
+        else
+            m.statusLabel.text = "Couldn't load lists. Check your connection."
+            m.statusLabel.visible = true
+        end if
         return
     end if
     m.statusLabel.visible = false

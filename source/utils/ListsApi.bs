@@ -108,11 +108,14 @@ namespace ListsApi
     end function
 
     ' Every list this user can see: their own and everyone's public ones.
-    ' Audio playlists are a music player's, not Sashimi's.
-    function allLists(me as string) as object
+    ' Audio playlists are a music player's, not Sashimi's. invalid when the
+    ' server didn't answer, which is not the same as "no lists": the Lists
+    ' page drew a failed load as an empty page ("Nobody else has shared a
+    ' list yet.") instead of saying so (seen on device).
+    function allLists(me as string) as dynamic
         r = Http.send("GET", "/Items?Recursive=true&IncludeItemTypes=Playlist&SortBy=SortName&userId=" + me)
         out = []
-        if not r.ok or type(r.data) <> "roAssociativeArray" or type(r.data.Items) <> "roArray" then return out
+        if not r.ok or type(r.data) <> "roAssociativeArray" or type(r.data.Items) <> "roArray" then return invalid
         for each p in r.data.Items
             if SharedLists.isStr(p.Id) and p.MediaType <> "Audio" then out.push(p)
         end for
@@ -166,6 +169,7 @@ namespace ListsApi
         who = names()
         lists = []
         all = allLists(me)
+        if all = invalid then return { success: false }
         owners = pluginOwners(idsOf(all))
         for each p in all
             pi = info(p.Id)
@@ -346,6 +350,8 @@ namespace ListsApi
         if row <> invalid then lists.push(row)
         who = {}
         all = allLists(me)
+        ' The picker still offers the Watchlist when the lists didn't load.
+        if all = invalid then all = []
         owners = pluginOwners(idsOf(all))
         for each p in all
             pi = info(p.Id)
