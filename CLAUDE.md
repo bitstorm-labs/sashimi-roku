@@ -108,6 +108,9 @@ and `source/utils/ListLayout.bs` (how every list looks: the Lists page's
 and button (Play / Resume / Request / Requested / Sign in to Requests),
 the list's and the Watchlist's button rows, and Up/Down between the Plex
 card, the buttons and the one-row poster strip).
+`source/utils/PlayerSession.bs` decides which API answers a player that has
+already closed still acts on (only the watch-state writes; never anything
+that would start the Video node again off-screen).
 `source/utils/Entities.bs` decodes the HTML character references some
 metadata leaves in overviews (`&#34;`, `&#39;`, `&amp;`) before they are drawn.
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a

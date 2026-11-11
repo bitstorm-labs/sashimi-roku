@@ -1219,6 +1219,7 @@ sub dropTopScreen()
     endDeepLinkWait()
 
     screen = m.navStack.pop()
+    stopPlayer(screen)
     exitTheme(screen)
     m.top.removeChild(screen)
     if screen.hasField("heroOwner") then m.heroTrailer.callFunc("screenDismissed", screen.heroOwner)
@@ -1230,11 +1231,17 @@ end sub
 sub onReminderPlay(event as object)
     top = invalid
     if m.navStack.count() > 0 then top = m.navStack.peek()
-    if top <> invalid and top.subtype() = "PlayerScreen"
-        top.callFunc("stopForHandoff")
-        popScreen()
-    end if
+    if top <> invalid and top.subtype() = "PlayerScreen" then popScreen()
     onPlayItem(event)
+end sub
+
+' A player leaving the stack by any route other than its own exit (a deep
+' link or reminder taking over, a sign-out) has to stop first. removeChild
+' does not stop a Video node: it kept playing off-screen, its session was
+' never reported stopped, and the next player failed with "only one playing
+' instance supported". Idempotent, so a player that already exited is fine.
+sub stopPlayer(screen as object)
+    if screen <> invalid and screen.subtype() = "PlayerScreen" then screen.callFunc("stopForHandoff")
 end sub
 
 sub clearAllScreens()
@@ -1248,6 +1255,7 @@ sub clearAllScreens()
     endDeepLinkWait()
     while m.navStack.count() > 0
         screen = m.navStack.pop()
+        stopPlayer(screen)
         m.top.removeChild(screen)
         retireScreen(screen)
     end while
