@@ -1,0 +1,20 @@
+' What a closed player may still do. Once the viewer has left (Back, a remote
+' Stop, a deep link or reminder taking over), the screen is popped but its
+' observers live on until MainScene reaps its API task, and anything still in
+' flight lands on them: a stream answer, a channel roll-over's next item. Each
+' of those used to start the Video node again off-screen, so audio played
+' after the viewer left and the server saw a play session start that nothing
+' would ever stop (Roku side of sashimi-apple#886). Pure, so
+' tests/PlayerSessionTests.brs can run it off-device; PlayerScreen applies it.
+namespace PlayerSession
+
+    ' Whether an API answer is still acted on after the player has closed.
+    ' Only the watch-state writes are: their answers tell the screen
+    ' underneath to re-read its episodes. Everything else would start,
+    ' restart or extend playback that is over.
+    function actsAfterClose(action as dynamic) as boolean
+        if type(action) <> "String" and type(action) <> "roString" then return false
+        return action = "reportStopped" or action = "markPlayed"
+    end function
+
+end namespace

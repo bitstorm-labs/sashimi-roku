@@ -9,6 +9,7 @@ import "pkg:/source/utils/Throughput.bs"
 import "pkg:/source/utils/NextEpisode.bs"
 import "pkg:/source/utils/SkipPill.bs"
 import "pkg:/source/utils/HiddenStore.bs"
+import "pkg:/source/utils/PlayerSession.bs"
 
 ' tvOS PlayerViewModel parity on Roku. Design rules learned the hard way:
 '  - The screen NEVER gives remote focus to a child node. Every key lands in
@@ -104,6 +105,9 @@ sub init()
     m.flipTarget = -1
     m.flipDir = 0
     m.flipTries = 0
+    ' Set once the viewer has left (closePlayback). Nothing may start the
+    ' Video node again after that; see PlayerSession.
+    m.closed = false
 
     m.apiTask.observeFieldScoped("response", "onApiResponse")
     m.apiTask.control = "RUN"
@@ -245,6 +249,7 @@ end sub
 sub onItemDataChanged()
     data = m.top.itemData
     if data = invalid then return
+    if m.closed then return
     m.item = data
     hideNextUp()
     m.statusLabel.visible = true
@@ -303,6 +308,7 @@ sub setChapters(item as object)
 end sub
 
 sub requestStream(item as object)
+    if m.closed then return
     req = { action: "getPlaybackStream", itemId: item.Id }
     if m.forceTranscode then req.forceTranscode = true
     ' Force Direct Play: ask the server for a direct-play/direct-stream source
@@ -514,6 +520,7 @@ sub armStallWatchdog()
 end sub
 
 sub onBufferTimer()
+    if m.closed then return
     ' Playing or paused means the stream did arrive — a stale arm, not a stall.
     ' m.isPaused covers a pause taken while the first buffer was still filling,
     ' where the node can sit in "buffering" by the viewer's own choice.
@@ -582,28 +589,55 @@ sub retryPlayback()
 end sub
 
 sub exitPlayer()
+    closePlayback()
+    m.top.done = true
+end sub
+
+' The one way a player ends, whoever ends it: Back, a remote Stop, the end of
+' a channel, or MainScene dropping the screen for a deep link, a reminder or a
+' sign-out (stopForHandoff). Safe to call more than once.
+'
+' The screen outlives this: MainScene pops it, but its observers keep running
+' until the API task is reaped, so anything still in flight -- a stream answer
+' after Back during "Loading..." or "Lowering quality...", a channel's next
+' item, the stall watchdog -- used to start the Video node again off-screen.
+' The viewer heard audio after leaving, and the server saw a play session
+' start that nothing would ever stop. A screen dropped without this (a deep
+' link over playback) kept its Video playing outright, and the next player
+' failed with "only one playing instance supported". So: mark it closed (the
+' handlers check), stop every timer that can lead back to playback, and stop
+' AND empty the Video node, so nothing left holding it has anything to play.
+sub closePlayback()
+    if m.closed then return
+    m.closed = true
     m.bufferTimer.control = "stop"
     m.progressTimer.control = "stop"
+    m.rollRetryTimer.control = "stop"
+    m.nextUpTimer.control = "stop"
+    m.upNextTimer.control = "stop"
+    m.clockTimer.control = "stop"
+    m.skipTimer.control = "stop"
+    m.seekTimer.control = "stop"
+    hideStationBanner()
     m.video.control = "stop"
+    m.video.content = invalid
     ' Report a stop ONLY if a start was reported. currentTicks() reads
     ' m.video.position, which is 0 until the stream actually begins, so Back
     ' during "Loading..." used to POST PositionTicks 0 to
     ' /Sessions/Playing/Stopped and reset the Jellyfin bookmark to zero — a
     ' viewer resuming at 32:00 who backed out mid-negotiation lost their place.
     ' Nothing opened a session on that path either (reportStart is sent from the
-    ' "playing" state), so there is nothing to close. Same m.startedReported
-    ' guard the retry paths above use, for the same reason.
+    ' "playing" state), so there is nothing to close.
     '
     ' Position comes from m.lastPosition, not m.video.position: the Video node
-    ' has already been stopped by the line above, and this path is also reached
-    ' from the playback-error dialog where the node has errored out.
+    ' has already been stopped by the lines above, and this path is also
+    ' reached from the playback-error dialog where the node has errored out.
     if m.startedReported
         reportStopped(Int(m.lastPosition) * 10000000&)
     else
         ' No session to close, but a transcode may already be running for it.
         stopLiveEncode()
     end if
-    m.top.done = true
 end sub
 
 ' Stop and re-negotiate (track/quality change), resuming at current position.
@@ -620,6 +654,7 @@ sub onApiResponse()
     pumpQueue()
     r = m.apiTask.response
     if r = invalid then return
+    if m.closed and not PlayerSession.actsAfterClose(r.action) then return
     if r.action = "getPlaybackStream"
         onStreamReady(r)
     else if r.action = "getSiblingEpisodes"
@@ -902,6 +937,9 @@ function resumeSeconds() as integer
 end function
 
 sub onVideoState()
+    ' Emptying the node on close fires a last state change; a closed player
+    ' must not answer it with a retry or a progress report.
+    if m.closed then return
     state = m.video.state
     if state = "playing"
         ' Launch beacon for a deep link that went straight into playback.
@@ -2844,19 +2882,11 @@ sub onFlipResolved(r as object)
     enqueue({ action: "getItem", itemId: r.nowPlaying.ItemId, context: "channelRoll" })
 end sub
 
-' MainScene is replacing this player (a reminder tuned in). Same teardown as
-' leaving, without raising `done` — MainScene pops the screen itself, and a
-' late done would pop the player that replaced this one.
+' MainScene is dropping this player (a reminder or deep link taking over, a
+' sign-out). Same teardown as leaving, without raising `done` — MainScene pops
+' the screen itself, and a late done would pop the screen that replaced it.
 sub stopForHandoff()
-    m.bufferTimer.control = "stop"
-    m.progressTimer.control = "stop"
-    hideStationBanner()
-    m.video.control = "stop"
-    if m.startedReported
-        reportStopped(Int(m.lastPosition) * 10000000&)
-    else
-        stopLiveEncode()
-    end if
+    closePlayback()
 end sub
 
 ' Stop from the Jellyfin dashboard: leave exactly as Back does -- the same
