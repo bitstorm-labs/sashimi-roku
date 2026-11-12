@@ -41,15 +41,17 @@ Unwatched, the "Season N • X episodes • Y of X watched" line) and
 `source/utils/DetailNav.bs` (a detail screen's Series button pops back to
 that series when it is already on the stack, else reloads in place, so Back
 never shows the same series twice) and `source/utils/DetailLayout.bs` (where a detail
-screen's rows start, and the hero region that must end above them so its
-bottom fade is never cut off) and `source/utils/Fades.bs` (the "Lightest" backdrop
+screen's rows start, and the "Spotlight" backdrop every detail page shares
+with the Spotlight list page through `SpotlightBackdrop`: its region, its left
+and bottom fades, the rows over the faded part, a wide banner fitted, the hero
+trailer's own box) and `source/utils/Fades.bs` (the home hero's "Lightest" backdrop
 fade: left 0-10% of the image's width, bottom 92-100% of its height; the
 home hero sizes its fades from it and sits flush top-right however wide its
-art is (`flushShift`), and `tests/fades.js` checks the detail
-screen's baked `backdrop_feather.png` / `trailer_feather.png` against it) and `source/utils/SeriesMeta.bs` (the series meta line,
+art is (`flushShift`)) and `source/utils/SeriesMeta.bs` (the series meta line,
 "1 Season" vs "7 Seasons") and `source/utils/ImageUrl.bs` (image urls
 carry Jellyfin's `&tag=`, read off the right ImageTags / Parent*ImageTag
-field, so a replaced image gets a new url instead of a cached stale copy)
+field, so a replaced image gets a new url instead of a cached stale copy;
+a Watchlist title's TMDB backdrop asked for at w1280, not the original)
 and `source/utils/RowWindow.bs` (the leftmost visible card of a floatingFocus
 episode row, where focus lands on entering it) and `source/utils/SkipPill.bs`
 (the player's skip pill: label, m:ss left, the fill's share of the segment)
@@ -68,7 +70,8 @@ list patches the row in place, rebuilds it, or is ignored) and
 the side menu lists and in what order -- exactly the list's order, so the
 menu matches Home's rows, which Home also draws in that order -- Home, Search
 and Settings always, new libraries shown, stale ids ignored, the editor's two
-columns, the Requests Home row after Continue Watching, the menu-only Lists
+columns, the Requests Home row after Continue Watching, the menu-only Lists,
+Watchlist (last, next to Search, on fresh installs and migrated orders)
 and Dashboard, Requests and the Dashboard only while available and kept
 aside in the editor until they are) and
 `source/utils/Seerr.bs` with `SeerrSeasons.bs` (Seerr requests, Apple's

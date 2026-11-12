@@ -1,3 +1,4 @@
+import "pkg:/source/utils/ImageUrl.bs"
 import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/Watchlist.bs"
 import "pkg:/source/utils/Entities.bs"
@@ -9,6 +10,7 @@ import "pkg:/source/utils/Entities.bs"
 sub init()
     m.backdrop = m.top.findNode("backdrop")
     m.poster = m.top.findNode("poster")
+    m.posterMask = m.top.findNode("posterMask")
     m.titleLabel = m.top.findNode("titleLabel")
     m.metaLabel = m.top.findNode("metaLabel")
     m.ratingsGroup = m.top.findNode("ratingsGroup")
@@ -155,8 +157,13 @@ sub draw()
     m.noteLabel.text = note
     m.overviewLabel.text = Entities.decode(textOf(overview))
     m.sourceLabel.text = Watchlist.detailsSource(t)
-    setImage(m.backdrop, t.backdropUrl)
-    setImage(m.poster, t.posterUrl)
+    backdrop = ImageUrl.tmdbSized(t.backdropUrl, "w1280")
+    setImage(m.backdrop, backdrop)
+    ' The poster stands in for a missing backdrop only.
+    poster = ""
+    if backdrop = "" then poster = ImageUrl.tmdbSized(t.posterUrl, "w500")
+    setImage(m.poster, poster)
+    m.posterMask.visible = (poster <> "")
     reflow()
     defs = Watchlist.detailsButtons(t.onWatchlist = true, Seerr.isActive(m.global.seerrState), m.requested, t.tmdbId <> "")
     keep = m.buttons.activatedKind
@@ -169,33 +176,35 @@ sub draw()
     end for
 end sub
 
-' The text column beside the poster stacks under the measured title, as
-' MediaDetailScreen's reflowMovieHeader does, leaving out rows with nothing
-' in them. The overview runs full width under the buttons and, with no rows
-' below it, may use the screen down to the source line.
+' The text column stacks under the measured title, as MediaDetailScreen's
+' reflowMovieHeader does, leaving out rows with nothing in them, then the
+' buttons and the overview, which with no rows below it may use the screen
+' down to the source line.
 sub reflow()
     y = 84 + Int(m.titleLabel.boundingRect().height) + 8
     m.metaLabel.visible = (m.metaLabel.text <> "")
     if m.metaLabel.visible
-        m.metaLabel.translation = [360, y]
+        m.metaLabel.translation = [60, y]
         y += 40
     end if
     m.ratingsGroup.visible = (m.scoreLabel.text <> "")
     if m.ratingsGroup.visible
-        m.ratingsGroup.translation = [360, y]
+        m.ratingsGroup.translation = [60, y]
         y += 40
     end if
     m.tagsGroup.visible = (m.tagsGroup.getChildCount() > 0)
     if m.tagsGroup.visible
-        m.tagsGroup.translation = [360, y]
+        m.tagsGroup.translation = [60, y]
         y += 46
     end if
-    m.noteLabel.translation = [360, y]
-    ' Buttons and overview hold the detail screen's places (under the
-    ' 260x390 poster, which ends at y 450).
+    m.noteLabel.translation = [60, y]
+    y += 44
+    m.buttons.translation = [60, y + 12]
+    overviewY = y + 12 + 52 + 24
+    m.overviewLabel.translation = [60, overviewY]
     oh = 0
     if m.overviewLabel.text <> "" then oh = Int(m.overviewLabel.boundingRect().height)
-    m.sourceLabel.translation = [60, 562 + oh + 24]
+    m.sourceLabel.translation = [60, overviewY + oh + 24]
 end sub
 
 ' The detail screen's outlined chips (buildTags there): age rating, genres.

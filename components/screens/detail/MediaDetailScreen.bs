@@ -33,13 +33,8 @@ sub init()
     m.badgesEndX = 0
     m.seriesStatus = invalid
     m.series = invalid          ' a season's series, once seriesMeta lands
-    m.backdropImage = m.top.findNode("backdropImage")
-    m.backdropMask = m.top.findNode("backdropMask")
-    ' Snap the feather mask to the fitted image once its decoded size is known.
-    m.backdropImage.observeFieldScoped("loadStatus", "onBackdropStatus")
+    m.backdrop = m.top.findNode("backdrop")
     m.logoImage = m.top.findNode("logoImage")
-    m.moviePosterMask = m.top.findNode("moviePosterMask")
-    m.moviePoster = m.top.findNode("moviePoster")
     m.channelMask = m.top.findNode("channelMask")
     m.channelImage = m.top.findNode("channelImage")
     m.channelLabel = m.top.findNode("channelLabel")
@@ -113,16 +108,13 @@ sub init()
     m.reqActive = false
     m.pinned = invalid          ' { id, name, url, token, userId }: see pinServer
 
-    ' Hero trailer (see HeroTrailerPlayer). The region defaults match a movie
-    ' until setBackdrop sizes it for the real item.
+    ' Hero trailer (see HeroTrailerPlayer).
     m.trailerSlot = m.top.findNode("trailerSlot")
-    m.trailerFeather = m.top.findNode("trailerFeather")
+    m.trailerFades = m.top.findNode("trailerFades")
     m.heroFade = m.top.findNode("heroFade")
     m.heroFadeInterp = m.top.findNode("heroFadeInterp")
     m.heroFade.duration = HeroTrailer.CROSS_FADE
     m.trailerVideo = invalid
-    m.backdropRegionW = 1056
-    m.backdropRegionH = 648
 
     ' The watched-state version this screen's rows and buttons reflect.
     m.watchSeen = m.global.watchStateVersion
@@ -663,9 +655,9 @@ sub playResolvedTarget()
     m.top.playItem = { item: m.playTarget, action: act }
 end sub
 
-' tvOS movie detail: poster on the left, text column beside it — the shared
-' text stack otherwise overlaps the 200x300 poster (title sat at y250 inside
-' the poster's y60-360 box, squishing everything together).
+' The header's text column, on the dark left of the Spotlight backdrop. There
+' is no poster beside it any more (owner, 2026-11-11): the backdrop carries the
+' picture, as on the Spotlight list page.
 sub layoutHeader()
     ' Rows start at DetailLayout.rowsTop (higher on the Season page, which
     ' has no overview); this screen is reused in place (an episode's Go to
@@ -673,28 +665,21 @@ sub layoutHeader()
     m.rowList.translation = [60, DetailLayout.rowsTop(m.itemType)]
     m.overviewLabel.visible = true
     if m.itemType = "Season"
-        ' Season page (#246): the season poster on the left, series name,
-        ' "Season N • X episodes • Y of X watched", the info row and the
-        ' buttons beside it (reflowSeasonHeader), the episodes right under the
-        ' poster -- there is no overview to make room for.
-        m.moviePosterMask.maskSize = [260, 390]
-        m.moviePoster.width = 260
-        m.moviePoster.height = 390
+        ' Season page (#246): series name, "Season N • X episodes • Y of X
+        ' watched", the info row and the buttons (reflowSeasonHeader), the
+        ' episodes right under them -- there is no overview to make room for.
         m.titleLabel.font = m.titleFontBig
-        m.titleLabel.translation = [360, 84]
+        m.titleLabel.translation = [60, 84]
         m.overviewLabel.visible = false
     else if m.itemType = "Movie"
-        m.moviePosterMask.maskSize = [260, 390]
-        m.moviePoster.width = 260
-        m.moviePoster.height = 390
         m.titleLabel.font = m.titleFontBig
-        m.titleLabel.translation = [360, 84]
-        m.metaLabel.translation = [360, 172]
-        m.ratingsGroup.translation = [360, 224]
-        m.tagsGroup.translation = [360, 274]
-        m.detailButtons.translation = [60, 466]   ' full-width row under the cover (tvOS parity)
-        m.overviewLabel.translation = [60, 562]
-        m.overviewLabel.width = 1200
+        m.titleLabel.translation = [60, 84]
+        m.metaLabel.translation = [60, 172]
+        m.ratingsGroup.translation = [60, 224]
+        m.tagsGroup.translation = [60, 274]
+        m.detailButtons.translation = [60, 340]
+        m.overviewLabel.translation = [60, 436]
+        m.overviewLabel.width = 1000
         m.overviewLabel.maxLines = 3
     else
         m.titleLabel.font = m.titleFontStd
@@ -748,8 +733,8 @@ sub reflowHeader()
         return
     end if
 
-    m.titleLabel.width = textWidth(60, 1000)
-    m.overviewLabel.width = textWidth(60, 940)
+    m.titleLabel.width = 1000
+    m.overviewLabel.width = 940
     if m.itemType = "Series" and m.logoImage.loadStatus = "ready"
         topY = seriesLogoBottom() + 20
     else
@@ -778,61 +763,46 @@ sub reflowHeader()
     applyOverviewLines(overviewY)
 end sub
 
-' Movies stack meta/ratings/tags under the measured title in the right column,
-' put the buttons in a full-width row under the cover, and run the overview
-' full width below that. Measuring the title closes the dead band the fixed
-' y=172 left under a 1-line title while still clearing a 2-line one.
+' Movies stack meta, ratings, tags, the buttons and the overview under the
+' measured title (a 1-line title leaves no dead band; a 2-line one still
+' clears), all on the backdrop's dark left side.
 sub reflowMovieHeader()
-    m.titleLabel.width = textWidth(360, 1000)
+    m.titleLabel.width = 1000
     titleY = 84
     titleH = Int(m.titleLabel.boundingRect().height)
     y = titleY + titleH + 8
-    m.metaLabel.translation = [360, y]
+    m.metaLabel.translation = [60, y]
     positionEndsAt()
     y += 40
-    m.ratingsGroup.translation = [360, y]
+    m.ratingsGroup.translation = [60, y]
     m.badgesGroup.translation = [m.badgesGroup.translation[0], y]
     y += 40
-    m.tagsGroup.translation = [360, y]
-    ' Buttons sit in a full-width row under the cover (tvOS parity — the detail
-    ' controls moved out from beside the poster to under it). Poster is 260x390
-    ' at y60 => bottom 450; the row starts just below.
-    m.detailButtons.translation = [60, 466]
-    ' Overview runs full width below the button row.
-    overviewY = 562
+    if m.tagsGroup.getChildCount() > 0
+        m.tagsGroup.translation = [60, y]
+        y += 54
+    end if
+    m.detailButtons.translation = [60, y + 12]
+    overviewY = y + 12 + 52 + 24
     m.overviewLabel.translation = [60, overviewY]
-    m.overviewLabel.width = 1200
+    m.overviewLabel.width = 1000
     applyOverviewLines(overviewY)
 end sub
 
-' The light backdrop fade (Fades.bs, #255) no longer washes out the
-' picture's left side, so text must stop short of it rather than run onto
-' the image: a white title over a bright backdrop simply disappears. The
-' widest a text line starting at x may be, capped at `max`.
-function textWidth(x as integer, max as integer) as integer
-    edge = 1920
-    if m.backdropImage.uri <> "" and m.backdropImage.loadStatus = "ready" then edge = m.backdropMask.translation[0]
-    w = edge - 24 - x
-    if w > max then w = max
-    if w < 300 then w = 300
-    return w
-end function
-
-' The Season page's text column beside the poster: title, meta line, the
-' info row with the status badge after its text, then the buttons.
+' The Season page's text column: title, meta line, the info row with the
+' status badge after its text, then the buttons.
 sub reflowSeasonHeader()
-    m.titleLabel.width = textWidth(360, 1000)
+    m.titleLabel.width = 1000
     titleH = Int(m.titleLabel.boundingRect().height)
     y = 84 + titleH + 8
-    m.metaLabel.translation = [360, y]
+    m.metaLabel.translation = [60, y]
     positionEndsAt()
     y += 40
-    m.seasonInfoLabel.translation = [360, y]
-    x = 360
+    m.seasonInfoLabel.translation = [60, y]
+    x = 60
     if m.seasonInfoLabel.visible then x += Int(m.seasonInfoLabel.boundingRect().width) + 14
     m.badgesGroup.translation = [x, y]
     if m.seasonInfoLabel.visible or m.badgesGroup.getChildCount() > 0 then y += 40
-    m.detailButtons.translation = [360, y + 16]
+    m.detailButtons.translation = [60, y + 16]
 end sub
 
 ' "2026 • TV-MA" on the Season page; the series' rating arrives with
@@ -875,50 +845,12 @@ sub applyOverviewLines(overviewY as integer)
     end if
 end sub
 
-' Fit the fade mask to the image's real rendered rect. scaleToFit CENTERS
-' the decoded image inside the poster's region, so a fixed-size mask fades
-' the region's edges, not the image's — leaving hard lines on art whose aspect
-' differs from the region (same bug class as the hero fixes). The decoded
-' bitmap preserves aspect, so refit poster + mask to the aspect-correct size,
-' flush against the top-right screen corner (home hero / tvOS parity).
-sub onBackdropStatus()
-    if m.backdropImage.loadStatus <> "ready" then return
-    bw = m.backdropImage.bitmapWidth
-    bh = m.backdropImage.bitmapHeight
-    if bw = invalid or bh = invalid or bw <= 0 or bh <= 0 then return
-    rw = m.backdropRegionW
-    rh = m.backdropRegionH
-    if bw * rh > bh * rw
-        fw = rw
-        fh = Int(rw * bh / bw)
-    else
-        fh = rh
-        fw = Int(rh * bw / bh)
-    end if
-    m.backdropImage.width = fw
-    m.backdropImage.height = fh
-    m.backdropMask.maskSize = [fw, fh]
-    m.backdropMask.translation = [1920 - fw, 0]
-    layoutTrailer()
-    ' The text column stops at the image's real left edge (textWidth).
-    if m.item <> invalid then reflowHeader()
-end sub
-
 sub setBackdrop(item as object)
-    ' Region the image fits INTO (DetailLayout.heroRegion): flush top-right
-    ' like the home hero, and ending above the rows so its bottom fade -- and
-    ' the hero trailer's, which follows the same rectangle -- is never cut off
-    ' by them. onBackdropStatus shrinks poster + mask to the fitted image once
-    ' the decoded size is known.
-    region = DetailLayout.heroRegion(m.itemType, m.isYouTube)
-    m.backdropRegionW = region.w
-    m.backdropRegionH = region.h
-    m.backdropMask.translation = [1920 - m.backdropRegionW, 0]
-    m.backdropMask.maskSize = [m.backdropRegionW, m.backdropRegionH]
-    m.backdropImage.width = m.backdropRegionW
-    m.backdropImage.height = m.backdropRegionH
-    m.backdropImage.translation = [0, 0]
-
+    ' A YouTube channel's wide banner is fitted rather than zoomed
+    ' (DetailLayout.artBox); everything else fills the Spotlight region. Asked
+    ' for at 1280 wide, which the 1360-wide region barely enlarges: a bigger
+    ' file only costs a low-end Roku download and decode time.
+    m.backdrop.fitWide = (m.isYouTube and m.itemType = "Series")
     itemId = item.Id
     uri = ""
     if m.itemType = "Episode"
@@ -930,16 +862,17 @@ sub setBackdrop(item as object)
     else if item.ParentBackdropItemId <> invalid
         uri = ImageUrl.backdrop(item.ParentBackdropItemId, 1280, ImageUrl.parentBackdropTag(item))
     end if
-    m.backdropImage.uri = uri
+    m.backdrop.uri = uri
     layoutTrailer()
 end sub
 
 ' ---------- Hero trailer ----------
 ' HeroTrailerPlayer owns the Video node and every decision; this screen only
 ' gives it a place to draw and does the cross-fade. The trailer gets its own
-' rectangle, its picture's aspect fitted into the hero region flush top-right
-' (DetailLayout.trailerBox), whatever shape the still backdrop is: inside the
-' backdrop's rectangle a 16:9 trailer letterboxed with hard-edged bars (#257).
+' rectangle, its picture's aspect fitted into the Spotlight region flush
+' top-right (DetailLayout.trailerBox), with the backdrop's fades laid over that
+' rectangle (trailerFades): a trailer letterboxed inside another shape shows
+' hard-edged bars (#257).
 
 function heroTrailerAttach(video as object) as void
     if video = invalid then return
@@ -956,7 +889,7 @@ function heroTrailerShow(show as boolean) as void
     if m.trailerVideo = invalid then return
     if show
         m.trailerVideo.visible = true
-        m.trailerFeather.visible = true
+        m.trailerFades.visible = true
         fadeBackdropTo(0.0)
     else
         fadeBackdropTo(1.0)
@@ -967,8 +900,8 @@ end function
 ' comes back at full opacity immediately, whatever the fade was doing.
 function heroTrailerDetach(unused as dynamic) as void
     m.heroFade.control = "stop"
-    m.backdropMask.opacity = 1.0
-    m.trailerFeather.visible = false
+    m.backdrop.opacity = 1.0
+    m.trailerFades.visible = false
     if m.trailerVideo <> invalid
         m.trailerSlot.removeChild(m.trailerVideo)
         m.trailerVideo = invalid
@@ -977,17 +910,16 @@ end function
 
 sub fadeBackdropTo(target as float)
     m.heroFade.control = "stop"
-    m.heroFadeInterp.keyValue = [m.backdropMask.opacity, target]
+    m.heroFadeInterp.keyValue = [m.backdrop.opacity, target]
     m.heroFade.control = "start"
 end sub
 
 sub layoutTrailer()
     aspect = invalid
     if m.trailerVideo <> invalid and m.trailerVideo.hasField("heroAspect") then aspect = m.trailerVideo.heroAspect
-    tb = DetailLayout.trailerBox(m.backdropRegionW, m.backdropRegionH, aspect)
-    m.trailerFeather.translation = [tb.x, 0]
-    m.trailerFeather.width = tb.w
-    m.trailerFeather.height = tb.h
+    r = DetailLayout.spotlight()
+    tb = DetailLayout.trailerBox(r.w, r.h, aspect)
+    m.trailerFades.frame = tb
     if m.trailerVideo = invalid then return
     m.trailerVideo.translation = [tb.x, 0]
     m.trailerVideo.width = tb.w
@@ -997,7 +929,6 @@ end sub
 sub setHeader(item as object)
     m.endsAtText = ""
     m.logoImage.visible = false
-    m.moviePosterMask.visible = false
     m.channelMask.visible = false
     m.channelLabel.visible = false
     m.seasonInfoLabel.visible = false
@@ -1073,19 +1004,8 @@ sub setHeader(item as object)
     m.endsAtLabel.text = m.endsAtText
     positionEndsAt()
 
-    if m.itemType = "Movie"
-        m.moviePosterMask.visible = true
-        m.moviePoster.uri = ImageUrl.primary(item.Id, 400, ImageUrl.primaryTag(item))
-    else if m.itemType = "Season"
-        ' The season's poster, else its series'.
-        m.moviePosterMask.visible = true
-        if item.ImageTags <> invalid and item.ImageTags.Primary <> invalid
-            m.moviePoster.uri = ImageUrl.primary(item.Id, 400, ImageUrl.primaryTag(item))
-        else if item.SeriesId <> invalid and item.SeriesId <> ""
-            m.moviePoster.uri = ImageUrl.primary(item.SeriesId, 400, ImageUrl.seriesPrimaryTag(item))
-        else
-            m.moviePoster.uri = ""
-        end if
+    if m.itemType = "Movie" or m.itemType = "Season"
+        ' No poster beside the title: the backdrop is the picture.
     else if m.isYouTube
         m.channelMask.visible = true
         channelId = item.Id

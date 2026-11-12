@@ -215,6 +215,7 @@ sub buildItems()
         libraryIds.push(lib.Id)
     end for
     pool["lists"] = { id: "lists", kind: "lists", title: "Lists", iconLocal: "pkg:/images/nav_lists.png", iconSelected: "pkg:/images/nav_lists_selected.png" }
+    pool["watchlist"] = { id: "watchlist", kind: "watchlist", title: "Watchlist", iconLocal: "pkg:/images/nav_watchlist.png", iconSelected: "pkg:/images/nav_watchlist_selected.png" }
     pool["requests"] = { id: "requests", kind: "requests", title: "Requests", iconLocal: "pkg:/images/nav_requests.png", iconSelected: "pkg:/images/nav_requests_selected.png" }
     pool["dashboard"] = { id: "dashboard", kind: "dashboard", title: "Dashboard", iconLocal: "pkg:/images/nav_dashboard.png", iconSelected: "pkg:/images/nav_dashboard_selected.png" }
     pool["search"] = { id: "search", kind: "search", title: "Search", iconLocal: "pkg:/images/nav_search.png", iconSelected: "pkg:/images/nav_search_selected.png" }

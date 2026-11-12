@@ -8,6 +8,9 @@
         <field id="goUp" type="boolean" alwaysNotify="true" />
         <!-- restore highlighted button after a defs rebuild (labels changed) -->
         <field id="setIndex" type="integer" onChange="onSetIndex" />
+        <!-- Left on the first button is not consumed, so a page beside the
+             side menu (the Watchlist) lets it open the menu. -->
+        <field id="releaseLeftEdge" type="boolean" value="false" />
     </interface>
     <children>
         <Group id="row" />

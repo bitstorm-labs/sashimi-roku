@@ -811,6 +811,13 @@ function getOrCreateRootScreen(choice as object) as object
         screen = createObject("roSGNode", "ListsScreen")
         screen.observeFieldScoped("openList", "onOpenList")
         screen.observeFieldScoped("openWatchlist", "onOpenWatchlist")
+    else if kind = "watchlist"
+        ' The Watchlist page itself, beside the rail (owner, 2026-11-11). Its
+        ' backdrop runs to the screen's right edge like the pushed page's, so
+        ' it sits at x 0 and moves its text column clear of the rail instead.
+        screen = createObject("roSGNode", "WatchlistScreen")
+        screen.besideRail = m.railWidth
+        observeWatchlist(screen)
     else if kind = "fintv"
         screen = createObject("roSGNode", "GuideScreen")
         screen.observeFieldScoped("playItem", "onPlayItem")
@@ -844,7 +851,7 @@ function getOrCreateRootScreen(choice as object) as object
     if screen <> invalid
         ' Shift right of the rail; append above the OS scene background
         ' (never insert at 0 — the OS background poster lives there).
-        screen.translation = [m.railWidth, 0]
+        if kind <> "watchlist" then screen.translation = [m.railWidth, 0]
         m.top.appendChild(screen)
         m.rootScreens[id] = screen
         if kind = "library" then screen.libraryData = choice.library
@@ -978,13 +985,17 @@ end sub
 sub onOpenWatchlist()
     screen = createObject("roSGNode", "WatchlistScreen")
     if screen = invalid then return
+    observeWatchlist(screen)
+    screen.observeFieldScoped("closed", "onListClosed")
+    pushScreen(screen)
+end sub
+
+sub observeWatchlist(screen as object)
     screen.observeFieldScoped("selectedItem", "onItemSelected")
     screen.observeFieldScoped("playItem", "onPlayItem")
     screen.observeFieldScoped("connectPlex", "onConnectPlex")
     screen.observeFieldScoped("openSeerr", "onOpenSeerr")
     screen.observeFieldScoped("addTitles", "onWatchlistAdd")
-    screen.observeFieldScoped("closed", "onListClosed")
-    pushScreen(screen)
 end sub
 
 '' + Add on the Watchlist: its search (Watchlist v2).

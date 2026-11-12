@@ -6,10 +6,10 @@
      then Add to Watchlist / On Watchlist and Request / Requested / Sign in to
      Requests. Once the library has the title, the normal detail page takes
      over, so this page uses a movie detail page's grid and fonts
-     (MediaDetailScreen's layoutHeader / reflowMovieHeader): poster top-left,
-     the text column beside it, the buttons under the poster, the overview
-     full width under them. With no rows to make room for, the backdrop and
-     the overview take the rest of the screen. -->
+     (MediaDetailScreen's layoutHeader / reflowMovieHeader): the Spotlight
+     backdrop, the text column on its dark left side, the buttons and the
+     overview under it. With no rows to make room for, the overview may run
+     on down the screen. -->
 <component name="WatchlistTitleScreen" extends="Group">
     <interface>
         <!-- Watchlist.entrySource / hitSource: drawn at once, filled in by
@@ -23,49 +23,43 @@
         <field id="closed" type="boolean" alwaysNotify="true" />
     </interface>
     <children>
-        <Poster uri="pkg:/images/bg_gradient.png" width="1920" height="1080" />
+        <Rectangle width="1920" height="1080" color="#18171FFF" />
 
-        <!-- The detail screen's backdrop and fade (backdrop_feather.png, the
-             "Lightest" fade), flush top-right but larger: the detail screen
-             stops its hero above the rows, and this page has none. It runs
-             under the text column, so it is drawn at half strength, like the Apple TV
-             page (60% there), which keeps white text readable over bright art.
-             scaleToZoom fills the region, so the mask's edges are the
-             picture's edges (no scaleToFit seam). -->
-        <MaskGroup id="backdropMask" maskUri="pkg:/images/backdrop_feather.png"
-                   maskSize="[1536, 864]" translation="[384, 0]" opacity="0.5">
-            <Poster id="backdrop" width="1536" height="864" loadWidth="1280" loadHeight="720"
-                    loadDisplayMode="scaleToZoom" />
-        </MaskGroup>
+        <!-- Every detail page's backdrop: the Spotlight list page's coverage
+             and fades (owner, 2026-11-11). -->
+        <SpotlightBackdrop id="backdrop" />
 
-        <!-- A masked fill must stay below opacity 1 (CLAUDE.md). -->
+        <!-- Only when there is no backdrop (a title the providers have no art
+             for but a poster): drawn on the right, as the Spotlight list page
+             does, never beside the title. A masked fill must stay below
+             opacity 1 (CLAUDE.md). -->
         <MaskGroup id="posterMask" maskUri="pkg:/images/poster_mask_r12.png"
-                   maskSize="[260, 390]" translation="[60, 60]">
+                   maskSize="[260, 390]" translation="[1560, 120]" visible="false">
             <Rectangle width="260" height="390" color="#2A2833FF" opacity="0.99" />
             <Poster id="poster" width="260" height="390" loadWidth="400" loadHeight="600"
                     loadDisplayMode="scaleToZoom" />
         </MaskGroup>
 
-        <Label id="titleLabel" text="" color="#FFFFFF" width="1000" maxLines="2" wrap="true" translation="[360, 84]">
+        <Label id="titleLabel" text="" color="#FFFFFF" width="1000" maxLines="2" wrap="true" translation="[60, 84]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="52" />
         </Label>
-        <Label id="metaLabel" text="" color="#BFBFBF" width="1000" maxLines="1" translation="[360, 172]">
+        <Label id="metaLabel" text="" color="#BFBFBF" width="1000" maxLines="1" translation="[60, 172]">
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="22" />
         </Label>
-        <Group id="ratingsGroup" translation="[360, 224]">
+        <Group id="ratingsGroup" translation="[60, 224]">
             <Poster uri="pkg:/images/tmdb_logo_tv.png" width="34" height="24" loadDisplayMode="scaleToFit" />
             <Label id="scoreLabel" text="" color="#FFFFFF" height="24" vertAlign="center" translation="[44, 0]">
                 <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="20" />
             </Label>
         </Group>
-        <Group id="tagsGroup" translation="[360, 274]" />
-        <Label id="noteLabel" text="" color="#F2B84BFF" width="1000" maxLines="1" translation="[360, 324]">
+        <Group id="tagsGroup" translation="[60, 274]" />
+        <Label id="noteLabel" text="" color="#F2B84BFF" width="1000" maxLines="1" translation="[60, 324]">
             <Font role="font" uri="pkg:/fonts/Inter-Bold.ttf" size="22" />
         </Label>
 
         <DetailButtons id="buttons" translation="[60, 466]" />
 
-        <Label id="overviewLabel" text="" color="#BFBFBF" width="1200" maxLines="8"
+        <Label id="overviewLabel" text="" color="#BFBFBF" width="1000" maxLines="8"
                wrap="true" translation="[60, 562]">
             <Font role="font" uri="pkg:/fonts/Inter-Medium.ttf" size="24" />
         </Label>

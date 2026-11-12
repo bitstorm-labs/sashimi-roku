@@ -49,6 +49,20 @@ namespace ImageUrl
         return imageAt(base(), itemId, "Logo", maxWidth, tag)
     end function
 
+    ' A TMDB image url (Watchlist titles the server doesn't have) at the size
+    ' it is drawn: the providers hand out ".../t/p/original/...", often a 4K
+    ' backdrop or a 2000x3000 poster of a few MB that a low-end Roku has to
+    ' download and decode to draw a 1360-wide backdrop or a 210-wide tile.
+    ' TMDB serves the same picture at its fixed sizes ("w1280" for a backdrop,
+    ' "w342" / "w500" for a poster). Any other url is returned as it is.
+    function tmdbSized(url as dynamic, size as string) as string
+        if url = invalid or GetInterface(url, "ifString") = invalid then return ""
+        marker = "image.tmdb.org/t/p/original/"
+        at = Instr(1, url, marker)
+        if at = 0 then return url
+        return Left(url, at - 1) + "image.tmdb.org/t/p/" + size + "/" + Mid(url, at + Len(marker))
+    end function
+
     function imageAt(serverUrl as string, itemId as string, imageType as string, maxWidth as integer, tag = "" as dynamic) as string
         return withTag(serverUrl + "/Items/" + itemId + "/Images/" + imageType + "?maxWidth=" + maxWidth.ToStr() + "&quality=90", tag)
     end function

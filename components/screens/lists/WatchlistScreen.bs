@@ -119,6 +119,23 @@ function cardShown() as boolean
     return m.view <> invalid and Watchlist.showCard(m.view) and not m.cardHidden
 end function
 
+' The menu's Watchlist: the same left margin as the other pages beside the
+' menu (60 past its edge), where the pushed page keeps 120.
+sub onBesideRail()
+    shift = 0
+    if m.top.besideRail > 0 then shift = m.top.besideRail + 60 - 120
+    m.spot.inset = shift
+    m.buttons.translation = [120 + shift, 520]
+    m.buttons.releaseLeftEdge = (m.top.besideRail > 0)
+    m.grid.translation = [105 + shift, 640]
+    m.statusLabel.translation = [120 + shift, 700]
+    m.statusLabel.width = 1680 - shift
+end sub
+
+function inMenu() as boolean
+    return m.top.besideRail > 0
+end function
+
 ' ---------- Responses ----------
 
 sub onApiResponse()
@@ -156,6 +173,12 @@ end sub
 
 sub onWatchlist(r as object)
     if r.available <> true and r.failed <> true
+        if inMenu()
+            ' Nothing to close back to: say so where the titles would be.
+            m.statusLabel.text = "This server doesn't have the Watchlist."
+            m.statusLabel.visible = true
+            return
+        end if
         toast("This server doesn't have the Watchlist.")
         m.top.closed = true
         return
@@ -304,7 +327,7 @@ sub showSpotlight()
                 line = Watchlist.detailsMeta(d)
                 if line <> "" then info.meta = line
                 info.overview = d.overview
-                info.backdropUri = d.backdropUrl
+                info.backdropUri = ImageUrl.tmdbSized(d.backdropUrl, "w1280")
             end if
         end if
     end if
@@ -388,7 +411,7 @@ function posterFor(e as object) as string
         if item <> invalid then return ImageUrl.primary(e.itemId, 210, ImageUrl.primaryTag(item))
         return ImageUrl.primary(e.itemId, 210, "")
     end if
-    return e.posterUrl
+    return ImageUrl.tmdbSized(e.posterUrl, "w342")
 end function
 
 ' The card's two capsules, highlighted only while the card zone has focus.
@@ -537,6 +560,8 @@ end sub
 function onKeyEvent(key as string, press as boolean) as boolean
     if not press then return false
     if key = "back"
+        ' Beside the menu, Back is MainScene's (to Home, as on every page there).
+        if inMenu() then return false
         m.top.closed = true
         return true
     end if
@@ -554,6 +579,7 @@ function onKeyEvent(key as string, press as boolean) as boolean
     end if
     if m.zone = "card"
         if key = "left" or key = "right"
+            if key = "left" and m.cardIdx = 0 and inMenu() then return false
             if key = "left" then m.cardIdx = 0 else m.cardIdx = 1
             drawCardButtons()
             return true
@@ -565,6 +591,8 @@ function onKeyEvent(key as string, press as boolean) as boolean
             return true
         end if
     end if
-    ' The card's other keys: the screen keeps focus.
+    ' The card's other keys: the screen keeps focus. Left that nothing here
+    ' took opens the menu beside it.
+    if key = "left" and inMenu() then return false
     return true
 end function

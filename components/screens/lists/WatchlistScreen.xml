@@ -20,6 +20,13 @@
         <field id="openSeerr" type="boolean" alwaysNotify="true" />
         <!-- Back, or no Watchlist on this server: MainScene pops it. -->
         <field id="closed" type="boolean" alwaysNotify="true" />
+        <!-- The side menu's width when this is the menu's Watchlist
+             destination (a root screen, drawn at x 0 under the menu) rather
+             than a page pushed from Lists: the left column moves clear of the
+             menu, Back and Left go to MainScene (Home / the menu) instead of
+             closing the page, and a server without the Watchlist says so
+             instead of closing it. -->
+        <field id="besideRail" type="integer" value="0" onChange="onBesideRail" />
     </interface>
     <children>
         <ListSpotlight id="spot" />

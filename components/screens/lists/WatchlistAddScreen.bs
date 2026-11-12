@@ -201,7 +201,7 @@ sub drawHit(row as object, y as integer, focused as boolean)
     p.width = 59
     p.height = 88
     p.loadDisplayMode = "scaleToZoom"
-    if hit.itemId <> "" then p.uri = ImageUrl.primary(hit.itemId, 120, "") else p.uri = hit.posterUrl
+    if hit.itemId <> "" then p.uri = ImageUrl.primary(hit.itemId, 120, "") else p.uri = ImageUrl.tmdbSized(hit.posterUrl, "w154")
     g.appendChild(p)
     t = label(hit.title, "pkg:/fonts/Inter-Bold.ttf", 28, "#FFFFFFFF")
     t.translation = [96, 18]
