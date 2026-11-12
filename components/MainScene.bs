@@ -89,6 +89,15 @@ sub init()
     m.remoteTask.observeFieldScoped("command", "onRemoteCommand")
     m.remoteTask.control = "RUN"
 
+    ' Settings sync across devices (WORK-106). settingsSyncPing asks for a
+    ' reconcile (SettingsSyncLocal.requestSync); settingsSyncVersion is bumped
+    ' when one changed settings here, so an open Settings screen re-reads.
+    m.global.addFields({ settingsSyncPing: 0, settingsSyncVersion: 0 })
+    m.syncTask = createObject("roSGNode", "SettingsSyncTask")
+    m.syncTask.observeFieldScoped("result", "onSettingsSynced")
+    m.syncTask.control = "RUN"
+    m.global.observeFieldScoped("settingsSyncPing", "onSettingsSyncPing")
+
     ' Deep-link cover. A direct-play deep link keeps its detail screen hidden
     ' until it hands off to the player (see processDeepLink), and pushScreen
     ' hides the previous screen and the sidebar — so against an unreachable
@@ -550,6 +559,34 @@ sub onRemoteCommand(event as object)
     end if
 end sub
 
+' ---------- Settings sync (WORK-106) ----------
+
+sub onSettingsSyncPing()
+    m.syncTask.trigger = true
+end sub
+
+' Settings another device changed were written to the registry by the task;
+' the ones the app mirrors into m.global follow them here.
+sub onSettingsSynced()
+    r = m.syncTask.result
+    if r = invalid or r.applied = invalid then return
+    for each key in r.applied
+        if key = "showQualityBadges"
+            m.global.showQualityBadges = (AppSettings.read("showQualityBadges", "true") = "true")
+        else if key = "showReviewRatings"
+            m.global.showReviewRatings = (AppSettings.read("showReviewRatings", "true") = "true")
+        else if key = "useEpisodeRatings"
+            m.global.useEpisodeRatings = (AppSettings.read("useEpisodeRatings", "false") = "true")
+        else if key = "defaultViewMode"
+            ' A new default is the newer decision (as in Settings).
+            m.global.sessionViewMode = ""
+        end if
+    end for
+    ' The side menu rebuilds and Home redraws its rows in the new order.
+    if r.homeRows = true then m.global.homeRowsVersion = m.global.homeRowsVersion + 1
+    m.global.settingsSyncVersion = m.global.settingsSyncVersion + 1
+end sub
+
 sub onGlobalToast()
     msg = m.global.toastMessage
     if msg <> invalid and msg.message <> invalid and msg.message <> ""
@@ -778,6 +815,8 @@ sub enterMainUI()
     ' The Requests address the server sets, now that its session is in place;
     ' it re-runs the launch check, so a "restore" coalesced with it isn't lost.
     m.seerrTask.request = { action: "serverConfig" }
+    ' Launch, sign-in and a server or user switch all come through here.
+    m.syncTask.trigger = true
 
     liftOverlays()
     m.sidebar.visible = true

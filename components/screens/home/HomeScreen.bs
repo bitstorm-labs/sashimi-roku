@@ -8,6 +8,7 @@ import "pkg:/source/utils/RailItems.bs"
 import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/ListsModel.bs"
 import "pkg:/source/utils/Entities.bs"
+import "pkg:/source/utils/SettingsSyncLocal.bs"
 
 sub init()
     m.rowList = m.top.findNode("rowList")
@@ -39,6 +40,10 @@ sub init()
     m.listsGen = 0
     m.listRows = invalid
     m.listsSeen = m.global.listsVersion
+    ' Home & Side Menu saved, or another device's row order synced in
+    ' (WORK-106): reload on the way back, or now if parked on the hero.
+    m.rowsSeen = m.global.homeRowsVersion
+    m.global.observeFieldScoped("homeRowsVersion", "onAutoRefresh")
 
     ' The Seerr requests row (a real Home row: Home & Side Menu moves and
     ' hides it). m.requestCards holds the current load's answer.
@@ -210,6 +215,7 @@ sub onFocusDelegate()
             m.channelsDirty = false
         end if
         if m.listsSeen <> m.global.listsVersion then dirty = true
+        if m.rowsSeen <> m.global.homeRowsVersion then dirty = true
         if dirty or (m.lastLoadTime <> invalid and (now - m.lastLoadTime) > 20)
             if m.chainBusy
                 m.reloadPending = true
@@ -252,6 +258,7 @@ sub loadHomeData()
     m.listsGen = m.listsGen + 1
     m.listRows = invalid
     m.listsSeen = m.global.listsVersion
+    m.rowsSeen = m.global.homeRowsVersion
     m.listsTask.request = { action: "lists", op: "home", context: m.listsGen.ToStr() }
     loadRequestsRow()
 end sub
@@ -431,6 +438,9 @@ sub onLibrariesLoaded(response as object)
     end for
 
     applyHomeRowConfig()
+    ' Settings sync has no foreground event on Roku: every Home load
+    ' reconciles, once this server's libraries are merged into the rows.
+    SettingsSyncLocal.requestSync()
 
     #if DEBUG
         print "[Home] Loaded " + str(m.libraries.count()) + " libraries"

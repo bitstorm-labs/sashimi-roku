@@ -1,4 +1,5 @@
 import "pkg:/source/utils/AppSettings.bs"
+import "pkg:/source/utils/SettingsSyncLocal.bs"
 import "pkg:/source/utils/LanguagePrefs.bs"
 import "pkg:/source/utils/YouTube.bs"
 import "pkg:/source/utils/ImageUrl.bs"
@@ -1710,6 +1711,7 @@ sub selectViewMode(value as integer)
         ' Saving the active mode as the default makes the session pick
         ' redundant; clearing it keeps a later Settings change effective.
         AppSettings.write("defaultViewMode", ViewMode.key(currentViewMode()))
+        SettingsSyncLocal.recordChange("defaultViewMode")
         m.global.sessionViewMode = ""
     else
         m.global.sessionViewMode = ViewMode.key(value)

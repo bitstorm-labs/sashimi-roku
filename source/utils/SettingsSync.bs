@@ -1,0 +1,497 @@
+' Settings sync across devices (WORK-106), the rules every Sashimi client
+' shares: the synced settings are kept in Jellyfin DisplayPreferences (id
+' "sashimi-settings", client "sashimi"), one CustomPrefs entry per setting,
+' each a JSON string {"v": value, "t": epoch ms of the change}. Newest t wins,
+' key by key. Each device keeps a stamp per key (the t of its local value);
+' a remote value applied here takes the REMOTE t, so it is never echoed back.
+' Same keys, merge rules and test vectors V1-V11 as Apple and Android.
+'
+' Pure functions only (no registry, nodes or network), so
+' tests/SettingsSyncTests.brs runs them off-device. Local values are the
+' registry's strings ("" = never set); stamps are { sharedKey: LongInteger }.
+namespace SettingsSync
+
+    const PREFS_ID = "sashimi-settings"
+    const PREFS_CLIENT = "sashimi"
+    const SCHEMA = "1"
+    const LAYOUT_LOCAL_KEY = "homeRowOrder"
+
+    ' Every synced setting: its shared key, the Roku registry key, the kind of
+    ' value, and the default an unset registry key reads as (AppSettings).
+    function specs() as object
+        return [
+            { key: "autoPlayNextEpisode", local: "autoPlayNextEpisode", kind: "bool", def: "true" }
+            { key: "autoSkipIntro", local: "autoSkipIntro", kind: "bool", def: "false" }
+            { key: "autoSkipCredits", local: "autoSkipCredits", kind: "bool", def: "false" }
+            { key: "resumeThresholdSeconds", local: "resumeThresholdSeconds", kind: "resume", def: "30" }
+            { key: "forceDirectPlay", local: "forceDirectPlay", kind: "bool", def: "false" }
+            { key: "subtitlesEnabled", local: "subtitlesDefaultOn", kind: "bool", def: "false" }
+            { key: "preferredAudioLanguage", local: "preferredAudioLanguage", kind: "lang", def: "" }
+            { key: "preferredSubtitleLanguage", local: "preferredSubtitleLanguage", kind: "lang", def: "" }
+            { key: "tvShuffleMode", local: "tvShuffleMode", kind: "shuffle", def: "randomEpisode" }
+            { key: "defaultViewMode", local: "defaultViewMode", kind: "viewMode", def: "normal" }
+            { key: "showQualityBadges", local: "showQualityBadges", kind: "bool", def: "true" }
+            { key: "showReviewRatings", local: "showReviewRatings", kind: "bool", def: "true" }
+            { key: "useEpisodeRatings", local: "useEpisodeRatings", kind: "bool", def: "false" }
+            { key: "use24HourTime", local: "use24HourTime", kind: "bool", def: "false" }
+            { key: "homeRows", local: "homeRowOrder", kind: "layout", def: "" }
+        ]
+    end function
+
+    ' The spec for a registry key, or invalid when that key is not synced.
+    function specForLocal(localKey as string) as dynamic
+        for each s in specs()
+            if s.local = localKey then return s
+        end for
+        return invalid
+    end function
+
+    ' What an unset registry key reads as. Resume Threshold is 30 s: the
+    ' picker used to show its first option ("Always resume") while playback
+    ' used 30, so both now read it from here.
+    function defaultValue(localKey as string) as string
+        s = specForLocal(localKey)
+        if s = invalid then return ""
+        return s.def
+    end function
+
+    ' Same list on every platform: Always, 10 s, 30 s, 1, 2, 5 and 10 min.
+    function resumeOptions() as object
+        return [
+            { label: "Always resume", value: "0" }
+            { label: "10 seconds", value: "10" }
+            { label: "30 seconds", value: "30" }
+            { label: "1 minute", value: "60" }
+            { label: "2 minutes", value: "120" }
+            { label: "5 minutes", value: "300" }
+            { label: "10 minutes", value: "600" }
+        ]
+    end function
+
+    ' The option a picker shows: the stored value, else its default, else the
+    ' first option.
+    function optionIndex(options as object, stored as string, fallback as string) as integer
+        v = stored
+        if v = "" then v = fallback
+        for i = 0 to options.Count() - 1
+            if options[i].value = v then return i
+        end for
+        return 0
+    end function
+
+    function languageCodes() as object
+        return ["", "en", "es", "fr", "de", "it", "pt", "ja", "ko", "zh", "ru", "ar", "hi", "nl", "pl", "sv", "da", "no", "fi"]
+    end function
+
+    ' ---------- Values ----------
+
+    ' A remote v as the registry string it becomes here, or invalid when this
+    ' platform can't use it (unknown value, wrong type). Layouts are checked by
+    ' decodeLayout instead.
+    function localFromShared(spec as object, v as dynamic) as dynamic
+        if v = invalid then return invalid
+        if spec.kind = "bool"
+            if GetInterface(v, "ifBoolean") = invalid then return invalid
+            if v then return "true"
+            return "false"
+        else if spec.kind = "resume"
+            n = intOf(v)
+            if n = invalid then return invalid
+            for each opt in resumeOptions()
+                if opt.value = n.ToStr() then return opt.value
+            end for
+            return invalid
+        end if
+        if not isStr(v) then return invalid
+        allowed = []
+        if spec.kind = "lang" then allowed = languageCodes()
+        if spec.kind = "shuffle" then allowed = ["randomEpisode", "randomShowNextEpisode"]
+        if spec.kind = "viewMode" then allowed = ["normal", "zoom", "stretch"]
+        for each a in allowed
+            if a = v then return v
+        end for
+        return invalid
+    end function
+
+    ' A registry string (or its default when unset) as the JSON text of v, or
+    ' invalid when it is not a value the other platforms accept.
+    function sharedJson(spec as object, stored as string) as dynamic
+        value = stored
+        if value = "" then value = spec.def
+        if spec.kind = "bool"
+            if value = "true" or value = "false" then return value
+            return invalid
+        else if spec.kind = "resume"
+            for each opt in resumeOptions()
+                if opt.value = value then return value
+            end for
+            return invalid
+        end if
+        if localFromShared(spec, value) = invalid then return invalid
+        return jsonString(value)
+    end function
+
+    function jsonString(s as string) as string
+        wrapped = FormatJson([s])
+        return wrapped.Mid(1, wrapped.Len() - 2)
+    end function
+
+    ' ---------- Entries {"v":…,"t":…} ----------
+
+    ' { v, t } from a CustomPrefs value, or invalid for anything unreadable:
+    ' not a string, not JSON, no v, or a t that is not a whole number.
+    function decodeEntry(raw as dynamic) as dynamic
+        if not isStr(raw) or raw = "" then return invalid
+        parsed = ParseJson(raw)
+        if type(parsed) <> "roAssociativeArray" or not parsed.DoesExist("v") or not parsed.DoesExist("t") then return invalid
+        if isStr(parsed.t) then return invalid
+        t = longOf(parsed.t)
+        if t = invalid and isFloat(parsed.t) then t = longFromRaw(raw)
+        if t = invalid then return invalid
+        return { v: parsed.v, t: t }
+    end function
+
+    ' t is written from a LongInteger's own digits: FormatJson of a 13-digit
+    ' number is not trusted on every firmware to stay out of exponent form.
+    function encodeEntry(json as string, t as dynamic) as string
+        return "{""v"":" + json + ",""t"":" + t.ToStr() + "}"
+    end function
+
+    ' ---------- Stamps ----------
+
+    ' The stored stamp map, or invalid when there is none yet (or it is
+    ' unreadable): that is what makes the next reconcile seed it.
+    function decodeStamps(raw as dynamic) as dynamic
+        if not isStr(raw) or raw = "" then return invalid
+        parsed = ParseJson(raw)
+        if type(parsed) <> "roAssociativeArray" then return invalid
+        out = {}
+        for each k in parsed
+            t = longOf(parsed[k])
+            if t <> invalid then out[k] = t
+        end for
+        return out
+    end function
+
+    ' Values as digit strings, for the same reason as encodeEntry.
+    function encodeStamps(stamps as object) as string
+        out = {}
+        for each k in stamps
+            out[k] = stamps[k].ToStr()
+        end for
+        return FormatJson(out)
+    end function
+
+    ' First reconcile after the upgrade: a setting set on this device gets
+    ' stamp 1 (published if the server has nothing newer), one still at its
+    ' default gets none (so a fresh install never overwrites anything).
+    function seedStamps(local as object, layoutConfig as dynamic) as object
+        stamps = {}
+        one = longOf(1)
+        for each s in specs()
+            if s.kind = "layout"
+                if layoutCustomised(layoutConfig) then stamps[s.key] = one
+            else if isStr(local[s.local]) and local[s.local] <> ""
+                stamps[s.key] = one
+            end if
+        end for
+        return stamps
+    end function
+
+    ' Home writes its row config itself on every load, so "stored" says
+    ' nothing about a choice. A hidden row, or a first two rows other than
+    ' the hero then Continue Watching (the order Home starts from), does.
+    function layoutCustomised(config as dynamic) as boolean
+        rows = localLayout(config)
+        for each r in rows
+            if not r.on then return true
+        end for
+        if rows.Count() >= 1 and rows[0].id <> "hero" then return true
+        if rows.Count() >= 2 and rows[1].id <> "continueWatching" then return true
+        return false
+    end function
+
+    ' A setting changed on this device: stamp it now. The request is only
+    ' made while sync is on; with it off the stamp still records the change,
+    ' to be pushed when sync is turned back on if nothing newer is there.
+    function recordChange(stamps as object, sharedKey as string, now as dynamic, enabled as boolean) as object
+        out = {}
+        out.Append(stamps)
+        out[sharedKey] = now
+        return { stamps: out, request: enabled }
+    end function
+
+    ' Whether a sync request is made at all.
+    function shouldRequest(enabled as boolean, signedIn as boolean) as boolean
+        return enabled and signedIn
+    end function
+
+    ' ---------- Reconcile ----------
+
+    ' One read, then per key: a newer remote value that is valid here is
+    ' applied (taking the remote t); a newer local stamp, or a local stamp the
+    ' server has no entry for, goes into one write; equal times do nothing.
+    ' An unreadable or unknown remote value is left alone, never overwritten
+    ' on that account. Returns { apply: [{ key, local, value, t }], writes:
+    ' { sharedKey: entry string }, stamps }; a layout's value is the whole new
+    ' homeRowOrder config. With no local row config yet (Home has not loaded)
+    ' the layout waits for Home's own reconcile.
+    function reconcile(local as object, layoutConfig as dynamic, stamps as object, customPrefs as dynamic) as object
+        remote = {}
+        if type(customPrefs) = "roAssociativeArray" then remote = customPrefs
+        newStamps = {}
+        newStamps.Append(stamps)
+        apply = []
+        writes = {}
+        hasConfig = type(layoutConfig) = "roArray" and layoutConfig.Count() > 0
+        for each s in specs()
+            if s.kind = "layout" and not hasConfig then continue for
+            localT = invalid
+            if stamps.DoesExist(s.key) then localT = stamps[s.key]
+            present = remote.DoesExist(s.key) and remote[s.key] <> invalid
+            entry = invalid
+            if present then entry = decodeEntry(remote[s.key])
+            if present and entry = invalid then continue for
+            if entry <> invalid and (localT = invalid or entry.t > localT)
+                if s.kind = "layout"
+                    layout = decodeLayout(entry.v)
+                    if layout <> invalid
+                        apply.Push({ key: s.key, local: s.local, value: applyLayout(layoutConfig, layout), t: entry.t })
+                        newStamps[s.key] = entry.t
+                    end if
+                else
+                    value = localFromShared(s, entry.v)
+                    if value <> invalid
+                        apply.Push({ key: s.key, local: s.local, value: value, t: entry.t })
+                        newStamps[s.key] = entry.t
+                    end if
+                end if
+            else if localT <> invalid and (entry = invalid or localT > entry.t)
+                json = invalid
+                if s.kind = "layout"
+                    remoteLayout = []
+                    if entry <> invalid then remoteLayout = decodeLayout(entry.v)
+                    if remoteLayout = invalid then remoteLayout = []
+                    json = FormatJson(layoutForWrite(layoutConfig, remoteLayout))
+                else
+                    stored = ""
+                    if isStr(local[s.local]) then stored = local[s.local]
+                    json = sharedJson(s, stored)
+                end if
+                if json <> invalid then writes[s.key] = encodeEntry(json, localT)
+            end if
+        end for
+        return { apply: apply, writes: writes, stamps: newStamps }
+    end function
+
+    ' The dto goes back whole with only our keys (and the schema) replaced:
+    ' the server stores what it is sent, and other keys may belong to another
+    ' Sashimi build. Copies, so the dto that was read stays as it was.
+    function prefsBody(dto as dynamic, writes as object) as object
+        body = {}
+        if type(dto) = "roAssociativeArray" then body.Append(dto)
+        if not body.DoesExist("Client") then body.Client = PREFS_CLIENT
+        prefs = {}
+        if type(body.CustomPrefs) = "roAssociativeArray" then prefs.Append(body.CustomPrefs)
+        for each k in writes
+            prefs[k] = writes[k]
+        end for
+        prefs["schema"] = SCHEMA
+        body.CustomPrefs = prefs
+        return body
+    end function
+
+    function prefsPath(userId as string) as string
+        return "/DisplayPreferences/" + PREFS_ID + "?userId=" + userId + "&client=" + PREFS_CLIENT
+    end function
+
+    function customPrefsOf(dto as dynamic) as dynamic
+        if type(dto) <> "roAssociativeArray" or type(dto.CustomPrefs) <> "roAssociativeArray" then return invalid
+        return dto.CustomPrefs
+    end function
+
+    ' ---------- Home rows layout ----------
+
+    ' The shared id of a Home row config entry, "" for one that has no Home
+    ' row (the menu-only Lists, Watchlist and Dashboard) or is unreadable.
+    function sharedId(entry as dynamic) as string
+        if type(entry) <> "roAssociativeArray" or not isStr(entry.kind) then return ""
+        k = entry.kind
+        if k = "hero" then return "hero"
+        if k = "cw" then return "continueWatching"
+        if k = "fintv" then return "fintv"
+        if k = "requests" then return "requests"
+        if k = "library" and isStr(entry.libraryId) and entry.libraryId <> "" then return "library:" + entry.libraryId
+        if k = "list" and isStr(entry.listId) and entry.listId <> "" then return "list:" + entry.listId
+        return ""
+    end function
+
+    ' A missing visible flag means shown (configs saved before it existed).
+    function isOn(entry as object) as boolean
+        v = entry.visible
+        if v = invalid or GetInterface(v, "ifBoolean") = invalid then return true
+        return v
+    end function
+
+    ' This device's Home rows in its order, as [{ id, on }].
+    function localLayout(config as dynamic) as object
+        out = []
+        if type(config) <> "roArray" then return out
+        for each c in config
+            id = sharedId(c)
+            if id <> "" then out.Push({ id: id, on: isOn(c) })
+        end for
+        return out
+    end function
+
+    ' A remote layout, or invalid when v is not an array. Entries without a
+    ' string id or a boolean on are dropped; a repeated id keeps its first.
+    function decodeLayout(v as dynamic) as dynamic
+        if type(v) <> "roArray" then return invalid
+        out = []
+        seen = {}
+        for each e in v
+            if type(e) = "roAssociativeArray" and isStr(e.id) and e.on <> invalid and GetInterface(e.on, "ifBoolean") <> invalid
+                if not seen.DoesExist(e.id)
+                    seen[e.id] = true
+                    out.Push({ id: e.id, on: e.on })
+                end if
+            end if
+        end for
+        return out
+    end function
+
+    ' Applying a layout: the rows this device has that it names take its
+    ' order and on flag; a row it doesn't name stays right after the row it
+    ' follows here now; ids this device doesn't have are skipped. Entries
+    ' with no Home row (and their side-menu `rail` flags) keep their places.
+    function applyLayout(config as object, layout as object) as object
+        rows = []
+        slots = []
+        for i = 0 to config.Count() - 1
+            if sharedId(config[i]) <> ""
+                rows.Push(config[i])
+                slots.Push(i)
+            end if
+        end for
+        byId = {}
+        for each r in rows
+            byId[sharedId(r)] = r
+        end for
+        named = {}
+        ordered = []
+        for each e in layout
+            if byId.DoesExist(e.id) and not named.DoesExist(e.id)
+                named[e.id] = e.on
+                ordered.Push(byId[e.id])
+            end if
+        end for
+        for i = 0 to rows.Count() - 1
+            id = sharedId(rows[i])
+            if named.DoesExist(id) then continue for
+            at = 0
+            if i > 0 then at = indexOfShared(ordered, sharedId(rows[i - 1])) + 1
+            ordered = insertAt(ordered, at, rows[i])
+        end for
+        out = []
+        for each c in config
+            out.Push(c)
+        end for
+        for i = 0 to slots.Count() - 1
+            copy = {}
+            copy.Append(ordered[i])
+            id = sharedId(copy)
+            if named.DoesExist(id) then copy.visible = named[id]
+            out[slots[i]] = copy
+        end for
+        return out
+    end function
+
+    ' Writing a layout: this device's rows in its order, then every remote
+    ' entry it doesn't have put back right after its remote predecessor, so a
+    ' row only another platform draws (or an id this build doesn't know)
+    ' survives the round trip.
+    function layoutForWrite(config as dynamic, remote as object) as object
+        out = localLayout(config)
+        for j = 0 to remote.Count() - 1
+            if indexOfId(out, remote[j].id) >= 0 then continue for
+            at = 0
+            if j > 0 then at = indexOfId(out, remote[j - 1].id) + 1
+            out = insertAt(out, at, { id: remote[j].id, on: remote[j].on })
+        end for
+        return out
+    end function
+
+    function indexOfId(list as object, id as string) as integer
+        for i = 0 to list.Count() - 1
+            if list[i].id = id then return i
+        end for
+        return -1
+    end function
+
+    function indexOfShared(list as object, id as string) as integer
+        for i = 0 to list.Count() - 1
+            if sharedId(list[i]) = id then return i
+        end for
+        return -1
+    end function
+
+    function insertAt(list as object, at as integer, item as object) as object
+        out = []
+        for i = 0 to list.Count() - 1
+            if i = at then out.Push(item)
+            out.Push(list[i])
+        end for
+        if at >= list.Count() then out.Push(item)
+        return out
+    end function
+
+    ' ---------- Numbers ----------
+
+    ' A whole number as a LongInteger (epoch ms overflow a 32-bit Integer),
+    ' from an Integer, a LongInteger or a string of digits; invalid otherwise.
+    function longOf(v as dynamic) as dynamic
+        if v = invalid then return invalid
+        if GetInterface(v, "ifLongInt") <> invalid then return v
+        n& = 0
+        if GetInterface(v, "ifInt") <> invalid
+            n& = v
+            return n&
+        end if
+        if not isStr(v) or v = "" then return invalid
+        for i = 0 to v.Len() - 1
+            c = Asc(v.Mid(i, 1)) - 48
+            if c < 0 or c > 9 then return invalid
+            n& = n& * 10 + c
+        end for
+        return n&
+    end function
+
+    ' Some firmware parses a 13-digit JSON number as a Double; the digits are
+    ' then read off the entry's own text.
+    function longFromRaw(raw as string) as dynamic
+        re = CreateObject("roRegex", """t""\s*:\s*([0-9]+)\s*[,}]", "")
+        found = re.Match(raw)
+        if found.Count() < 2 then return invalid
+        return longOf(found[1])
+    end function
+
+    function intOf(v as dynamic) as dynamic
+        if GetInterface(v, "ifInt") <> invalid then return v
+        if GetInterface(v, "ifLongInt") <> invalid
+            if v >= 0 and v <= 100000 then return Int(v)
+            return invalid
+        end if
+        if isFloat(v) and v = Int(v) and v >= 0 and v <= 100000 then return Int(v)
+        return invalid
+    end function
+
+    function isFloat(v as dynamic) as boolean
+        return v <> invalid and (GetInterface(v, "ifFloat") <> invalid or GetInterface(v, "ifDouble") <> invalid)
+    end function
+
+    function isStr(v as dynamic) as boolean
+        return v <> invalid and GetInterface(v, "ifString") <> invalid
+    end function
+
+end namespace
