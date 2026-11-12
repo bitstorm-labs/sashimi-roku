@@ -119,17 +119,25 @@ card, the buttons and the one-row poster strip).
 `sashimi-settings`, the shared V1-V11 vectors): each setting's `{"v","t"}`
 entry (t is epoch ms, a LongInteger: kept as digits, never through FormatJson),
 newest-t-wins reconcile, seeding at stamp 1, the body that keeps other keys,
-`homeRowOrder` <-> the shared `homeRows` layout, and the Resume Threshold
-options and default (unset is 30 s). `SettingsSyncLocal` holds the registry
-side and `SettingsSyncTask` (owned by MainScene) every request; a change calls
-`SettingsSyncLocal.recordChange(key)` after writing the setting.
+`homeRowOrder` <-> the shared `homeRows` layout and (phase 2, vectors S1-S6)
+the `sideMenu` combined order with each destination's `rail` as `menu` (both
+keys applied as one config, the newer one deciding the rows' order; Downloads
+and unknown ids carried through on write; seeded only for a menu toggle off
+or a top other than Search then Watchlist; `layoutChanges` says which key an
+editor save stamps), and the Resume Threshold options and default (unset is
+30 s). `SettingsSyncLocal` holds the registry side (its `layoutConfig()` is
+`RailItems.withBuiltIns`'d so a synced order never fights the Search
+migration; `settingsSyncSeeded` lets a key added later seed once) and
+`SettingsSyncTask` (owned by MainScene) every request; a change calls
+`SettingsSyncLocal.recordChange(key)` (or `recordKeys`) after writing it.
 `source/utils/PlayerSession.bs` decides which API answers a player that has
 already closed still acts on (only the watch-state writes; never anything
 that would start the Video node again off-screen).
 `source/utils/Entities.bs` decodes the HTML character references some
 metadata leaves in overviews (`&#34;`, `&#39;`, `&amp;`) before they are drawn.
 `SASHIMI_TEST_SUITE=<file> SASHIMI_TEST_MODULE=<brs>` runs one suite against a
-mutant build, to prove a test fails on the code it is meant to catch. Nothing that touches a SceneGraph node, the registry or the network
+mutant build, to prove a test fails on the code it is meant to catch (a suite
+that loads several modules swaps only the one with the mutant's file name). Nothing that touches a SceneGraph node, the registry or the network
 can run there, so most of the app still has no coverage; don't add a test that
 only pretends to exercise those. Two interpreter traps: it exits 0 on a script
 error (the runner requires an explicit `ALL PASSED`), and a 10-digit integer

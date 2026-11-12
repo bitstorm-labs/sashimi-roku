@@ -44,7 +44,11 @@ sub reconcile()
     appliedKeys = []
     homeRows = false
     for each a in plan.apply
-        if sameStamp(before, current, a.key)
+        ' homeRows and sideMenu are one config: a local edit of either
+        ' while this ran keeps it as edited.
+        fresh = sameStamp(before, current, a.key)
+        if type(a.value) = "roArray" then fresh = sameStamp(before, current, "homeRows") and sameStamp(before, current, "sideMenu")
+        if fresh
             if type(a.value) = "roArray"
                 Registry.writeJson("settings", a.local, a.value)
                 homeRows = true

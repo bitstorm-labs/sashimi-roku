@@ -676,12 +676,12 @@ end function
 sub saveHomeRows()
     hidden = []
     if m.hrHidden <> invalid then hidden = m.hrHidden
-    before = FormatJson(SettingsSync.localLayout(Registry.readJson("settings", "homeRowOrder")))
+    before = SettingsSyncLocal.layoutConfig()
     Registry.writeJson("settings", "homeRowOrder", RailItems.mergeHidden(m.hrConfig, hidden))
-    ' Only the Home rows' order and on/off sync (WORK-106); closing the editor
-    ' with no change to them, or a side-menu-only change, isn't a new choice.
-    after = FormatJson(SettingsSync.localLayout(Registry.readJson("settings", "homeRowOrder")))
-    if after <> before then SettingsSyncLocal.recordChange("homeRowOrder")
+    ' WORK-106: a moved row or a Home toggle stamps homeRows, a move or a
+    ' menu toggle stamps sideMenu; closing the editor with nothing changed,
+    ' or with only what a migration added (both sides have it), stamps none.
+    SettingsSyncLocal.recordKeys(SettingsSync.layoutChanges(before, SettingsSyncLocal.layoutConfig()))
 end sub
 
 sub closeHomeRowsEditor()

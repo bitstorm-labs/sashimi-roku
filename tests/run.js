@@ -40,12 +40,14 @@ const suites = {
     'EntitiesTests.brs': ['out/source/utils/Entities.brs'],
     'PlayerSessionTests.brs': ['out/source/utils/PlayerSession.brs'],
     'WatchlistTests.brs': ['out/source/utils/Seerr.brs', 'out/source/utils/SeerrSeasons.brs', 'out/source/utils/Watchlist.brs'],
-    'SettingsSyncTests.brs': ['out/source/utils/SettingsSync.brs']
+    'SettingsSyncTests.brs': ['out/source/utils/RailItems.brs', 'out/source/utils/SettingsSync.brs']
 };
 
 // SASHIMI_TEST_MODULE swaps in another build of the module under test, to
 // check that the tests fail against code they are meant to catch. With more
 // than one suite, SASHIMI_TEST_SUITE (a test file name) picks which one runs.
+// A suite that loads several modules swaps only the one with the same file
+// name (a mutant SettingsSync.brs still runs beside the real RailItems.brs).
 const override = process.env.SASHIMI_TEST_MODULE;
 const only = process.env.SASHIMI_TEST_SUITE;
 if (only && !suites[only]) {
@@ -56,7 +58,15 @@ if (only && !suites[only]) {
 let failed = false;
 for (const [test, modules] of Object.entries(suites)) {
     if (only && test !== only) continue;
-    const files = (override ? [override] : modules.map((m) => path.join(root, m)));
+    let files = modules.map((m) => path.join(root, m));
+    if (override) {
+        const at = modules.length === 1 ? 0 : modules.findIndex((m) => path.basename(m) === path.basename(override));
+        if (at < 0) {
+            console.error(`${test}: ${path.basename(override)} is none of ${modules.join(', ')}`);
+            process.exit(1);
+        }
+        files[at] = override;
+    }
     for (const f of files) {
         if (!fs.existsSync(f)) {
             console.error(`${test}: missing ${f} (run bsc first)`);

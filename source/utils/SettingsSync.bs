@@ -9,12 +9,21 @@
 ' Pure functions only (no registry, nodes or network), so
 ' tests/SettingsSyncTests.brs runs them off-device. Local values are the
 ' registry's strings ("" = never set); stamps are { sharedKey: LongInteger }.
+'
+' homeRowOrder holds two synced keys: `homeRows` (the Home rows' order and
+' `visible`) and, since phase 2, `sideMenu` (the whole combined order with
+' each destination's `rail`), RailItems' model.
+import "pkg:/source/utils/RailItems.bs"
+
 namespace SettingsSync
 
     const PREFS_ID = "sashimi-settings"
     const PREFS_CLIENT = "sashimi"
     const SCHEMA = "1"
     const LAYOUT_LOCAL_KEY = "homeRowOrder"
+    ' Which keys the stamp map has been seeded for: 1 = phase 1's (v1.7.4),
+    ' 2 = sideMenu too. A device seeded at 1 seeds only the keys added since.
+    const SEED_VERSION = 2
 
     ' Every synced setting: its shared key, the Roku registry key, the kind of
     ' value, and the default an unset registry key reads as (AppSettings).
@@ -35,10 +44,13 @@ namespace SettingsSync
             { key: "useEpisodeRatings", local: "useEpisodeRatings", kind: "bool", def: "false" }
             { key: "use24HourTime", local: "use24HourTime", kind: "bool", def: "false" }
             { key: "homeRows", local: "homeRowOrder", kind: "layout", def: "" }
+            { key: "sideMenu", local: "homeRowOrder", kind: "menu", def: "", since: 2 }
         ]
     end function
 
     ' The spec for a registry key, or invalid when that key is not synced.
+    ' homeRowOrder answers homeRows (sideMenu, stored there too, is stamped
+    ' by layoutChanges' keys instead).
     function specForLocal(localKey as string) as dynamic
         for each s in specs()
             if s.local = localKey then return s
@@ -185,12 +197,19 @@ namespace SettingsSync
     ' First reconcile after the upgrade: a setting set on this device gets
     ' stamp 1 (published if the server has nothing newer), one still at its
     ' default gets none (so a fresh install never overwrites anything).
-    function seedStamps(local as object, layoutConfig as dynamic) as object
+    ' `fromVersion` is the SEED_VERSION the stamps were last seeded at: only
+    ' keys added since then are seeded (0 = no stamp map yet, every key).
+    function seedStamps(local as object, layoutConfig as dynamic, fromVersion = 0 as integer) as object
         stamps = {}
         one = longOf(1)
         for each s in specs()
+            since = 1
+            if s.since <> invalid then since = s.since
+            if since <= fromVersion then continue for
             if s.kind = "layout"
                 if layoutCustomised(layoutConfig) then stamps[s.key] = one
+            else if s.kind = "menu"
+                if menuCustomised(layoutConfig) then stamps[s.key] = one
             else if isStr(local[s.local]) and local[s.local] <> ""
                 stamps[s.key] = one
             end if
@@ -209,6 +228,38 @@ namespace SettingsSync
         if rows.Count() >= 1 and rows[0].id <> "hero" then return true
         if rows.Count() >= 2 and rows[1].id <> "continueWatching" then return true
         return false
+    end function
+
+    ' The same caution for the side menu: Home rewrites the list on every
+    ' load and each migration put its entry somewhere of its own (Requests
+    ' and SashimiTV after Continue Watching, Lists and the Dashboard at the
+    ' end, the library order the server's), so only what no migration does
+    ' counts: a destination off in the menu, or a top of the menu other than
+    ' Search then the Watchlist (where the default and the Search migration
+    ' both put them).
+    function menuCustomised(config as dynamic) as boolean
+        if type(config) <> "roArray" then return false
+        top = []
+        for each c in config
+            if RailItems.isDestination(c)
+                if not RailItems.inRail(c) then return true
+                top.Push(RailItems.kindOf(c))
+            end if
+        end for
+        if top.Count() >= 1 and top[0] <> "search" then return true
+        if top.Count() >= 2 and top[1] <> "watchlist" then return true
+        return false
+    end function
+
+    ' Which layout keys an edit of homeRowOrder changed, before -> after:
+    ' homeRows when the rows' order or a Home toggle did, sideMenu when the
+    ' combined order or a menu toggle did. Both sides should have been
+    ' through RailItems.withBuiltIns, so an entry a migration adds is no edit.
+    function layoutChanges(before as dynamic, after as dynamic) as object
+        out = []
+        if FormatJson(localLayout(before)) <> FormatJson(localLayout(after)) then out.Push("homeRows")
+        if FormatJson(localSideMenu(before)) <> FormatJson(localSideMenu(after)) then out.Push("sideMenu")
+        return out
     end function
 
     ' A setting changed on this device: stamp it now. The request is only
@@ -245,7 +296,7 @@ namespace SettingsSync
         writes = {}
         hasConfig = type(layoutConfig) = "roArray" and layoutConfig.Count() > 0
         for each s in specs()
-            if s.kind = "layout" and not hasConfig then continue for
+            if s.kind = "layout" or s.kind = "menu" then continue for
             localT = invalid
             if stamps.DoesExist(s.key) then localT = stamps[s.key]
             present = remote.DoesExist(s.key) and remote[s.key] <> invalid
@@ -253,35 +304,86 @@ namespace SettingsSync
             if present then entry = decodeEntry(remote[s.key])
             if present and entry = invalid then continue for
             if entry <> invalid and (localT = invalid or entry.t > localT)
-                if s.kind = "layout"
-                    layout = decodeLayout(entry.v)
-                    if layout <> invalid
-                        apply.Push({ key: s.key, local: s.local, value: applyLayout(layoutConfig, layout), t: entry.t })
-                        newStamps[s.key] = entry.t
-                    end if
-                else
-                    value = localFromShared(s, entry.v)
-                    if value <> invalid
-                        apply.Push({ key: s.key, local: s.local, value: value, t: entry.t })
-                        newStamps[s.key] = entry.t
-                    end if
+                value = localFromShared(s, entry.v)
+                if value <> invalid
+                    apply.Push({ key: s.key, local: s.local, value: value, t: entry.t })
+                    newStamps[s.key] = entry.t
                 end if
             else if localT <> invalid and (entry = invalid or localT > entry.t)
-                json = invalid
-                if s.kind = "layout"
-                    remoteLayout = []
-                    if entry <> invalid then remoteLayout = decodeLayout(entry.v)
-                    if remoteLayout = invalid then remoteLayout = []
-                    json = FormatJson(layoutForWrite(layoutConfig, remoteLayout))
-                else
-                    stored = ""
-                    if isStr(local[s.local]) then stored = local[s.local]
-                    json = sharedJson(s, stored)
-                end if
+                stored = ""
+                if isStr(local[s.local]) then stored = local[s.local]
+                json = sharedJson(s, stored)
                 if json <> invalid then writes[s.key] = encodeEntry(json, localT)
             end if
         end for
+        if hasConfig then reconcileLayouts(layoutConfig, stamps, remote, apply, writes, newStamps)
         return { apply: apply, writes: writes, stamps: newStamps }
+    end function
+
+    ' homeRows and sideMenu both live in homeRowOrder, so they are decided
+    ' together and applied as one config. sideMenu's order goes first, then
+    ' homeRows' on flags; when both carry an order the newer t decides the
+    ' rows' relative order (the older one still places what the newer one
+    ' lacks, and menu-only entries keep sideMenu's places, since a homeRows
+    ' layout only moves rows). That holds against a key applied earlier too:
+    ' its local stamp stands for it. Writes are made from the result.
+    sub reconcileLayouts(config as object, stamps as object, remote as object, apply as object, writes as object, newStamps as object)
+        hr = layoutDecision("homeRows", stamps, remote)
+        sm = layoutDecision("sideMenu", stamps, remote)
+        if hr.skip and sm.skip then return
+        out = config
+        if hr.apply and sm.apply
+            if hr.t > sm.t
+                out = applyLayout(applySideMenu(config, sm.value), hr.value)
+            else
+                out = applySideMenu(applyLayout(config, hr.value), sm.value)
+            end if
+        else if sm.apply
+            out = applySideMenu(config, sm.value)
+            if hr.localT <> invalid and hr.localT > sm.t then out = applyLayout(out, localLayout(config))
+        else if hr.apply
+            out = applyLayout(config, hr.value)
+            if sm.localT <> invalid and sm.localT > hr.t then out = applySideMenu(out, localSideMenu(config))
+        end if
+        for each d in [hr, sm]
+            if d.apply
+                apply.Push({ key: d.key, local: LAYOUT_LOCAL_KEY, value: out, t: d.t })
+                newStamps[d.key] = d.t
+            else if d.write
+                remoteValue = d.value
+                if remoteValue = invalid then remoteValue = []
+                if d.key = "homeRows"
+                    json = FormatJson(layoutForWrite(out, remoteValue))
+                else
+                    json = FormatJson(sideMenuForWrite(out, remoteValue))
+                end if
+                writes[d.key] = encodeEntry(json, d.localT)
+            end if
+        end for
+    end sub
+
+    ' One layout key's reconcile: apply (remote newer and readable), write
+    ' (ours newer, or none remote), else nothing. An entry that can't be read
+    ' at all is skipped, as for every key; a readable entry whose value isn't
+    ' a layout is never applied, but is overwritten by a newer local value.
+    function layoutDecision(key as string, stamps as object, remote as object) as object
+        d = { key: key, apply: false, write: false, skip: true, value: invalid, t: invalid, localT: invalid }
+        if stamps.DoesExist(key) then d.localT = stamps[key]
+        present = remote.DoesExist(key) and remote[key] <> invalid
+        entry = invalid
+        if present then entry = decodeEntry(remote[key])
+        if present and entry = invalid then return d
+        if entry <> invalid
+            if key = "homeRows" then d.value = decodeLayout(entry.v) else d.value = decodeSideMenu(entry.v)
+            d.t = entry.t
+        end if
+        if entry <> invalid and (d.localT = invalid or entry.t > d.localT)
+            d.apply = d.value <> invalid
+        else if d.localT <> invalid and (entry = invalid or d.localT > entry.t)
+            d.write = true
+        end if
+        d.skip = not d.apply and not d.write
+        return d
     end function
 
     ' The dto goes back whole with only our keys (and the schema) replaced:
@@ -366,43 +468,63 @@ namespace SettingsSync
     ' follows here now; ids this device doesn't have are skipped. Entries
     ' with no Home row (and their side-menu `rail` flags) keep their places.
     function applyLayout(config as object, layout as object) as object
-        rows = []
+        ids = []
+        for each c in config
+            ids.Push(sharedId(c))
+        end for
+        out = reorder(config, ids, layout)
+        flags = {}
+        for each e in layout
+            if not flags.DoesExist(e.id) then flags[e.id] = e.on
+        end for
+        for i = 0 to out.Count() - 1
+            id = sharedId(out[i])
+            if id <> "" and flags.DoesExist(id)
+                copy = {}
+                copy.Append(out[i])
+                copy.visible = flags[id]
+                out[i] = copy
+            end if
+        end for
+        return out
+    end function
+
+    ' config with the entries that have an id (ids[i] <> "") put in `wanted`'s
+    ' order: those `wanted` names first take its order, one it doesn't name
+    ' stays right after the entry it follows now, ids this config lacks are
+    ' skipped, and entries without an id keep their slots. A repeated id
+    ' keeps its slot after the first.
+    function reorder(config as object, ids as object, wanted as object) as object
+        rows = {}
+        rowIds = []
         slots = []
         for i = 0 to config.Count() - 1
-            if sharedId(config[i]) <> ""
-                rows.Push(config[i])
+            if ids[i] <> "" and not rows.DoesExist(ids[i])
+                rows[ids[i]] = config[i]
+                rowIds.Push(ids[i])
                 slots.Push(i)
             end if
         end for
-        byId = {}
-        for each r in rows
-            byId[sharedId(r)] = r
-        end for
         named = {}
         ordered = []
-        for each e in layout
-            if byId.DoesExist(e.id) and not named.DoesExist(e.id)
-                named[e.id] = e.on
-                ordered.Push(byId[e.id])
+        for each e in wanted
+            if rows.DoesExist(e.id) and not named.DoesExist(e.id)
+                named[e.id] = true
+                ordered.Push(e.id)
             end if
         end for
-        for i = 0 to rows.Count() - 1
-            id = sharedId(rows[i])
-            if named.DoesExist(id) then continue for
+        for i = 0 to rowIds.Count() - 1
+            if named.DoesExist(rowIds[i]) then continue for
             at = 0
-            if i > 0 then at = indexOfShared(ordered, sharedId(rows[i - 1])) + 1
-            ordered = insertAt(ordered, at, rows[i])
+            if i > 0 then at = indexOfStr(ordered, rowIds[i - 1]) + 1
+            ordered = insertAt(ordered, at, rowIds[i])
         end for
         out = []
         for each c in config
             out.Push(c)
         end for
         for i = 0 to slots.Count() - 1
-            copy = {}
-            copy.Append(ordered[i])
-            id = sharedId(copy)
-            if named.DoesExist(id) then copy.visible = named[id]
-            out[slots[i]] = copy
+            out[slots[i]] = rows[ordered[i]]
         end for
         return out
     end function
@@ -429,20 +551,110 @@ namespace SettingsSync
         return -1
     end function
 
-    function indexOfShared(list as object, id as string) as integer
+    function indexOfStr(list as object, id as string) as integer
         for i = 0 to list.Count() - 1
-            if sharedId(list[i]) = id then return i
+            if list[i] = id then return i
         end for
         return -1
     end function
 
-    function insertAt(list as object, at as integer, item as object) as object
+    function insertAt(list as object, at as integer, item as dynamic) as object
         out = []
         for i = 0 to list.Count() - 1
             if i = at then out.Push(item)
             out.Push(list[i])
         end for
         if at >= list.Count() then out.Push(item)
+        return out
+    end function
+
+    ' ---------- Side menu (sideMenu, phase 2) ----------
+
+    ' The sideMenu id of a homeRowOrder entry: a row's homeRows id, or the
+    ' menu-only destination's own (search, lists, watchlist, dashboard); ""
+    ' for an entry that can't be read.
+    function menuId(entry as dynamic) as string
+        id = sharedId(entry)
+        if id <> "" then return id
+        k = RailItems.kindOf(entry)
+        if k = "search" or k = "lists" or k = "watchlist" or k = "dashboard" then return k
+        return ""
+    end function
+
+    ' This device's combined order as [{ id, menu }], `menu` (its rail flag)
+    ' only on destinations. A repeated id keeps its first.
+    function localSideMenu(config as dynamic) as object
+        out = []
+        if type(config) <> "roArray" then return out
+        seen = {}
+        for each c in config
+            id = menuId(c)
+            if id = "" or seen.DoesExist(id) then continue for
+            seen[id] = true
+            e = { id: id }
+            if RailItems.isDestination(c) then e.menu = RailItems.inRail(c)
+            out.Push(e)
+        end for
+        return out
+    end function
+
+    ' A remote sideMenu, or invalid when v is not an array. Entries without a
+    ' string id are dropped, a menu that isn't a boolean is (the entry still
+    ' places), and a repeated id keeps its first.
+    function decodeSideMenu(v as dynamic) as dynamic
+        if type(v) <> "roArray" then return invalid
+        out = []
+        seen = {}
+        for each e in v
+            if type(e) <> "roAssociativeArray" or not isStr(e.id) or seen.DoesExist(e.id) then continue for
+            seen[e.id] = true
+            d = { id: e.id }
+            if e.menu <> invalid and GetInterface(e.menu, "ifBoolean") <> invalid then d.menu = e.menu
+            out.Push(d)
+        end for
+        return out
+    end function
+
+    ' Applying a sideMenu: the combined order (same rules as a layout), and
+    ' a `menu` flag becomes the rail flag of a destination; anywhere else it
+    ' is ignored, and Home's `visible` flags never change here.
+    function applySideMenu(config as object, entries as object) as object
+        ids = []
+        for each c in config
+            ids.Push(menuId(c))
+        end for
+        out = reorder(config, ids, entries)
+        flags = {}
+        for each e in entries
+            if e.menu <> invalid and not flags.DoesExist(e.id) then flags[e.id] = e.menu
+        end for
+        for i = 0 to out.Count() - 1
+            id = menuId(out[i])
+            ' Only a flag that changes something is written, so a config
+            ' that agrees stays byte for byte (a library's absent rail is on).
+            if id <> "" and flags.DoesExist(id) and RailItems.isDestination(out[i]) and RailItems.inRail(out[i]) <> flags[id]
+                copy = {}
+                copy.Append(out[i])
+                copy.rail = flags[id]
+                out[i] = copy
+            end if
+        end for
+        return out
+    end function
+
+    ' Writing a sideMenu: this device's combined order, then every remote
+    ' entry it doesn't have (Downloads, which Roku has no page for; an id a
+    ' newer build added) put back after its remote predecessor, as it was.
+    function sideMenuForWrite(config as dynamic, remote as object) as object
+        out = localSideMenu(config)
+        for j = 0 to remote.Count() - 1
+            if indexOfId(out, remote[j].id) >= 0 then continue for
+            at = 0
+            if j > 0 then at = indexOfId(out, remote[j - 1].id) + 1
+            e = { id: remote[j].id }
+            if remote[j].menu <> invalid then e.menu = remote[j].menu
+            out = insertAt(out, at, e)
+        end for
         return out
     end function
 
