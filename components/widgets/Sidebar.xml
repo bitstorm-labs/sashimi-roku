@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!-- Plex-style pullout sidebar: collapsed icon rail expands over content when
-     focused. Logo top, Home/[libraries]/Search/Settings centered, avatar +
+     focused. Logo top, Home/[Home & Side Menu list]/Settings centered, avatar +
      server-switch at the foot. Content switches as focus moves (navChoice). -->
 <component name="Sidebar" extends="Group">
     <interface>

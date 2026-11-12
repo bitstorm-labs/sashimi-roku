@@ -7,17 +7,18 @@
 namespace RailItems
 
     ' Rows that are also rail destinations: a library, SashimiTV and Requests
-    ' (Seerr), plus three destinations with no Home row: the Lists page
+    ' (Seerr), plus four destinations with no Home row: Search, the Lists page
     ' (shared lists), the Watchlist page and the admin Dashboard. The hero,
-    ' Continue Watching and subscribed lists ("list") are Home-only.
+    ' Continue Watching and subscribed lists ("list") are Home-only. Home and
+    ' Settings are not in the list at all: the menu pins them first and last.
     function isDestination(entry as dynamic) as boolean
         k = kindOf(entry)
-        return (k = "library" or k = "fintv" or k = "requests" or k = "lists" or k = "watchlist" or k = "dashboard")
+        return (k = "library" or k = "fintv" or k = "requests" or k = "search" or k = "lists" or k = "watchlist" or k = "dashboard")
     end function
 
     function hasHomeRow(entry as dynamic) as boolean
         k = kindOf(entry)
-        return k <> "" and k <> "lists" and k <> "watchlist" and k <> "dashboard"
+        return k <> "" and k <> "search" and k <> "lists" and k <> "watchlist" and k <> "dashboard"
     end function
 
     ' Config rows come from the registry; never compare an absent field (invalid
@@ -72,23 +73,43 @@ namespace RailItems
         return available[k] = true
     end function
 
-    ' Every entry the editor and the menu work from: the saved config with the
-    ' built-in destinations a config that predates them lacks, each put where
-    ' it has always been drawn (SashimiTV and Requests after Continue
-    ' Watching, Lists then the Dashboard at the end) or, for the Watchlist,
-    ' where it is meant to start out (last, so it sits next to Search).
+    ' The list a fresh install starts from (the same on every Sashimi
+    ' client): Search, the Watchlist, then the Home rows (Featured, Continue
+    ' Watching, SashimiTV, the libraries), then Lists, Requests and the
+    ' Dashboard. `libraries` are the library entries, in server order.
+    function defaults(libraries = [] as object) as object
+        result = [
+            searchEntry(),
+            watchlistEntry(),
+            { id: "hero", kind: "hero", name: "Featured", visible: true },
+            { id: "cw", kind: "cw", name: "Continue Watching", visible: true },
+            fintvEntry()
+        ]
+        result.Append(libraries)
+        result.push(listsEntry())
+        result.push(requestsEntry())
+        result.push(dashboardEntry())
+        return result
+    end function
+
+    ' Every entry the editor and the menu work from. No saved order at all:
+    ' the defaults. Otherwise the saved config with the built-in destinations
+    ' a config that predates them lacks, each put where it has always been
+    ' drawn (SashimiTV and Requests after Continue Watching, Lists then the
+    ' Dashboard at the end, the Watchlist last), then Search, which moves
+    ' the Watchlist under it once (withSearch).
     function withBuiltIns(config as dynamic) as object
-        if config = invalid or type(config) <> "roArray" then config = []
-        return withWatchlist(withDashboard(withLists(withRequests(withFintv(config)))))
+        if config = invalid or type(config) <> "roArray" or config.count() = 0 then return defaults()
+        return withSearch(withWatchlist(withDashboard(withLists(withRequests(withFintv(config))))))
     end function
 
     ' The rail's ids, top to bottom: Home, then every destination in exactly
     ' the order of the Home & Side Menu list (so the side menu matches Home's
-    ' rows), less what is hidden from the menu or not available now, then
-    ' Search and Settings. Home, Search and Settings are always there whatever
-    ' the config says. A library the config doesn't know yet is shown after the
-    ' known ones, in server order; config entries for libraries the server no
-    ' longer has are ignored.
+    ' rows), Search included, less what is hidden from the menu or not
+    ' available now, then Settings. Home and Settings are always there
+    ' whatever the config says. A library the config doesn't know yet is shown
+    ' after the known ones, in server order; config entries for libraries the
+    ' server no longer has are ignored.
     function ids(libraryIds as object, config as dynamic, available = invalid as dynamic) as object
         present = {}
         for each id in libraryIds
@@ -113,13 +134,17 @@ namespace RailItems
             end if
         end for
         ' New libraries go after the last library shown, else ahead of Lists,
-        ' the Watchlist and the Dashboard (where libraries have always been
-        ' listed).
+        ' Requests and the Dashboard (where libraries have always been
+        ' listed), but never above Search or the Watchlist.
         at = lastLibrary + 1
         if lastLibrary < 0
+            floor = 1
+            for i = 1 to result.count() - 1
+                if result[i] = "search" or result[i] = "watchlist" then floor = i + 1
+            end for
             at = result.count()
-            for i = result.count() - 1 to 1 step -1
-                if result[i] = "lists" or result[i] = "watchlist" or result[i] = "dashboard" then at = i
+            for i = result.count() - 1 to floor step -1
+                if result[i] = "lists" or result[i] = "requests" or result[i] = "dashboard" then at = i
             end for
         end if
         for each id in libraryIds
@@ -135,7 +160,6 @@ namespace RailItems
             at = at + 1
         end for
 
-        result.push("search")
         result.push("settings")
         return result
     end function
@@ -251,7 +275,7 @@ namespace RailItems
         for each c in config
             if kindOf(c) = "requests" then return config
         end for
-        return insertAfterCw(config, { id: "requests", kind: "requests", name: "Requests", visible: true, rail: true })
+        return insertAfterCw(config, requestsEntry())
     end function
 
     ' The Dashboard entry (administrators), added to a config that predates
@@ -260,7 +284,7 @@ namespace RailItems
         for each c in config
             if kindOf(c) = "dashboard" then return config
         end for
-        entry = { id: "dashboard", kind: "dashboard", name: "Dashboard", rail: true }
+        entry = dashboardEntry()
         result = []
         inserted = false
         for each c in config
@@ -294,7 +318,7 @@ namespace RailItems
         for each c in config
             if kindOf(c) = "fintv" then return config
         end for
-        entry = { id: "fintv", kind: "fintv", name: "SashimiTV", visible: true, rail: true }
+        entry = fintvEntry()
         result = []
         inserted = false
         for each c in config
@@ -310,17 +334,91 @@ namespace RailItems
 
     ' The Watchlist entry (owner, 2026-11-11: its own side-menu place, opening
     ' straight onto the Watchlist page), added to a config that predates it at
-    ' the end. The menu draws Search after every destination, so the last
-    ' destination is the one right next to Search, where the other clients
-    ' put the Watchlist. Like Lists it has no Home row.
+    ' the end; withSearch then moves it under Search if the config predates
+    ' Search too. Like Lists it has no Home row.
     function withWatchlist(config as object) as object
         for each c in config
             if kindOf(c) = "watchlist" then return config
         end for
         result = []
         result.Append(config)
-        result.push({ id: "watchlist", kind: "watchlist", name: "Watchlist", rail: true })
+        result.push(watchlistEntry())
         return result
+    end function
+
+    ' Search in the list (owner, 2026-11-12: one ordered side menu on every
+    ' client, Home first and Settings last, nothing else pinned). A config
+    ' with no Search entry predates this: Search goes first and the Watchlist
+    ' straight under it, everything else keeping its order. Once Search is
+    ' there nothing moves again, wherever the user put either of them.
+    function withSearch(config as object) as object
+        for each c in config
+            if kindOf(c) = "search" then return config
+        end for
+        result = [searchEntry()]
+        rest = []
+        for each c in config
+            if kindOf(c) = "watchlist" and result.count() = 1
+                result.push(c)
+            else
+                rest.push(c)
+            end if
+        end for
+        result.Append(rest)
+        return result
+    end function
+
+    ' Where Home adds a library the saved config doesn't know yet: after the
+    ' last library in it, else ahead of Lists, Requests and the Dashboard
+    ' (never above Search or the Watchlist), else at the end.
+    function insertLibrary(config as object, entry as object) as object
+        at = -1
+        for i = 0 to config.count() - 1
+            if kindOf(config[i]) = "library" then at = i + 1
+        end for
+        if at < 0
+            floor = 0
+            for i = 0 to config.count() - 1
+                k = kindOf(config[i])
+                if k = "search" or k = "watchlist" then floor = i + 1
+            end for
+            at = config.count()
+            for i = config.count() - 1 to floor step -1
+                k = kindOf(config[i])
+                if k = "lists" or k = "requests" or k = "dashboard" then at = i
+            end for
+        end if
+        result = []
+        for i = 0 to config.count() - 1
+            if i = at then result.push(entry)
+            result.push(config[i])
+        end for
+        if at >= config.count() then result.push(entry)
+        return result
+    end function
+
+    function searchEntry() as object
+        return { id: "search", kind: "search", name: "Search", rail: true }
+    end function
+
+    function watchlistEntry() as object
+        return { id: "watchlist", kind: "watchlist", name: "Watchlist", rail: true }
+    end function
+
+    function fintvEntry() as object
+        return { id: "fintv", kind: "fintv", name: "SashimiTV", visible: true, rail: true }
+    end function
+
+    function listsEntry() as object
+        return { id: "lists", kind: "lists", name: "Lists", rail: true }
+    end function
+
+    function requestsEntry() as object
+        return { id: "requests", kind: "requests", name: "Requests", visible: true, rail: true }
+    end function
+
+    function dashboardEntry() as object
+        return { id: "dashboard", kind: "dashboard", name: "Dashboard", rail: true }
     end function
 
     ' The Lists entry, added to a config that predates it, at the end: it has no
@@ -331,7 +429,7 @@ namespace RailItems
         end for
         result = []
         result.Append(config)
-        result.push({ id: "lists", kind: "lists", name: "Lists", rail: true })
+        result.push(listsEntry())
         return result
     end function
 

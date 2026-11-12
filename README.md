@@ -61,10 +61,11 @@ Movies use the same layout without seasons.*
 ### Browsing
 
 - **Pullout sidebar.** A collapsed icon rail that expands when focused (press
-  LEFT). It holds Home, Stations (channels), your libraries, Lists, the
-  Watchlist (straight onto its page, if the server has the Sashimi Lists
-  plugin), Search, Settings and an account row. Move or hide entries in
-  *Settings → Home & Side Menu*.
+  LEFT). Home sits at the top and Settings at the bottom, above an account
+  row; between them, in one order you choose, Search, the Watchlist
+  (straight onto its page, if the server has the Sashimi Lists plugin),
+  Stations (channels), your libraries, Lists, Requests and the Dashboard.
+  Move or hide entries in *Settings → Home & Side Menu*.
 - **Home.** A rotating hero banner, **Continue Watching**, a **Stations** row if
   you have channels, and **Recently Added** per library. Reorder or hide rows in
   *Settings → Home & Side Menu*.

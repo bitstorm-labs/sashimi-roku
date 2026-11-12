@@ -501,20 +501,27 @@ sub applyHomeRowConfig()
         end if
     end for
 
-    ' append new libraries not yet configured
+    ' add new libraries not yet configured, after the known ones
+    newLibraries = []
     for each lib in m.libraries
         found = false
         for each c in merged
             if c.kind = "library" and c.libraryId = lib.Id then found = true
         end for
         if not found
-            merged.push({ id: "library_" + lib.Id, kind: "library", libraryId: lib.Id, name: "Recently Added " + YT.cleanTitle(lib.Name), visible: true })
+            entry = { id: "library_" + lib.Id, kind: "library", libraryId: lib.Id, name: "Recently Added " + YT.cleanTitle(lib.Name), visible: true }
+            newLibraries.push(entry)
+            if saved.count() > 0 then merged = RailItems.insertLibrary(merged, entry)
         end if
     end for
 
+    ' No saved order at all: a fresh install starts from the shared default
+    ' (Search, Watchlist, the Home rows, Lists, Requests, Dashboard).
+    if saved.count() = 0 then merged = RailItems.defaults(newLibraries)
+
     ' SashimiTV and Requests have a Home row and a side-menu place of their
-    ' own, Lists and the Dashboard a side-menu place; configs saved before
-    ' they existed gain their entries, shown.
+    ' own, Search, Lists, the Watchlist and the Dashboard a side-menu place;
+    ' configs saved before they existed gain their entries, shown.
     merged = RailItems.withBuiltIns(merged)
 
     ' Every load runs this merge, but the result only changes when a library is
