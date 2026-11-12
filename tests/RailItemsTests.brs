@@ -21,6 +21,11 @@ sub main()
     testEditorView(t)
     testHomeOrder(t)
     testWatchlist(t)
+    testFreshDefault(t)
+    testSearchMigration(t)
+    testUserPlacementWins(t)
+    testHideSearch(t)
+    testInsertLibrary(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -62,19 +67,19 @@ function baseConfig() as object
 end function
 
 sub testDefaults(t as object)
-    eq(t, "no config lists everything", joined(RailItems_ids(["m", "tv"], invalid)), "home,fintv,lib:m,lib:tv,lists,watchlist,search,settings")
-    eq(t, "empty config lists everything", joined(RailItems_ids(["m", "tv"], [])), "home,fintv,lib:m,lib:tv,lists,watchlist,search,settings")
+    eq(t, "no config lists everything", joined(RailItems_ids(["m", "tv"], invalid)), "home,search,watchlist,fintv,lib:m,lib:tv,lists,settings")
+    eq(t, "empty config lists everything", joined(RailItems_ids(["m", "tv"], [])), "home,search,watchlist,fintv,lib:m,lib:tv,lists,settings")
     ' Configs saved before the menu toggle have no `rail` field.
     old = [lib("m", true, invalid), lib("tv", false, invalid)]
-    eq(t, "pre-toggle config shows all", joined(RailItems_ids(["m", "tv"], old)), "home,fintv,lib:m,lib:tv,lists,watchlist,search,settings")
+    eq(t, "pre-toggle config shows all", joined(RailItems_ids(["m", "tv"], old)), "home,search,watchlist,fintv,lib:m,lib:tv,lists,settings")
 end sub
 
 sub testHiddenDrop(t as object)
     c = baseConfig()
     c[4].rail = false
-    eq(t, "hidden library drops", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,fintv,lib:m,lib:yt,lists,watchlist,search,settings")
+    eq(t, "hidden library drops", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,search,watchlist,fintv,lib:m,lib:yt,lists,settings")
     c[2].rail = false
-    eq(t, "hidden SashimiTV drops", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,lib:m,lib:yt,lists,watchlist,search,settings")
+    eq(t, "hidden SashimiTV drops", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,search,watchlist,lib:m,lib:yt,lists,settings")
 end sub
 
 sub testAlwaysShown(t as object)
@@ -88,34 +93,34 @@ sub testAlwaysShown(t as object)
     c.push({ id: "home", kind: "home", rail: false })
     c.push({ id: "search", kind: "search", rail: false })
     c.push({ id: "settings", kind: "settings", rail: false })
-    eq(t, "Home, Search, Settings can't drop", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,search,settings")
+    eq(t, "Home and Settings can't drop", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,settings")
 end sub
 
 sub testOrder(t as object)
     c = baseConfig()
     ' Home row order: yt, m, tv.
     c = [c[0], c[1], c[2], c[5], c[3], c[4]]
-    eq(t, "libraries follow the Home order", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,fintv,lib:yt,lib:m,lib:tv,lists,watchlist,search,settings")
+    eq(t, "libraries follow the Home order", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,search,watchlist,fintv,lib:yt,lib:m,lib:tv,lists,settings")
     ' SashimiTV dragged below the libraries moves in the menu too: the menu
     ' follows the Home rows exactly (it used to stay pinned under Home).
     c2 = [c[0], c[1], c[3], c[4], c[5], c[2]]
-    eq(t, "SashimiTV follows its row", joined(RailItems_ids(["m", "tv", "yt"], c2)), "home,lib:yt,lib:m,lib:tv,fintv,lists,watchlist,search,settings")
+    eq(t, "SashimiTV follows its row", joined(RailItems_ids(["m", "tv", "yt"], c2)), "home,search,watchlist,lib:yt,lib:m,lib:tv,fintv,lists,settings")
 end sub
 
 sub testNewAndStale(t as object)
     c = baseConfig()
-    eq(t, "new library appended, visible", joined(RailItems_ids(["new", "m", "tv", "yt"], c)), "home,fintv,lib:m,lib:tv,lib:yt,lib:new,lists,watchlist,search,settings")
-    eq(t, "removed library ignored", joined(RailItems_ids(["m", "yt"], c)), "home,fintv,lib:m,lib:yt,lists,watchlist,search,settings")
+    eq(t, "new library appended, visible", joined(RailItems_ids(["new", "m", "tv", "yt"], c)), "home,search,watchlist,fintv,lib:m,lib:tv,lib:yt,lib:new,lists,settings")
+    eq(t, "removed library ignored", joined(RailItems_ids(["m", "yt"], c)), "home,search,watchlist,fintv,lib:m,lib:yt,lists,settings")
     c.push(lib("m", true, false))
-    eq(t, "duplicate entry: first wins", joined(RailItems_ids(["m"], c)), "home,fintv,lib:m,lists,watchlist,search,settings")
+    eq(t, "duplicate entry: first wins", joined(RailItems_ids(["m"], c)), "home,search,watchlist,fintv,lib:m,lists,settings")
     junk = [invalid, { kind: 5 }, { kind: "library" }, { kind: "library", libraryId: 7 }, "x"]
-    eq(t, "malformed entries ignored", joined(RailItems_ids(["m"], junk)), "home,fintv,lib:m,lists,watchlist,search,settings")
+    eq(t, "malformed entries ignored", joined(RailItems_ids(["m"], junk)), "home,search,watchlist,fintv,lib:m,lists,settings")
 end sub
 
 sub testIndependentOfHome(t as object)
     c = baseConfig()
     c[3].visible = false
-    eq(t, "hidden on Home, still in menu", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,fintv,lib:m,lib:tv,lib:yt,lists,watchlist,search,settings")
+    eq(t, "hidden on Home, still in menu", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,search,watchlist,fintv,lib:m,lib:tv,lib:yt,lists,settings")
     eq(t, "hidden on Home only: reachable", RailItems_onlyFromSearch(c[3]), false)
     c[3].rail = false
     eq(t, "hidden everywhere: footnote", RailItems_onlyFromSearch(c[3]), true)
@@ -161,7 +166,7 @@ end sub
 ' is a dash for it.
 sub testLists(t as object)
     c = baseConfig()
-    eq(t, "Lists after the libraries", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,fintv,lib:m,lib:tv,lib:yt,lists,watchlist,search,settings")
+    eq(t, "Lists after the libraries", joined(RailItems_ids(["m", "tv", "yt"], c)), "home,search,watchlist,fintv,lib:m,lib:tv,lib:yt,lists,settings")
     r = RailItems_withLists(c)
     eq(t, "Lists added once", r.count(), 7)
     eq(t, "at the end", r[6].kind, "lists")
@@ -173,7 +178,7 @@ sub testLists(t as object)
     mk = RailItems_marks(r[6])
     eq(t, "Home column is a dash", mk.home + "/" + mk.rail, "none/on")
     r[6] = RailItems_toggleRail(r[6])
-    eq(t, "hidden from the menu", joined(RailItems_ids(["m", "tv", "yt"], r)), "home,fintv,lib:m,lib:tv,lib:yt,watchlist,search,settings")
+    eq(t, "hidden from the menu", joined(RailItems_ids(["m", "tv", "yt"], r)), "home,search,watchlist,fintv,lib:m,lib:tv,lib:yt,settings")
     eq(t, "hidden Lists is no Search-only footnote", RailItems_onlyFromSearch(r[6]), false)
     e = RailItems_toggleHome(r[6])
     eq(t, "OK does nothing to Lists", e.visible = invalid, true)
@@ -197,20 +202,23 @@ function expectedMenu(libraryIds as object, config as object, available as dynam
         k = c.kind
         if k = "library"
             if present.DoesExist(c.libraryId) and c.rail <> false then out = out + ",lib:" + c.libraryId
-        else if k = "fintv" or k = "lists" or k = "watchlist" or k = "requests" or k = "dashboard"
+        else if k = "fintv" or k = "search" or k = "lists" or k = "watchlist" or k = "requests" or k = "dashboard"
             ok = c.rail <> false
             if k = "requests" or k = "dashboard" then ok = ok and available <> invalid and available[k] = true
             if ok then out = out + "," + k
         end if
     end for
-    return out + ",search,settings"
+    return out + ",settings"
 end function
 
+' Every destination, Search moved by the user to the bottom (after a
+' migration, wherever Search is, it stays).
 function fullConfig() as object
     c = baseConfig()
     c.push({ id: "lists", kind: "lists", name: "Lists", rail: true })
     c.push({ id: "dashboard", kind: "dashboard", name: "Dashboard", rail: true })
     c.push({ id: "watchlist", kind: "watchlist", name: "Watchlist", rail: true })
+    c.push({ id: "search", kind: "search", name: "Search", rail: true })
     return RailItems_withRequests(c)
 end function
 
@@ -248,10 +256,10 @@ sub testMenuFollowsRows(t as object)
     eq(t, "every move: the menu keeps the rows' order", mismatches, 0)
     eq(t, "moves tried", moves, c.count() * c.count())
     ' Lists moved above the libraries.
-    mv = [c[0], c[1], c[2], c[3], c[7], c[4], c[5], c[6], c[8]]
+    mv = [c[0], c[1], c[2], c[3], c[7], c[4], c[5], c[6], c[8], c[9], c[10]]
     eq(t, "Lists where it was put", joined(RailItems_ids(libs, mv, all)), "home,requests,fintv,lists,lib:m,lib:tv,lib:yt,dashboard,watchlist,search,settings")
     ' The Dashboard moved to the top.
-    mv = [c[8], c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]
+    mv = [c[8], c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[9], c[10]]
     eq(t, "Dashboard where it was put", joined(RailItems_ids(libs, mv, all)), "home,dashboard,requests,fintv,lib:m,lib:tv,lib:yt,lists,watchlist,search,settings")
 end sub
 
@@ -269,16 +277,16 @@ sub testRequestsRow(t as object)
     eq(t, "both columns", mk.home + "/" + mk.rail, "on/on")
     ' Hiding it on Home leaves the menu entry (the menu toggle is separate).
     r[2] = RailItems_toggleHome(r[2])
-    eq(t, "hidden on Home, still in menu", joined(RailItems_ids(["m"], r, { requests: true })), "home,requests,fintv,lib:m,lists,watchlist,search,settings")
+    eq(t, "hidden on Home, still in menu", joined(RailItems_ids(["m"], r, { requests: true })), "home,search,watchlist,requests,fintv,lib:m,lists,settings")
     eq(t, "not on Home", RailItems_onHome(r[2]), false)
     ' Not signed in to Seerr: no entry, wherever it is saved.
-    eq(t, "no Seerr account: absent", joined(RailItems_ids(["m"], r, { requests: false })), "home,fintv,lib:m,lists,watchlist,search,settings")
-    eq(t, "nothing available: absent", joined(RailItems_ids(["m"], r)), "home,fintv,lib:m,lists,watchlist,search,settings")
+    eq(t, "no Seerr account: absent", joined(RailItems_ids(["m"], r, { requests: false })), "home,search,watchlist,fintv,lib:m,lists,settings")
+    eq(t, "nothing available: absent", joined(RailItems_ids(["m"], r)), "home,search,watchlist,fintv,lib:m,lists,settings")
     r[2] = RailItems_toggleRail(r[2])
-    eq(t, "hidden from the menu", joined(RailItems_ids(["m"], r, { requests: true })), "home,fintv,lib:m,lists,watchlist,search,settings")
+    eq(t, "hidden from the menu", joined(RailItems_ids(["m"], r, { requests: true })), "home,search,watchlist,fintv,lib:m,lists,settings")
     eq(t, "hidden everywhere: Search footnote", RailItems_note(r[2]), "Only reachable from Search")
     ' A config with no Requests entry yet still gets the menu entry.
-    eq(t, "old config gains Requests", joined(RailItems_ids(["m"], c, { requests: true })), "home,requests,fintv,lib:m,lists,watchlist,search,settings")
+    eq(t, "old config gains Requests", joined(RailItems_ids(["m"], c, { requests: true })), "home,search,watchlist,requests,fintv,lib:m,lists,settings")
 end sub
 
 sub testDashboard(t as object)
@@ -292,8 +300,8 @@ sub testDashboard(t as object)
     eq(t, "no Home row", RailItems_hasHomeRow(d), false)
     mk = RailItems_marks(d)
     eq(t, "Home column is a dash", mk.home + "/" + mk.rail, "none/on")
-    eq(t, "admins only", joined(RailItems_ids(["m", "tv", "yt"], r, { dashboard: false })), "home,fintv,lib:m,lib:tv,lib:yt,lists,watchlist,search,settings")
-    eq(t, "admin sees it", joined(RailItems_ids(["m", "tv", "yt"], r, { dashboard: true })), "home,fintv,lib:m,lib:tv,lib:yt,lists,dashboard,watchlist,search,settings")
+    eq(t, "admins only", joined(RailItems_ids(["m", "tv", "yt"], r, { dashboard: false })), "home,search,watchlist,fintv,lib:m,lib:tv,lib:yt,lists,settings")
+    eq(t, "admin sees it", joined(RailItems_ids(["m", "tv", "yt"], r, { dashboard: true })), "home,search,watchlist,fintv,lib:m,lib:tv,lib:yt,lists,dashboard,settings")
     eq(t, "shown: no note", RailItems_note(d), "")
     d = RailItems_toggleRail(d)
     eq(t, "hidden: no other way in", RailItems_note(d), "Hidden: the Dashboard has no other way in")
@@ -309,7 +317,7 @@ sub testEditorView(t as object)
     for each e in v.rows
         names.push(e.id)
     end for
-    eq(t, "unavailable entries left out", joined(names), "hero,cw,fintv,library_m,library_tv,library_yt,lists,watchlist")
+    eq(t, "unavailable entries left out", joined(names), "hero,cw,fintv,library_m,library_tv,library_yt,lists,watchlist,search")
     eq(t, "two kept aside", v.hidden.count(), 2)
     ' The user moves Lists to the top while signed out.
     rows = v.rows
@@ -321,7 +329,7 @@ sub testEditorView(t as object)
     for each e in back
         ids.push(e.id)
     end for
-    eq(t, "put back after what they followed", joined(ids), "lists,dashboard,hero,cw,requests,fintv,library_m,library_tv,library_yt,watchlist")
+    eq(t, "put back after what they followed", joined(ids), "lists,dashboard,hero,cw,requests,fintv,library_m,library_tv,library_yt,watchlist,search")
     v2 = RailItems_editorView(c, { requests: true, dashboard: true })
     eq(t, "all available: everything listed", v2.rows.count(), c.count())
     eq(t, "nothing aside", v2.hidden.count(), 0)
@@ -341,18 +349,17 @@ sub testHomeOrder(t as object)
 end sub
 
 ' The Watchlist (owner, 2026-11-11): a side-menu destination of its own,
-' opening straight onto the Watchlist page. It starts out right next to Search
-' (the last destination; the menu draws Search after them all), saved configs
-' gain it there, and it moves and hides like any other destination.
+' opening straight onto the Watchlist page. Configs saved before it existed
+' gain it, under Search once Search joins the list, and it moves and hides
+' like any other destination.
 sub testWatchlist(t as object)
     libs = ["m", "tv", "yt"]
-    eq(t, "fresh install: next to Search", joined(RailItems_ids(libs, invalid)), "home,fintv,lib:m,lib:tv,lib:yt,lists,watchlist,search,settings")
     ' A config saved before the Watchlist entry existed (with the Dashboard).
     old = RailItems_withDashboard(RailItems_withLists(baseConfig()))
-    eq(t, "saved order gains it, after the Dashboard", joined(RailItems_ids(libs, old, { dashboard: true })), "home,fintv,lib:m,lib:tv,lib:yt,lists,dashboard,watchlist,search,settings")
+    eq(t, "saved order gains it, under Search", joined(RailItems_ids(libs, old, { dashboard: true })), "home,search,watchlist,fintv,lib:m,lib:tv,lib:yt,lists,dashboard,settings")
     r = RailItems_withBuiltIns(old)
-    w = r[r.count() - 1]
-    eq(t, "migrated entry is last", w.kind, "watchlist")
+    w = r[1]
+    eq(t, "migrated entry under Search", w.kind, "watchlist")
     eq(t, "named", w.name, "Watchlist")
     eq(t, "shown in the menu", RailItems_inRail(w), true)
     eq(t, "added once", RailItems_withBuiltIns(r).count(), r.count())
@@ -361,16 +368,140 @@ sub testWatchlist(t as object)
     mk = RailItems_marks(w)
     eq(t, "Home column is a dash", mk.home + "/" + mk.rail, "none/on")
     eq(t, "OK does nothing to it", RailItems_toggleHome(w).visible = invalid, true)
-    ' Moved to the top of the list: first in the menu.
-    moved = [w]
-    for i = 0 to r.count() - 2
+    ' Moved to the top of the list: first in the menu, above Search.
+    moved = [w, r[0]]
+    for i = 2 to r.count() - 1
         moved.push(r[i])
     end for
-    eq(t, "reordered", joined(RailItems_ids(libs, moved)), "home,watchlist,fintv,lib:m,lib:tv,lib:yt,lists,search,settings")
+    eq(t, "reordered", joined(RailItems_ids(libs, moved)), "home,watchlist,search,fintv,lib:m,lib:tv,lib:yt,lists,settings")
     ' Hidden: gone from the menu, still reachable from Lists (no footnote).
     w = RailItems_toggleRail(w)
-    eq(t, "hidden", joined(RailItems_ids(libs, moved)), "home,fintv,lib:m,lib:tv,lib:yt,lists,search,settings")
+    eq(t, "hidden", joined(RailItems_ids(libs, moved)), "home,search,fintv,lib:m,lib:tv,lib:yt,lists,settings")
     eq(t, "hidden: no note", RailItems_note(w), "")
-    ' A library the config doesn't know yet goes ahead of it.
-    eq(t, "new library before it", joined(RailItems_ids(["n"], [{ id: "lists", kind: "lists", rail: true }, { id: "watchlist", kind: "watchlist", rail: true }])), "home,fintv,lib:n,lists,watchlist,search,settings")
+    ' A library the config doesn't know yet goes ahead of Lists, below Search
+    ' and the Watchlist.
+    eq(t, "new library below them", joined(RailItems_ids(["n"], [{ id: "lists", kind: "lists", rail: true }, { id: "watchlist", kind: "watchlist", rail: true }])), "home,search,watchlist,fintv,lib:n,lists,settings")
+end sub
+
+function idsOf(config as object) as string
+    out = []
+    for each e in config
+        out.push(e.id)
+    end for
+    return joined(out)
+end function
+
+' Side-menu parity (owner, 2026-11-12): Home first, Settings last, and
+' everything between them, Search included, one ordered list. A fresh
+' install starts Search, Watchlist, SashimiTV, libraries, Lists, Requests,
+' Dashboard.
+sub testFreshDefault(t as object)
+    libs = ["m", "tv", "yt"]
+    all = { requests: true, dashboard: true }
+    eq(t, "fresh: no config", joined(RailItems_ids(libs, invalid, all)), "home,search,watchlist,fintv,lib:m,lib:tv,lib:yt,lists,requests,dashboard,settings")
+    eq(t, "fresh: empty config", joined(RailItems_ids(libs, [], all)), "home,search,watchlist,fintv,lib:m,lib:tv,lib:yt,lists,requests,dashboard,settings")
+    eq(t, "fresh: nothing available", joined(RailItems_ids(libs, invalid)), "home,search,watchlist,fintv,lib:m,lib:tv,lib:yt,lists,settings")
+    ' Home's first save: the Home rows sit between the menu-only entries.
+    d = RailItems_defaults([lib("m", true, invalid), lib("tv", true, invalid)])
+    eq(t, "fresh: the saved list", idsOf(d), "search,watchlist,hero,cw,fintv,library_m,library_tv,lists,requests,dashboard")
+    eq(t, "fresh: the saved list's menu", joined(RailItems_ids(["m", "tv"], d, all)), "home,search,watchlist,fintv,lib:m,lib:tv,lists,requests,dashboard,settings")
+    eq(t, "fresh: nothing to migrate", idsOf(RailItems_withBuiltIns(d)), idsOf(d))
+    eq(t, "fresh: Search is menu-only", RailItems_hasHomeRow(d[0]), false)
+    mk = RailItems_marks(d[0])
+    eq(t, "fresh: Search's columns", mk.home + "/" + mk.rail, "none/on")
+    eq(t, "fresh: OK does nothing to Search", RailItems_toggleHome(d[0]).visible = invalid, true)
+    ' Home draws Requests after the libraries on a fresh install.
+    eq(t, "fresh: Requests row after the libraries", joined(RailItems_homeOrder(d, ["cw", "fintv", "requests", "library_m", "library_tv"])), "cw,fintv,library_m,library_tv,requests")
+end sub
+
+' An order saved before Search was in the list: Search goes first and the
+' Watchlist straight under it; everything else keeps its relative order,
+' and a second pass changes nothing.
+sub testSearchMigration(t as object)
+    all = { requests: true, dashboard: true }
+    libs = ["m", "tv"]
+    old = [
+        { id: "hero", kind: "hero", name: "Featured", visible: true },
+        { id: "cw", kind: "cw", name: "Continue Watching", visible: true },
+        { id: "fintv", kind: "fintv", name: "SashimiTV", visible: true, rail: true },
+        { id: "requests", kind: "requests", name: "Requests", visible: true, rail: true },
+        lib("m", true, true),
+        lib("tv", true, true),
+        { id: "lists", kind: "lists", name: "Lists", rail: true },
+        { id: "dashboard", kind: "dashboard", name: "Dashboard", rail: true },
+        { id: "watchlist", kind: "watchlist", name: "Watchlist", rail: true }
+    ]
+    r = RailItems_withBuiltIns(old)
+    eq(t, "migration: Search first, Watchlist under it", idsOf(r), "search,watchlist,hero,cw,fintv,requests,library_m,library_tv,lists,dashboard")
+    eq(t, "migration: the menu", joined(RailItems_ids(libs, old, all)), "home,search,watchlist,fintv,requests,lib:m,lib:tv,lists,dashboard,settings")
+    eq(t, "migration: Search shown", RailItems_inRail(r[0]), true)
+    eq(t, "migration: idempotent", idsOf(RailItems_withBuiltIns(r)), idsOf(r))
+    eq(t, "migration: idempotent menu", joined(RailItems_ids(libs, r, all)), joined(RailItems_ids(libs, old, all)))
+    ' The Watchlist hidden before the migration stays hidden, under Search.
+    old[8].rail = false
+    eq(t, "migration: hidden Watchlist stays hidden", joined(RailItems_ids(libs, old, all)), "home,search,fintv,requests,lib:m,lib:tv,lists,dashboard,settings")
+    old[8].rail = true
+    ' Older still: no Watchlist entry either. It is added, under Search.
+    older = [old[0], old[1], old[2], old[4], old[5]]
+    eq(t, "migration: no Watchlist yet", idsOf(RailItems_withBuiltIns(older)), "search,watchlist,hero,cw,requests,fintv,library_m,library_tv,lists,dashboard")
+end sub
+
+' Once Search is in the list, nothing moves it or the Watchlist again.
+sub testUserPlacementWins(t as object)
+    all = { requests: true, dashboard: true }
+    libs = ["m", "tv"]
+    c = [
+        { id: "hero", kind: "hero", name: "Featured", visible: true },
+        { id: "cw", kind: "cw", name: "Continue Watching", visible: true },
+        { id: "fintv", kind: "fintv", name: "SashimiTV", visible: true, rail: true },
+        lib("m", true, true),
+        lib("tv", true, true),
+        { id: "lists", kind: "lists", name: "Lists", rail: true },
+        { id: "search", kind: "search", name: "Search", rail: true },
+        { id: "requests", kind: "requests", name: "Requests", visible: true, rail: true },
+        { id: "dashboard", kind: "dashboard", name: "Dashboard", rail: true },
+        { id: "watchlist", kind: "watchlist", name: "Watchlist", rail: true }
+    ]
+    eq(t, "moved down: kept", idsOf(RailItems_withBuiltIns(c)), idsOf(c))
+    eq(t, "moved down: the menu", joined(RailItems_ids(libs, c, all)), "home,fintv,lib:m,lib:tv,lists,search,requests,dashboard,watchlist,settings")
+    eq(t, "moved down: twice", joined(RailItems_ids(libs, RailItems_withBuiltIns(c), all)), "home,fintv,lib:m,lib:tv,lists,search,requests,dashboard,watchlist,settings")
+    ' A new library goes after the last library, not up by Search.
+    eq(t, "moved down: new library", joined(RailItems_ids(["m", "tv", "n"], c, all)), "home,fintv,lib:m,lib:tv,lib:n,lists,search,requests,dashboard,watchlist,settings")
+end sub
+
+' Search hidden from the menu (its rail toggle) is gone from it; Home and
+' Settings are always there.
+sub testHideSearch(t as object)
+    libs = ["m"]
+    d = [
+        { id: "search", kind: "search", name: "Search", rail: true },
+        { id: "watchlist", kind: "watchlist", name: "Watchlist", rail: true },
+        { id: "hero", kind: "hero", name: "Featured", visible: true },
+        { id: "cw", kind: "cw", name: "Continue Watching", visible: true },
+        { id: "fintv", kind: "fintv", name: "SashimiTV", visible: true, rail: true },
+        lib("m", true, invalid),
+        { id: "lists", kind: "lists", name: "Lists", rail: true },
+        { id: "requests", kind: "requests", name: "Requests", visible: true, rail: true },
+        { id: "dashboard", kind: "dashboard", name: "Dashboard", rail: true }
+    ]
+    d[0] = RailItems_toggleRail(d[0])
+    eq(t, "hidden Search: rail off", d[0].rail, false)
+    eq(t, "hidden Search: gone", joined(RailItems_ids(libs, d)), "home,watchlist,fintv,lib:m,lists,settings")
+    eq(t, "hidden Search: stays hidden", joined(RailItems_ids(libs, RailItems_withBuiltIns(d))), "home,watchlist,fintv,lib:m,lists,settings")
+    for each e in d
+        if RailItems_isDestination(e) then e.rail = false
+    end for
+    eq(t, "everything hidden: Home and Settings", joined(RailItems_ids(libs, d, { requests: true, dashboard: true })), "home,settings")
+end sub
+
+' Home adding a library the saved list doesn't know yet.
+sub testInsertLibrary(t as object)
+    n = lib("n", true, invalid)
+    d = RailItems_defaults([lib("m", true, invalid)])
+    eq(t, "after the last library", idsOf(RailItems_insertLibrary(d, n)), "search,watchlist,hero,cw,fintv,library_m,library_n,lists,requests,dashboard")
+    d = RailItems_defaults()
+    eq(t, "no library: ahead of Lists", idsOf(RailItems_insertLibrary(d, n)), "search,watchlist,hero,cw,fintv,library_n,lists,requests,dashboard")
+    c = [{ id: "requests", kind: "requests" }, { id: "search", kind: "search" }, { id: "watchlist", kind: "watchlist" }, { id: "lists", kind: "lists" }]
+    eq(t, "never above Search or the Watchlist", idsOf(RailItems_insertLibrary(c, n)), "requests,search,watchlist,library_n,lists")
+    eq(t, "nothing to go ahead of: last", idsOf(RailItems_insertLibrary([{ id: "search", kind: "search" }], n)), "search,library_n")
 end sub

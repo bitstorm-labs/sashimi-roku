@@ -465,12 +465,13 @@ end function
 
 ' ---------- Home & Side Menu editor ----------
 ' Config stored in Registry "settings"/"homeRowOrder" as a JSON array of
-' {id, kind ("hero"/"cw"/"fintv"/"requests"/"library"/"list"/"lists"/"watchlist"/"dashboard"),
+' {id, kind ("hero"/"cw"/"fintv"/"requests"/"library"/"list"/"search"/"lists"/"watchlist"/"dashboard"),
 ' libraryId, listId,
 ' name, visible, rail};
 ' array order is row order (tvOS homeScreenRowOrder parity). `visible` is the
 ' Home row, `rail` the side-menu entry, independent of each other (only
-' destinations -- libraries, SashimiTV, Requests -- have one; RailItems.bs). The Home
+' destinations -- libraries, SashimiTV, Requests, Search, Lists, Watchlist,
+' Dashboard -- have one; RailItems.bs). The Home
 ' screen merges in new/removed libraries on load; this editor renders whatever
 ' is saved. OK toggles Home, Options (*) the side menu, Left/Right move.
 
@@ -538,7 +539,7 @@ sub renderHomeRows()
         m.hrRows.translation = [560, 236]
         m.hrPanel.appendChild(m.hrRows)
         m.hrFooter = CreateObject("roSGNode", "Label")
-        m.hrFooter.text = "Always in the side menu: Home, Search, Settings"
+        m.hrFooter.text = "Always in the side menu: Home first, Settings last"
         m.hrFooter.color = "#888888"
         m.hrFooter.font = hrFont("pkg:/fonts/Inter-Medium.ttf", 22)
         m.hrPanel.appendChild(m.hrFooter)

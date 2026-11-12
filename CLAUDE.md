@@ -68,12 +68,15 @@ detail screen coming back to the front is stale, and whether a re-read episode
 list patches the row in place, rebuilds it, or is ignored) and
 `source/utils/RailItems.bs` (Settings > Home & Side Menu: which destinations
 the side menu lists and in what order -- exactly the list's order, so the
-menu matches Home's rows, which Home also draws in that order -- Home, Search
-and Settings always, new libraries shown, stale ids ignored, the editor's two
-columns, the Requests Home row after Continue Watching, the menu-only Lists,
-Watchlist (last, next to Search, on fresh installs and migrated orders)
-and Dashboard, Requests and the Dashboard only while available and kept
-aside in the editor until they are) and
+menu matches Home's rows, which Home also draws in that order -- Home first
+and Settings last always, new libraries shown, stale ids ignored, the
+editor's two columns, the Requests Home row after Continue Watching on
+migrated orders, the menu-only Search, Lists, Watchlist and Dashboard, the
+fresh-install default (Search, Watchlist, SashimiTV, libraries, Lists,
+Requests, Dashboard), the one-time move of Search to the top with the
+Watchlist under it for orders saved before Search was in the list, and
+Requests and the Dashboard only while available and kept aside in the
+editor until they are) and
 `source/utils/Seerr.bs` with `SeerrSeasons.bs` (Seerr requests, Apple's
 vectors: permission bits, the poster pill, request states and their lines,
 Home's requests row, the Requests list's filter / scope / actions / paging,

@@ -185,8 +185,10 @@ end sub
 sub buildItems()
     pool = {}
     pool["home"] = { id: "home", kind: "home", title: "Home", iconLocal: "pkg:/images/nav_home.png", iconSelected: "pkg:/images/nav_home_selected.png" }
-    ' Stations sits directly under Home, as it does on the other clients, with the
-    ' same broadcast glyph they use — the TV library's icon read as a duplicate.
+    ' SashimiTV uses the same broadcast glyph as the other clients -- the TV
+    ' library's icon read as a duplicate. Where any entry sits (Search
+    ' included) is the Home & Side Menu list's order (RailItems.ids); only
+    ' Home and Settings are pinned, first and last.
     pool["fintv"] = { id: "fintv", kind: "fintv", title: "SashimiTV", iconLocal: "pkg:/images/nav_fintv.png", iconSelected: "pkg:/images/nav_fintv_selected.png" }
     libraryIds = []
     for each lib in m.libraries
