@@ -1266,6 +1266,10 @@ namespace Seerr
     ' The code expires after 15 minutes; poll every 2 s until then.
     const PLEX_POLL_SECONDS = 2
     const PLEX_PIN_SECONDS = 900
+    ' Longest a check may take: the PIN read, Seerr's sign-in and its public
+    ' settings, each up to SeerrTask's 20 s, plus slack. A check that has not
+    ' answered by then never will (its task thread died or wedged).
+    const PLEX_CHECK_SECONDS = 70
 
     ' Where a linked Plex code's token goes. "watchlist" (Connect Plex on the
     ' Watchlist) needs no Seerr at all: Requests may never have been set up.
@@ -1277,11 +1281,46 @@ namespace Seerr
 
     ' What a poll tick does: "expire" once the code is too old, "wait" while
     ' the last check is still running (a linked code's check signs in and
-    ' links the Watchlist, and must not run twice), else "check".
-    function plexPollStep(started as integer, now as integer, checking as boolean) as string
+    ' links the Watchlist, and must not run twice), "timeout" once that check
+    ' has run past PLEX_CHECK_SECONDS (checkStarted: when it was sent), else
+    ' "check". Without the timeout one lost answer froze polling for good.
+    function plexPollStep(started as integer, now as integer, checking as boolean, checkStarted = -1 as integer) as string
         if now - started > PLEX_PIN_SECONDS then return "expire"
-        if checking then return "wait"
+        if checking
+            if checkStarted >= 0 and now - checkStarted >= PLEX_CHECK_SECONDS then return "timeout"
+            return "wait"
+        end if
         return "check"
+    end function
+
+    ' What one read of the PIN came to: "linked" (a token), "waiting" (not
+    ' linked yet), "gone" (plex.tv no longer knows the code: it expired or
+    ' was cancelled, so polling it is pointless) or "unreachable" (no answer
+    ' or an error; worth another try, but said on screen).
+    function plexPinStep(statusCode as integer, raw as dynamic) as string
+        if statusCode = 404 or statusCode = 410 then return "gone"
+        if statusCode < 200 or statusCode >= 300 then return "unreachable"
+        pin = plexPin(raw)
+        if pin = invalid then return "unreachable"
+        if pin.token <> "" then return "linked"
+        return "waiting"
+    end function
+
+    ' The words for a PIN read that went wrong ("" for none).
+    function plexPinMessage(pinStep as string) as string
+        if pinStep = "gone" then return "The Plex code expired. Try again."
+        if pinStep = "unreachable" then return "Couldn't reach plex.tv. Still trying..."
+        return ""
+    end function
+
+    const PLEX_SLOW_MESSAGE = "Plex sign-in is taking a while. Still trying..."
+    const GENERIC_ERROR = "Something went wrong. Try again."
+
+    ' A failed response's words, never empty: every failure says something.
+    function failureText(r as dynamic) as string
+        e = getStr(r, "error")
+        if e.Trim() <> "" then return e
+        return GENERIC_ERROR
     end function
 
 end namespace

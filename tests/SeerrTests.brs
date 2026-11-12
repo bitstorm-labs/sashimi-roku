@@ -531,6 +531,40 @@ sub testPlex(t as object)
     eq(t, "watchlist with a Seerr server", Seerr_plexCheckRoute("watchlist", "https://requests.example.com"), "watchlist")
     eq(t, "requests sign-in", Seerr_plexCheckRoute("", "https://requests.example.com"), "seerr")
     eq(t, "requests sign-in without a server", Seerr_plexCheckRoute("", ""), "noServer")
+    testPlexStuckCheck(t)
+end sub
+
+' A Plex sign-in that never finished: the code was linked at plex.tv/link
+' but the Roku never asked Seerr to sign in and never said why. Polling
+' waits for the last check's answer, so one answer that never came froze it
+' for good; and a PIN read that failed counted as "not linked yet".
+sub testPlexStuckCheck(t as object)
+    ' A check that never answers stops blocking once PLEX_CHECK_SECONDS pass.
+    eq(t, "poll: a check still in time waits", Seerr_plexPollStep(100, 169, true, 100), "wait")
+    eq(t, "poll: a check past its time is abandoned", Seerr_plexPollStep(100, 170, true, 100), "timeout")
+    eq(t, "poll: abandoned long after", Seerr_plexPollStep(100, 600, true, 130), "timeout")
+    eq(t, "poll: expiry wins over a stuck check", Seerr_plexPollStep(100, 1001, true, 130), "expire")
+    eq(t, "poll: unknown start never times out", Seerr_plexPollStep(100, 600, true, -1), "wait")
+    eq(t, "poll: not checking ignores the start", Seerr_plexPollStep(100, 600, false, 130), "check")
+    ' A real plex.tv answer, before and after the code is linked.
+    unlinked = ParseJSON("{""id"":1237053369,""code"":""W6Z6"",""product"":""Sashimi"",""trusted"":false,""clientIdentifier"":""x"",""location"":{""code"":""US""},""expiresIn"":900,""authToken"":null,""newRegistration"":null}")
+    linked = ParseJSON("{""id"":1237053369,""code"":""W6Z6"",""product"":""Sashimi"",""expiresIn"":880,""authToken"":""tok"",""newRegistration"":false}")
+    eq(t, "pin read: a real id polls the right PIN", Seerr_plexPinUrl(Seerr_plexPin(unlinked).id), "https://plex.tv/api/v2/pins/1237053369")
+    eq(t, "pin read: not linked yet", Seerr_plexPinStep(200, unlinked), "waiting")
+    eq(t, "pin read: linked", Seerr_plexPinStep(200, linked), "linked")
+    eq(t, "pin read: plex.tv dropped the code", Seerr_plexPinStep(404, invalid), "gone")
+    eq(t, "pin read: no answer", Seerr_plexPinStep(0, invalid), "unreachable")
+    eq(t, "pin read: refused", Seerr_plexPinStep(401, invalid), "unreachable")
+    eq(t, "pin read: not JSON", Seerr_plexPinStep(200, invalid), "unreachable")
+    ' Every failed read is said on screen; a quiet wait says nothing.
+    eq(t, "pin message: gone", Seerr_plexPinMessage("gone"), "The Plex code expired. Try again.")
+    eq(t, "pin message: unreachable", Seerr_plexPinMessage("unreachable"), "Couldn't reach plex.tv. Still trying...")
+    eq(t, "pin message: waiting", Seerr_plexPinMessage("waiting"), "")
+    ' A failure always has words, even when the task left none.
+    eq(t, "failure text: the server's", Seerr_failureText({ success: false, error: "Access denied." }), "Access denied.")
+    eq(t, "failure text: none given", Seerr_failureText({ success: false }), "Something went wrong. Try again.")
+    eq(t, "failure text: blank", Seerr_failureText({ success: false, error: "  " }), "Something went wrong. Try again.")
+    eq(t, "failure text: not a response", Seerr_failureText(invalid), "Something went wrong. Try again.")
 end sub
 
 sub testDetailsExternalIds(t as object)

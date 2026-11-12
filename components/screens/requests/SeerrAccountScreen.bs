@@ -20,6 +20,7 @@ sub init()
     m.task = m.top.findNode("seerrTask")
     m.task.observeFieldScoped("response", "onResponse")
     m.task.control = "RUN"
+    m.checkStarted = -1      ' when the running plexCheck was sent
 
     m.pin = invalid          ' { id, code, started } while Plex sign-in waits
     m.busy = false
@@ -244,16 +245,40 @@ end sub
 
 sub onPoll()
     if m.pin = invalid then return
-    stage = Seerr.plexPollStep(m.pin.started, CreateObject("roDateTime").AsSeconds(), m.checking = true)
+    now = CreateObject("roDateTime").AsSeconds()
+    stage = Seerr.plexPollStep(m.pin.started, now, m.checking = true, m.checkStarted)
     if stage = "expire"
         stopPlex()
         showError("The Plex code expired. Try again.")
         render()
         return
     end if
+    #if DEBUG
+        print "[SeerrAccount] poll: "; stage
+    #end if
     if stage = "wait" then return
+    if stage = "timeout"
+        ' The check never answered, so its thread is dead or stuck: polling
+        ' would wait on it forever. Start a fresh task and check again (the
+        ' PIN keeps its token until it expires, so nothing is lost).
+        restartTask()
+        showError(Seerr.PLEX_SLOW_MESSAGE)
+    end if
     m.checking = true
-    m.task.request = { action: "plexCheck", pinId: m.pin.id, purpose: m.top.purpose }
+    m.checkStarted = now
+    m.task.request = { action: "plexCheck", pinId: m.pin.id, purpose: m.top.purpose, context: m.pin.id }
+end sub
+
+sub restartTask()
+    old = m.task
+    old.unobserveFieldScoped("response")
+    old.control = "STOP"
+    m.top.removeChild(old)
+    m.task = CreateObject("roSGNode", "SeerrTask")
+    m.task.id = "seerrTask"
+    m.task.observeFieldScoped("response", "onResponse")
+    m.top.appendChild(m.task)
+    m.task.control = "RUN"
 end sub
 
 sub onResponse()
@@ -266,14 +291,25 @@ sub onResponse()
             m.btnIdx = 0
             m.pollTimer.control = "start"
         else
-            showError(r.error)
+            showError(Seerr.failureText(r))
         end if
         render()
     else if r.action = "plexCheck"
+        #if DEBUG
+            print "[SeerrAccount] plexCheck answered: success="; r.success; " waiting="; r.waiting; " kind="; Seerr.getStr(r, "kind")
+        #end if
         m.checking = false
-        if m.pin = invalid or r.waiting = true then return
+        m.checkStarted = -1
+        ' An answer about a code since cancelled or replaced is not this one's.
+        if m.pin = invalid or Seerr.getInt(r, "context") <> m.pin.id then return
+        if r.waiting = true
+            ' Not linked yet: say so only when plex.tv couldn't be read (this
+            ' also clears an earlier "still trying").
+            showError(Seerr.getStr(r, "warning"))
+            return
+        end if
         stopPlex()
-        if r.success <> true then showError(r.error)
+        if r.success <> true then showError(Seerr.failureText(r)) else showError("")
         m.btnIdx = 0
         render()
         onWatchlistLink(r)
@@ -287,7 +323,7 @@ sub onResponse()
         if forWatchlist() and r.watchlistError = invalid then m.top.closed = true
     else if r.action = "signInLocal"
         m.busy = false
-        if r.success <> true then showError(r.error)
+        if r.success <> true then showError(Seerr.failureText(r))
         m.btnIdx = 0
         render()
     else if r.action = "signOut"
