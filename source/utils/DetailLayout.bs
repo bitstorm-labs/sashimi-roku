@@ -1,14 +1,13 @@
-' Where the detail screen's rows start and how big its hero (backdrop image
-' and hero trailer) may be. The hero fades out over its bottom 40%
-' (scripts/make-detail-fades.sh), so the whole of it has to sit above the
-' rows: a hero running under the rows is cut off by the cards mid-fade,
-' which reads as a hard edge. The Season page (#246) starts its rows under
-' the poster, so its hero is shorter (#253). Pure functions only, so
-' tests/DetailLayoutTests.brs can run them off-device.
+' Where a detail screen's rows start, and the "Spotlight" backdrop every
+' detail page shares with the Spotlight list page (owner, 2026-11-11): the
+' picture full-bleed across the right ~70% of the screen, flush top-right, its
+' left part fading into the page under the text column and its lower part
+' fading into the page under the rows, which sit over that faded part. The
+' fades are flat overlays in the page colour (spotlight_fade_left.png /
+' spotlight_fade_bottom.png), not a MaskGroup: cheaper on low-end Rokus, and
+' they fade the hero trailer the same way they fade the still. Pure functions
+' only, so tests/DetailLayoutTests.brs can run them off-device.
 namespace DetailLayout
-
-    ' Clear space between the hero's faded-out bottom edge and the rows.
-    const ROW_GAP = 24
 
     ' The y the RowList (Seasons / Episodes / Cast) starts at.
     function rowsTop(itemType as dynamic) as integer
@@ -16,24 +15,39 @@ namespace DetailLayout
         return 734
     end function
 
-    ' The region the backdrop image is fitted into, flush with the top-right
-    ' corner: the Apple app's widths (55% of the screen, 60% for a YouTube
-    ' channel's wide banner), and 648 tall -- a 16:9 picture at 60% -- or less
-    ' when the rows start higher than that.
-    function heroRegion(itemType as dynamic, isYouTube as boolean) as object
-        frac = 0.55
-        if isYouTube and itemType = "Series" then frac = 0.60
-        h = 648
-        room = rowsTop(itemType) - ROW_GAP
-        if room < h then h = room
-        return { w: Int(1920 * frac), h: h }
+    ' The backdrop's region: { x, w, h } in screen pixels, 16:9, flush with
+    ' the top-right corner.
+    function spotlight() as object
+        return { x: 560, w: 1360, h: 765 }
+    end function
+
+    ' The two fades over a picture drawn in `r` ({ x, w, h }, flush top-
+    ' right): the left one over its left 720/1360 (opaque page at the edge,
+    ' clear at the end), the bottom one over its lower 400/765 (clear at the
+    ' top, opaque page at the bottom). Scaled with it, so a smaller
+    ' picture (a wide banner, a scope trailer) fades the same way.
+    function fades(r as object) as object
+        lw = Int(r.w * 720 / 1360 + 0.5)
+        bh = Int(r.h * 400 / 765 + 0.5)
+        return { left: { x: r.x, y: 0, w: lw, h: r.h }, bottom: { x: r.x, y: r.h - bh, w: r.w, h: bh } }
+    end function
+
+    ' Where a picture of `aspect` (width / height) is drawn. A backdrop (and
+    ' anything not much wider than 16:9) is zoomed to fill the whole region;
+    ' wider art -- a YouTube channel's banner -- is fitted, flush top-right,
+    ' since zooming a 5:1 banner to the region's height would show a slice of
+    ' it blown up several times.
+    function artBox(aspect as dynamic) as object
+        r = spotlight()
+        if aspect = invalid or aspect <= 0 or aspect <= 2.1 then return r
+        return trailerBox(r.w, r.h, aspect)
     end function
 
     ' The hero trailer's own rectangle: its aspect (16:9 when unknown) fitted
-    ' into the hero region, flush with the top-right corner. Not the still
-    ' backdrop's fitted rectangle: a trailer played inside a backdrop of
-    ' another shape letterboxes, and its black bars' inner edges are hard
-    ' lines the feather never reaches (#257). { x, w, h } in screen pixels.
+    ' into the region, flush with the top-right corner. Not the still
+    ' backdrop's rectangle: a trailer played inside a box of another shape
+    ' letterboxes, and its black bars' inner edges are hard lines the fades
+    ' never reach (#257). { x, w, h } in screen pixels.
     function trailerBox(regionW as integer, regionH as integer, aspect as dynamic) as object
         a = 16.0 / 9.0
         if aspect <> invalid and aspect > 0 then a = aspect

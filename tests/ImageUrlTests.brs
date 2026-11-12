@@ -12,6 +12,7 @@ sub main()
     testOwnTags(t)
     testParentTags(t)
     testTagFor(t)
+    testTmdbSized(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -103,4 +104,16 @@ sub testTagFor(t as object)
     eq(t, "series art unknown", ImageUrl_tagFor(ep, "show", "Art"), "")
     eq(t, "series item's own backdrop", ImageUrl_tagFor(series(), "show", "Backdrop"), "showBackdropTag")
     eq(t, "no id", ImageUrl_tagFor(ep, invalid, "Primary"), "")
+end sub
+
+' A Watchlist title's TMDB art is asked for at the size it is drawn, not as
+' the original (often 4K) file, which a low-end Roku would download and decode
+' in full.
+sub testTmdbSized(t as object)
+    eq(t, "original backdrop becomes w1280", ImageUrl_tmdbSized("https://image.tmdb.org/t/p/original/abc.jpg", "w1280"), "https://image.tmdb.org/t/p/w1280/abc.jpg")
+    eq(t, "original poster becomes w342", ImageUrl_tmdbSized("https://image.tmdb.org/t/p/original/p.jpg", "w342"), "https://image.tmdb.org/t/p/w342/p.jpg")
+    eq(t, "a sized one is kept", ImageUrl_tmdbSized("https://image.tmdb.org/t/p/w780/abc.jpg", "w1280"), "https://image.tmdb.org/t/p/w780/abc.jpg")
+    eq(t, "other hosts are kept", ImageUrl_tmdbSized("https://example.test/t/p/original/abc.jpg", "w1280"), "https://example.test/t/p/original/abc.jpg")
+    eq(t, "empty", ImageUrl_tmdbSized("", "w1280"), "")
+    eq(t, "invalid", ImageUrl_tmdbSized(invalid, "w1280"), "")
 end sub

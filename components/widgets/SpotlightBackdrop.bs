@@ -1,0 +1,63 @@
+import "pkg:/source/utils/DetailLayout.bs"
+
+sub init()
+    m.art = m.top.findNode("art")
+    m.fadeLeft = m.top.findNode("fadeLeft")
+    m.fadeBottom = m.top.findNode("fadeBottom")
+    m.art.observeFieldScoped("loadStatus", "onArtStatus")
+    layout(DetailLayout.spotlight())
+    onUri()
+end sub
+
+sub onUri()
+    if m.top.fadesOnly
+        m.art.uri = ""
+        m.art.visible = false
+        showFades(true)
+        return
+    end if
+    u = m.top.uri
+    if m.art.uri <> u
+        ' Back to the full region until the new picture's shape is known.
+        if m.top.fitWide then m.art.loadDisplayMode = "scaleToFit" else m.art.loadDisplayMode = "scaleToZoom"
+        layout(DetailLayout.spotlight())
+        m.art.uri = u
+    end if
+    m.art.visible = (u <> "")
+    showFades(u <> "")
+end sub
+
+sub showFades(on as boolean)
+    m.fadeLeft.visible = on
+    m.fadeBottom.visible = on
+end sub
+
+sub onFrame()
+    f = m.top.frame
+    if f = invalid or f.w = invalid then return
+    layout(f)
+end sub
+
+' A banner fitted into the full region would sit centred with bands of page
+' above and below it; shrink the poster to the fitted picture, flush
+' top-right, and the fades with it.
+sub onArtStatus()
+    if not m.top.fitWide or m.art.loadStatus <> "ready" then return
+    bw = m.art.bitmapWidth
+    bh = m.art.bitmapHeight
+    if bw = invalid or bh = invalid or bw <= 0 or bh <= 0 then return
+    layout(DetailLayout.artBox(bw / bh))
+end sub
+
+sub layout(r as object)
+    m.art.translation = [r.x, 0]
+    m.art.width = r.w
+    m.art.height = r.h
+    f = DetailLayout.fades(r)
+    m.fadeLeft.translation = [f.left.x, f.left.y]
+    m.fadeLeft.width = f.left.w
+    m.fadeLeft.height = f.left.h
+    m.fadeBottom.translation = [f.bottom.x, f.bottom.y]
+    m.fadeBottom.width = f.bottom.w
+    m.fadeBottom.height = f.bottom.h
+end sub

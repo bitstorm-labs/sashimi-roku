@@ -1,48 +1,61 @@
 ' Off-device tests for source/utils/DetailLayout.bs, run by tests/run.js.
-' The detail hero (backdrop image and hero trailer) fades out over its bottom
-' 40%, so it must end above the rows: on the Season page it ran under the
-' episode row and the trailer was cut off by the cards mid-fade (#253).
+' Every detail page uses the Spotlight list page's backdrop (owner,
+' 2026-11-11): full-bleed across the right ~2/3, fading left and bottom, the
+' rows over the faded lower part.
 
 sub main()
     t = { passed: 0, failed: 0 }
 
+    r = DetailLayout_spotlight()
+    eq(t, "flush right", r.x + r.w, 1920)
+    eq(t, "the Spotlight list page's region", r.x, 560)
+    eq(t, "16:9", r.h, 765)
+    ok(t, "covers the right two-thirds or more", r.w * 3 >= 1920 * 2)
     for each kind in ["Movie", "Series", "Season", "Episode", "Video"]
-        for each yt in [false, true]
-            r = DetailLayout_heroRegion(kind, yt)
-            ok(t, kind + " hero ends above its rows", r.h + 24 <= DetailLayout_rowsTop(kind))
-        end for
+        top = DetailLayout_rowsTop(kind)
+        f = DetailLayout_fades(r)
+        ' The rows sit over the faded part, not under a hard edge or beside
+        ' the picture.
+        ok(t, kind + ": rows start inside the picture", top < r.h)
+        ok(t, kind + ": rows start below where the fade begins", top > f.bottom.y)
     end for
-
-    ' The Season page's rows sit under its poster.
     eq(t, "season rows", DetailLayout_rowsTop("Season"), 480)
-    eq(t, "season hero height", DetailLayout_heroRegion("Season", false).h, 456)
-    eq(t, "season hero width", DetailLayout_heroRegion("Season", false).w, 1056)
-    ' Everything else keeps its size.
     eq(t, "series rows", DetailLayout_rowsTop("Series"), 734)
-    eq(t, "series hero", DetailLayout_heroRegion("Series", false).h, 648)
-    eq(t, "series hero width", DetailLayout_heroRegion("Series", false).w, 1056)
-    eq(t, "movie hero", DetailLayout_heroRegion("Movie", false).h, 648)
-    eq(t, "YouTube channel banner is wider", DetailLayout_heroRegion("Series", true).w, 1152)
-    eq(t, "a YouTube episode is not", DetailLayout_heroRegion("Episode", true).w, 1056)
 
-    ' The trailer's own rectangle (#257): a 16:9 trailer on a series whose
-    ' backdrop fits to 1056x648 still gets a 16:9 box, not the backdrop's.
-    b = DetailLayout_trailerBox(1056, 648, 16.0 / 9.0)
-    eq(t, "16:9 trailer in a 1056x648 hero: width", b.w, 1056)
-    eq(t, "16:9 trailer in a 1056x648 hero: height", b.h, 594)
-    eq(t, "flush right", b.x, 864)
-    b = DetailLayout_trailerBox(1056, 648, invalid)
-    eq(t, "unknown aspect is 16:9", b.h, 594)
-    ' The Season page's shorter hero: height-bound.
-    b = DetailLayout_trailerBox(1056, 456, 16.0 / 9.0)
-    eq(t, "season trailer width", b.w, 811)
-    eq(t, "season trailer height", b.h, 456)
-    eq(t, "season trailer flush right", b.x, 1109)
-    ' Scope and 4:3 trailers keep their own shape.
-    eq(t, "2.39:1 trailer", DetailLayout_trailerBox(1056, 648, 2.39).h, 442)
-    b = DetailLayout_trailerBox(1056, 648, 4.0 / 3.0)
-    eq(t, "4:3 trailer height", b.h, 648)
-    eq(t, "4:3 trailer width", b.w, 864)
+    ' The fades are the list page's: 720 of 1360 on the left, the lower 400 of 765.
+    f = DetailLayout_fades(r)
+    eq(t, "left fade width", f.left.w, 720)
+    eq(t, "left fade x", f.left.x, 560)
+    eq(t, "left fade height", f.left.h, 765)
+    eq(t, "bottom fade y", f.bottom.y, 365)
+    eq(t, "bottom fade height", f.bottom.h, 400)
+    eq(t, "bottom fade width", f.bottom.w, 1360)
+    ' Scaled to a smaller box (a scope trailer), still ending at its edges.
+    b = DetailLayout_trailerBox(1360, 765, 2.39)
+    f = DetailLayout_fades(b)
+    eq(t, "scope box bottom fade ends at its bottom", f.bottom.y + f.bottom.h, b.h)
+    eq(t, "scope box left fade starts at its left", f.left.x, b.x)
+
+    ' Backdrops fill the region; a channel banner is fitted.
+    eq(t, "16:9 backdrop fills", DetailLayout_artBox(16.0 / 9.0).h, 765)
+    eq(t, "unknown aspect fills", DetailLayout_artBox(invalid).w, 1360)
+    eq(t, "a 2:1 backdrop still fills", DetailLayout_artBox(2.0).h, 765)
+    b = DetailLayout_artBox(6.2)
+    eq(t, "banner: full width", b.w, 1360)
+    eq(t, "banner: its own height", b.h, 219)
+    eq(t, "banner: flush right", b.x, 560)
+
+    ' The trailer's own rectangle (#257), fitted into the region.
+    b = DetailLayout_trailerBox(1360, 765, 16.0 / 9.0)
+    eq(t, "16:9 trailer: width", b.w, 1360)
+    eq(t, "16:9 trailer: height", b.h, 765)
+    eq(t, "16:9 trailer: flush right", b.x, 560)
+    eq(t, "unknown aspect is 16:9", DetailLayout_trailerBox(1360, 765, invalid).h, 765)
+    eq(t, "2.39:1 trailer", DetailLayout_trailerBox(1360, 765, 2.39).h, 569)
+    b = DetailLayout_trailerBox(1360, 765, 4.0 / 3.0)
+    eq(t, "4:3 trailer height", b.h, 765)
+    eq(t, "4:3 trailer width", b.w, 1020)
+    eq(t, "4:3 trailer flush right", b.x, 900)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"

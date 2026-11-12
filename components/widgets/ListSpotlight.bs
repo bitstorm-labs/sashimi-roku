@@ -1,7 +1,5 @@
 sub init()
     m.backdrop = m.top.findNode("backdrop")
-    m.fadeLeft = m.top.findNode("fadeLeft")
-    m.fadeBottom = m.top.findNode("fadeBottom")
     m.poster = m.top.findNode("poster")
     m.headline = m.top.findNode("headline")
     m.title = m.top.findNode("title")
@@ -11,6 +9,10 @@ sub init()
     m.settle = m.top.findNode("settle")
     m.settle.observeField("fire", "applyImages")
     m.pending = { backdropUri: "", posterUri: "", dimmed: false }
+end sub
+
+sub onInset()
+    m.top.findNode("text").translation = [120 + m.top.inset, 66]
 end sub
 
 sub onInfo()
@@ -35,11 +37,8 @@ end sub
 
 sub applyImages()
     p = m.pending
-    if m.backdrop.uri <> p.backdropUri then m.backdrop.uri = p.backdropUri
+    m.backdrop.uri = p.backdropUri
     hasBackdrop = (p.backdropUri <> "")
-    m.backdrop.visible = hasBackdrop
-    m.fadeLeft.visible = hasBackdrop
-    m.fadeBottom.visible = hasBackdrop
     showPoster = (not hasBackdrop and p.posterUri <> "")
     if showPoster then m.poster.uri = p.posterUri else m.poster.uri = ""
     m.poster.visible = showPoster

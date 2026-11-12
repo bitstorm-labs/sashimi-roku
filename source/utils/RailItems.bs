@@ -7,17 +7,17 @@
 namespace RailItems
 
     ' Rows that are also rail destinations: a library, SashimiTV and Requests
-    ' (Seerr), plus two destinations with no Home row: the Lists page (shared
-    ' lists) and the admin Dashboard. The hero, Continue Watching and
-    ' subscribed lists ("list") are Home-only.
+    ' (Seerr), plus three destinations with no Home row: the Lists page
+    ' (shared lists), the Watchlist page and the admin Dashboard. The hero,
+    ' Continue Watching and subscribed lists ("list") are Home-only.
     function isDestination(entry as dynamic) as boolean
         k = kindOf(entry)
-        return (k = "library" or k = "fintv" or k = "requests" or k = "lists" or k = "dashboard")
+        return (k = "library" or k = "fintv" or k = "requests" or k = "lists" or k = "watchlist" or k = "dashboard")
     end function
 
     function hasHomeRow(entry as dynamic) as boolean
         k = kindOf(entry)
-        return k <> "" and k <> "lists" and k <> "dashboard"
+        return k <> "" and k <> "lists" and k <> "watchlist" and k <> "dashboard"
     end function
 
     ' Config rows come from the registry; never compare an absent field (invalid
@@ -75,10 +75,11 @@ namespace RailItems
     ' Every entry the editor and the menu work from: the saved config with the
     ' built-in destinations a config that predates them lacks, each put where
     ' it has always been drawn (SashimiTV and Requests after Continue
-    ' Watching, Lists then the Dashboard at the end).
+    ' Watching, Lists then the Dashboard at the end) or, for the Watchlist,
+    ' where it is meant to start out (last, so it sits next to Search).
     function withBuiltIns(config as dynamic) as object
         if config = invalid or type(config) <> "roArray" then config = []
-        return withDashboard(withLists(withRequests(withFintv(config))))
+        return withWatchlist(withDashboard(withLists(withRequests(withFintv(config)))))
     end function
 
     ' The rail's ids, top to bottom: Home, then every destination in exactly
@@ -111,13 +112,14 @@ namespace RailItems
                 if inRail(c) and isAvailable(c, available) then result.push(k)
             end if
         end for
-        ' New libraries go after the last library shown, else ahead of Lists
-        ' and the Dashboard (where libraries have always been listed).
+        ' New libraries go after the last library shown, else ahead of Lists,
+        ' the Watchlist and the Dashboard (where libraries have always been
+        ' listed).
         at = lastLibrary + 1
         if lastLibrary < 0
             at = result.count()
             for i = result.count() - 1 to 1 step -1
-                if result[i] = "lists" or result[i] = "dashboard" then at = i
+                if result[i] = "lists" or result[i] = "watchlist" or result[i] = "dashboard" then at = i
             end for
         end if
         for each id in libraryIds
@@ -303,6 +305,21 @@ namespace RailItems
             end if
         end for
         if not inserted then result.unshift(entry)
+        return result
+    end function
+
+    ' The Watchlist entry (owner, 2026-11-11: its own side-menu place, opening
+    ' straight onto the Watchlist page), added to a config that predates it at
+    ' the end. The menu draws Search after every destination, so the last
+    ' destination is the one right next to Search, where the other clients
+    ' put the Watchlist. Like Lists it has no Home row.
+    function withWatchlist(config as object) as object
+        for each c in config
+            if kindOf(c) = "watchlist" then return config
+        end for
+        result = []
+        result.Append(config)
+        result.push({ id: "watchlist", kind: "watchlist", name: "Watchlist", rail: true })
         return result
     end function
 

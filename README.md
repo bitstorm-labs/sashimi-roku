@@ -61,11 +61,13 @@ Movies use the same layout without seasons.*
 ### Browsing
 
 - **Pullout sidebar.** A collapsed icon rail that expands when focused (press
-  LEFT). It holds Home, Stations (channels), your libraries, Search, Settings
-  and an account row.
+  LEFT). It holds Home, Stations (channels), your libraries, Lists, the
+  Watchlist (straight onto its page, if the server has the Sashimi Lists
+  plugin), Search, Settings and an account row. Move or hide entries in
+  *Settings → Home & Side Menu*.
 - **Home.** A rotating hero banner, **Continue Watching**, a **Stations** row if
   you have channels, and **Recently Added** per library. Reorder or hide rows in
-  *Settings → Home Screen Rows*.
+  *Settings → Home & Side Menu*.
 - **Continue Watching** merges in-progress items with Next Up, so a finished
   episode surfaces its successor, newest activity first, one entry per series.
 - **Library grid** with sort (Name, Date Added, Release Date, Rating, Runtime),
@@ -95,6 +97,9 @@ dashboard.
 
 ### Detail screens
 
+- **Spotlight backdrop.** The backdrop covers the right of the screen and
+  fades into the page on the left, under the title and buttons, and at the
+  bottom, under the rows.
 - **Play**, **Resume** (with **Start Over**), **Shuffle** (series), **Trailer**,
   **Mark Watched** and **More**. More shows the full overview, then **Go to
   Series** and **Go to Season N** on an episode, **Add to Channel** for
@@ -226,7 +231,7 @@ password.
 |---|---|---|
 | **Servers** | — | Add, switch between, or remove servers. `*` removes the highlighted one. |
 | **Server Dashboard** | — | Jellyfin administrators only. See Features. |
-| **Home Screen Rows** | — | LEFT/RIGHT reorder, OK shows/hides, Back saves. Visit Home once first so your libraries are known. |
+| **Home & Side Menu** | — | LEFT/RIGHT reorder, OK shows/hides on Home, * shows/hides in the side menu, Back saves. Visit Home once first so your libraries are known. |
 | **Maximum Bitrate** | Auto | Auto, or cap at 4K (80 Mbps), 1080p (20), 720p (8), 480p (4), 720p (2), 480p (1) or 360p (720 kbps). From 20 Mbps down each also caps resolution. Auto measures your connection and adapts; see Playback. |
 | **Always Play Original** | Off | Requests direct play and disables the adaptive HLS and bitrate-step-down fallbacks. |
 | **Auto-Play Next Episode** | On | |

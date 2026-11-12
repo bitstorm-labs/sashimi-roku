@@ -465,7 +465,7 @@ end function
 
 ' ---------- Home & Side Menu editor ----------
 ' Config stored in Registry "settings"/"homeRowOrder" as a JSON array of
-' {id, kind ("hero"/"cw"/"fintv"/"requests"/"library"/"list"/"lists"/"dashboard"),
+' {id, kind ("hero"/"cw"/"fintv"/"requests"/"library"/"list"/"lists"/"watchlist"/"dashboard"),
 ' libraryId, listId,
 ' name, visible, rail};
 ' array order is row order (tvOS homeScreenRowOrder parity). `visible` is the

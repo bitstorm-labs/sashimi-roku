@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- The "Spotlight" backdrop (owner, 2026-11-10/11): a picture full-bleed
+     across the right of the screen, flush top-right, fading into the page on
+     its left and bottom (DetailLayout.spotlight / fades). The Spotlight list
+     pages (ListSpotlight) and every detail page draw their backdrop with it.
+     The fades are overlays in the page colour, so the page under it must be
+     that flat colour (#18171F). -->
+<component name="SpotlightBackdrop" extends="Group">
+    <interface>
+        <!-- The picture; "" draws nothing (no fades either). -->
+        <field id="uri" type="string" value="" onChange="onUri" />
+        <!-- Fit wide art (a YouTube banner) flush top-right instead of
+             zooming it to fill (DetailLayout.artBox). -->
+        <field id="fitWide" type="boolean" value="false" />
+        <!-- No picture, only the fades over `frame` ({ x, w, h }): the
+             detail screen's hero trailer, a Video the fades sit on. -->
+        <field id="fadesOnly" type="boolean" value="false" onChange="onUri" />
+        <field id="frame" type="assocarray" onChange="onFrame" />
+    </interface>
+    <children>
+        <!-- Decoded at 1280x720 whatever the source, and asked for at 1280
+             wide by every caller: a 4K backdrop decoded at full size is what
+             makes a low-end Roku stall. -->
+        <Poster id="art" loadWidth="1280" loadHeight="720" loadDisplayMode="scaleToZoom" />
+        <Poster id="fadeLeft" uri="pkg:/images/spotlight_fade_left.png" />
+        <Poster id="fadeBottom" uri="pkg:/images/spotlight_fade_bottom.png" />
+    </children>
+</component>

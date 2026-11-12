@@ -1,12 +1,10 @@
 ' How far a backdrop fades into the page ("Lightest", #255): transparent at
 ' its left edge to opaque at LEFT of its width, and opaque until 1 - BOTTOM
 ' of its height to transparent at its bottom edge. Top and right run off
-' screen and never fade. Every backdrop surface uses these: the home hero
-' (HeroBanner) sizes its fade overlays from them, and
-' scripts/make-detail-fades.sh bakes the same values into the detail
-' screen's backdrop mask and trailer overlay (tests/fades.js checks those
-' PNGs against them). Pure functions only, so tests/FadesTests.brs can run
-' them off-device.
+' screen and never fade. The home hero (HeroBanner) sizes its fade overlays
+' from them; detail pages and the Spotlight list pages use the Spotlight
+' backdrop's own fades instead (DetailLayout.fades). Pure functions only, so
+' tests/FadesTests.brs can run them off-device.
 namespace Fades
 
     const LEFT = 0.10
