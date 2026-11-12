@@ -1,3 +1,4 @@
+import "pkg:/source/utils/RailItems.bs"
 import "pkg:/source/utils/Registry.bs"
 import "pkg:/source/utils/SettingsSync.bs"
 
@@ -10,6 +11,9 @@ namespace SettingsSyncLocal
 
     const ENABLED_KEY = "settingsSyncEnabled"
     const STAMPS_KEY = "settingsSyncStamps"
+    ' SettingsSync.SEED_VERSION the stamps were seeded at; absent beside a
+    ' stamp map means v1.7.4's (1).
+    const SEEDED_KEY = "settingsSyncSeeded"
 
     function enabled() as boolean
         return Registry.read("settings", ENABLED_KEY) <> "false"
@@ -26,22 +30,43 @@ namespace SettingsSyncLocal
     function localValues() as object
         out = {}
         for each s in SettingsSync.specs()
-            if s.kind <> "layout" then out[s.local] = Registry.read("settings", s.local)
+            if s.kind <> "layout" and s.kind <> "menu" then out[s.local] = Registry.read("settings", s.local)
         end for
         return out
     end function
 
+    ' homeRowOrder as Home and the side menu see it: with the built-in
+    ' entries a config saved before them lacks (Search on top and the
+    ' Watchlist under it, ...), so a synced value is applied to, and its
+    ' result saved with, what that one-time migration would make anyway,
+    ' and the migration never runs over it afterwards. invalid or empty
+    ' stays as it is: no config means Home hasn't loaded yet.
     function layoutConfig() as dynamic
-        return Registry.readJson("settings", SettingsSync.LAYOUT_LOCAL_KEY)
+        cfg = Registry.readJson("settings", SettingsSync.LAYOUT_LOCAL_KEY)
+        if type(cfg) <> "roArray" or cfg.count() = 0 then return cfg
+        return RailItems.withBuiltIns(cfg)
     end function
 
-    ' The stamp map, seeded (and saved) the first time it is asked for.
+    ' The stamp map, seeded (and saved) the first time it is asked for, and
+    ' for keys added since it was (sideMenu, after v1.7.4) -- never over a
+    ' stamp it already has.
     function stamps() as object
         stored = SettingsSync.decodeStamps(Registry.read("settings", STAMPS_KEY))
-        if stored <> invalid then return stored
-        seeded = SettingsSync.seedStamps(localValues(), layoutConfig())
-        saveStamps(seeded)
-        return seeded
+        version = 0
+        if stored <> invalid
+            version = 1
+            raw = Registry.read("settings", SEEDED_KEY)
+            if raw <> "" then version = raw.toInt()
+        end if
+        if stored <> invalid and version >= SettingsSync.SEED_VERSION then return stored
+        if stored = invalid then stored = {}
+        seeded = SettingsSync.seedStamps(localValues(), layoutConfig(), version)
+        for each k in seeded
+            if not stored.DoesExist(k) then stored[k] = seeded[k]
+        end for
+        saveStamps(stored)
+        Registry.write("settings", SEEDED_KEY, StrI(SettingsSync.SEED_VERSION))
+        return stored
     end function
 
     sub saveStamps(map as object)
@@ -53,9 +78,24 @@ namespace SettingsSyncLocal
     sub recordChange(localKey as string)
         spec = SettingsSync.specForLocal(localKey)
         if spec = invalid then return
-        change = SettingsSync.recordChange(stamps(), spec.key, nowMs(), enabled())
-        saveStamps(change.stamps)
-        if change.request then requestSync()
+        recordKeys([spec.key])
+    end sub
+
+    ' The same by shared key, several stamped with one time and one request:
+    ' an edit of homeRowOrder (SettingsSync.layoutChanges) can change both
+    ' homeRows and sideMenu.
+    sub recordKeys(sharedKeys as object)
+        if sharedKeys.count() = 0 then return
+        map = stamps()
+        now = nowMs()
+        request = false
+        for each k in sharedKeys
+            change = SettingsSync.recordChange(map, k, now, enabled())
+            map = change.stamps
+            request = change.request
+        end for
+        saveStamps(map)
+        if request then requestSync()
     end sub
 
     ' Asks MainScene's SettingsSyncTask for a reconcile.

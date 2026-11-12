@@ -3,7 +3,8 @@
 ' are the shared vectors every Sashimi client runs (settings sync schema,
 ' WORK-106); the rest cover the Roku side: its registry strings, the
 ' subtitlesDefaultOn name, homeRowOrder <-> homeRows, and the Resume
-' Threshold picker's default.
+' Threshold picker's default, and phase 2's sideMenu (S1-S6): the combined
+' order with each destination's `rail` flag, against RailItems' model.
 
 sub main()
     t = { passed: 0, failed: 0 }
@@ -16,6 +17,10 @@ sub main()
     testLayout(t)
     testBody(t)
     testResumePicker(t)
+    testSideMenuVectors(t)
+    testSideMenu(t)
+    testSideMenuSeeding(t)
+    testLayoutChanges(t)
 
     print "passed: "; t.passed; " failed: "; t.failed
     if t.failed = 0 then print "ALL PASSED"
@@ -269,7 +274,7 @@ sub testValues(t as object)
     eq(t, "bitrate not synced", SettingsSync_specForLocal("maxBitrateMbps"), invalid)
     eq(t, "theme songs not synced", SettingsSync_specForLocal("playThemeSongs"), invalid)
     eq(t, "toggle not synced", SettingsSync_specForLocal("settingsSyncEnabled"), invalid)
-    eq(t, "side menu later", specFor("sideMenu"), invalid)
+    eq(t, "side menu synced", specFor("sideMenu").local, "homeRowOrder")
 end sub
 
 ' ---------- Stamps ----------
@@ -408,4 +413,263 @@ sub testResumePicker(t as object)
     eq(t, "stored wins", opts[SettingsSync_optionIndex(opts, "0", "30")].label, "Always resume")
     eq(t, "unknown stored", SettingsSync_optionIndex(opts, "45", "30"), 0)
     eq(t, "other defaults", SettingsSync_defaultValue("autoPlayNextEpisode") + "," + SettingsSync_defaultValue("showQualityBadges") + "," + SettingsSync_defaultValue("defaultViewMode"), "true,true,normal")
+end sub
+
+' ---------- sideMenu (phase 2) ----------
+
+' The combined order a fresh install starts from, two libraries, one list.
+function menuConfig() as object
+    cfg = RailItems_defaults([
+        { id: "library_m", kind: "library", libraryId: "m", name: "Movies", visible: true }
+        { id: "library_t", kind: "library", libraryId: "t", name: "TV", visible: true }
+    ])
+    ' A subscribed list lands after Continue Watching.
+    out = []
+    for each c in cfg
+        out.Push(c)
+        if c.kind = "cw" then out.Push({ id: "list_p", kind: "list", listId: "p", name: "P", visible: true })
+    end for
+    return out
+end function
+
+' "id" per config entry, "id/on|off" for a destination's menu flag.
+function menuStr(config as object) as string
+    out = []
+    for each c in config
+        s = c.id
+        if RailItems_isDestination(c)
+            if RailItems_inRail(c) then s = s + "/on" else s = s + "/off"
+        end if
+        out.Push(s)
+    end for
+    return out.Join(" ")
+end function
+
+' The same for a decoded sideMenu value: "id", "id/on", "id/off".
+function smStr(entries as object) as string
+    out = []
+    for each e in entries
+        s = e.id
+        if e.menu <> invalid
+            if e.menu then s = s + "/on" else s = s + "/off"
+        end if
+        out.Push(s)
+    end for
+    return out.Join(" ")
+end function
+
+' A sideMenu v from "id" / "id/on" / "id/off" tokens.
+function smJson(spec as string) as string
+    parts = []
+    for each tok in spec.Tokenize(" ")
+        bits = tok.Tokenize("/")
+        e = "{""id"":""" + bits[0] + """"
+        if bits.Count() > 1
+            if bits[1] = "on" then e = e + ",""menu"":true" else e = e + ",""menu"":false"
+        end if
+        parts.Push(e + "}")
+    end for
+    return "[" + parts.Join(",") + "]"
+end function
+
+function appliedConfig(r as object, key as string) as dynamic
+    for each a in r.apply
+        if a.key = key then return a.value
+    end for
+    return invalid
+end function
+
+function visibleStr(config as object) as string
+    out = []
+    for each c in config
+        if RailItems_hasHomeRow(c)
+            v = "on"
+            if c.visible = false then v = "off"
+            out.Push(c.id + "/" + v)
+        end if
+    end for
+    return out.Join(" ")
+end function
+
+sub testSideMenuVectors(t as object)
+    config = menuConfig()
+    eq(t, "menu config", menuStr(config), "search/on watchlist/on hero cw list_p fintv/on library_m/on library_t/on lists/on requests/on dashboard/on")
+    full = "search/on watchlist/on hero continueWatching list:p fintv/on library:m/on library:t/on lists/on requests/on dashboard/on"
+
+    ' S1: lists before search -> the combined order follows; Home and
+    ' Settings stay first and last on the rail.
+    remote = "lists/on search/on watchlist/on hero continueWatching list:p fintv/on library:m/on library:t/on requests/on dashboard/on"
+    r = SettingsSync_reconcile({}, config, {}, { sideMenu: entry(smJson(remote), "500") })
+    out = appliedConfig(r, "sideMenu")
+    ok(t, "S1 applied", out <> invalid)
+    if out <> invalid
+        eq(t, "S1 order", menuStr(out), "lists/on search/on watchlist/on hero cw list_p fintv/on library_m/on library_t/on requests/on dashboard/on")
+        rail = RailItems_ids(["m", "t"], out, { requests: true, dashboard: true })
+        eq(t, "S1 rail", rail.Join(","), "home,lists,search,watchlist,fintv,lib:m,lib:t,requests,dashboard,settings")
+    end if
+    eq(t, "S1 stamp", stampStr(r.stamps, "sideMenu"), "500")
+    eq(t, "S1 no write", writeKeys(r), "")
+
+    ' S2: watchlist off in the menu, nothing else changes.
+    r = SettingsSync_reconcile({}, config, {}, { sideMenu: entry(smJson(full.Replace("watchlist/on", "watchlist/off")), "500") })
+    out = appliedConfig(r, "sideMenu")
+    ok(t, "S2 applied", out <> invalid)
+    if out <> invalid
+        eq(t, "S2 watchlist off", out[1].id + ":" + FormatJson(out[1].rail), "watchlist:false")
+        same = true
+        for i = 0 to config.Count() - 1
+            if i <> 1 and FormatJson(out[i]) <> FormatJson(config[i]) then same = false
+        end for
+        ok(t, "S2 nothing else", same and out.Count() = config.Count())
+    end if
+
+    ' S3: Roku has no downloads; a write keeps the remote's third.
+    withDl = "search/on watchlist/on downloads/on hero continueWatching list:p fintv/on library:m/on library:t/on lists/on requests/on dashboard/on"
+    r = SettingsSync_reconcile({}, config, { sideMenu: L(900) }, { sideMenu: entry(smJson(withDl), "500") })
+    eq(t, "S3 written", writeKeys(r), "sideMenu")
+    if r.writes.sideMenu <> invalid
+        w = SettingsSync_decodeEntry(r.writes.sideMenu)
+        eq(t, "S3 t", w.t.ToStr(), "900")
+        eq(t, "S3 downloads third", smStr(SettingsSync_decodeSideMenu(w.v)), withDl)
+    end if
+
+    ' S4: homeRows t=500 says hero, cw; sideMenu t=400 says cw, hero. Rows
+    ' end up hero, cw; the menu-only entries keep sideMenu's places.
+    sm = "lists/on continueWatching search/on hero watchlist/on list:p fintv/on library:m/on library:t/on requests/on dashboard/on"
+    hr = "[{""id"":""hero"",""on"":true},{""id"":""continueWatching"",""on"":true},{""id"":""list:p"",""on"":true},{""id"":""fintv"",""on"":true},{""id"":""library:m"",""on"":true},{""id"":""library:t"",""on"":false},{""id"":""requests"",""on"":true}]"
+    r = SettingsSync_reconcile({}, config, {}, { sideMenu: entry(smJson(sm), "400"), homeRows: entry(hr, "500") })
+    out = appliedConfig(r, "homeRows")
+    ok(t, "S4 applied", out <> invalid and appliedConfig(r, "sideMenu") <> invalid)
+    if out <> invalid
+        eq(t, "S4 order", menuStr(out), "lists/on hero search/on cw watchlist/on list_p fintv/on library_m/on library_t/on requests/on dashboard/on")
+        eq(t, "S4 homeRows flags", visibleStr(out), "hero/on cw/on list_p/on fintv/on library_m/on library_t/off requests/on")
+        eq(t, "S4 one config", FormatJson(appliedConfig(r, "sideMenu")), FormatJson(out))
+    end if
+    ' The other way round: sideMenu newer decides the rows' order too.
+    r = SettingsSync_reconcile({}, config, {}, { sideMenu: entry(smJson(sm), "600"), homeRows: entry(hr, "500") })
+    out = appliedConfig(r, "sideMenu")
+    if out <> invalid then eq(t, "S4 newer sideMenu", menuStr(out), "lists/on cw search/on hero watchlist/on list_p fintv/on library_m/on library_t/on requests/on dashboard/on")
+    ok(t, "S4 newer sideMenu applied", out <> invalid)
+    ' homeRows already applied here at 500: an older sideMenu arriving alone
+    ' moves the menu-only entries but not the rows.
+    r = SettingsSync_reconcile({}, config, { homeRows: L(500) }, { sideMenu: entry(smJson(sm), "400"), homeRows: entry(hr, "500") })
+    out = appliedConfig(r, "sideMenu")
+    if out <> invalid then eq(t, "S4 local homeRows newer", menuStr(out), "lists/on hero search/on cw watchlist/on list_p fintv/on library_m/on library_t/on requests/on dashboard/on")
+    ok(t, "S4 local homeRows newer applied", out <> invalid and appliedConfig(r, "homeRows") = invalid)
+
+    ' S5: no menu on a row-only id (hero) -> Home visibility untouched, and
+    ' a menu flag sent for one (continueWatching) is ignored too.
+    cfg = menuConfig()
+    cfg[3].visible = false
+    r = SettingsSync_reconcile({}, cfg, {}, { sideMenu: entry(smJson(full.Replace("continueWatching", "continueWatching/on")), "500") })
+    out = appliedConfig(r, "sideMenu")
+    ok(t, "S5 applied", out <> invalid)
+    if out <> invalid
+        eq(t, "S5 cw untouched", FormatJson(out[3]), FormatJson(cfg[3]))
+        eq(t, "S5 hero untouched", FormatJson(out[2]), FormatJson(cfg[2]))
+    end if
+
+    ' S6: an unknown id is ignored here and carried through on write.
+    withPod = "search/on podcasts/on watchlist/on hero continueWatching list:p fintv/on library:m/on library:t/on lists/on requests/on dashboard/on"
+    r = SettingsSync_reconcile({}, config, {}, { sideMenu: entry(smJson(withPod), "500") })
+    out = appliedConfig(r, "sideMenu")
+    if out <> invalid then eq(t, "S6 ignored", menuStr(out), menuStr(config))
+    ok(t, "S6 applied", out <> invalid)
+    r = SettingsSync_reconcile({}, config, { sideMenu: L(900) }, { sideMenu: entry(smJson(withPod), "500") })
+    if r.writes.sideMenu <> invalid
+        eq(t, "S6 carried", smStr(SettingsSync_decodeSideMenu(SettingsSync_decodeEntry(r.writes.sideMenu).v)), withPod)
+    end if
+    eq(t, "S6 written", writeKeys(r), "sideMenu")
+end sub
+
+sub testSideMenu(t as object)
+    config = menuConfig()
+    eq(t, "local sideMenu", smStr(SettingsSync_localSideMenu(config)), "search/on watchlist/on hero continueWatching list:p fintv/on library:m/on library:t/on lists/on requests/on dashboard/on")
+    eq(t, "menu id search", SettingsSync_menuId({ id: "search", kind: "search" }), "search")
+    eq(t, "menu id library", SettingsSync_menuId({ id: "library_x", kind: "library", libraryId: "x" }), "library:x")
+    eq(t, "menu id broken", SettingsSync_menuId({ id: "x" }), "")
+
+    ' Decoding: non-array is invalid; a non-boolean menu is dropped (the
+    ' entry still places); entries without a string id go; repeats keep
+    ' their first.
+    eq(t, "sm non-array", SettingsSync_decodeSideMenu({ a: 1 }), invalid)
+    d = SettingsSync_decodeSideMenu([{ id: "lists", menu: "no" }, { menu: true }, 3, { id: "search", menu: false }, { id: "search", menu: true }])
+    eq(t, "sm decode", smStr(d), "lists search/off")
+
+    ' A rail flag only ever lands on a destination; Home's flags never move.
+    out = SettingsSync_applySideMenu(config, SettingsSync_decodeSideMenu([{ id: "hero", menu: false }, { id: "search", menu: false }]))
+    eq(t, "sm hero no rail", out[0].id + ":" + FormatJson(out[0].DoesExist("rail")), "hero:false")
+    ' Entries it doesn't name stay after what they follow here (as homeRows).
+    eq(t, "sm unnamed follow", menuStr(out), "hero cw list_p fintv/on library_m/on library_t/on lists/on requests/on dashboard/on search/off watchlist/on")
+    eq(t, "sm input untouched", config[0].id + "," + FormatJson(config[0].DoesExist("rail")), "search,true")
+    ' Round trip is the identity.
+    eq(t, "sm round trip", FormatJson(SettingsSync_applySideMenu(config, SettingsSync_localSideMenu(config))), FormatJson(config))
+
+    ' A sideMenu that can't be read is never applied nor overwritten when newer.
+    r = SettingsSync_reconcile({}, config, { sideMenu: L(1) }, { sideMenu: entry("""x""", "500") })
+    eq(t, "sm bad newer", applied(r) + "|" + writeKeys(r), "|")
+    ' It waits for Home's config, like homeRows.
+    r = SettingsSync_reconcile({}, invalid, {}, { sideMenu: entry(smJson("lists/on search/on"), "500") })
+    eq(t, "sm waits for Home", applied(r) + "|" + stampStr(r.stamps, "sideMenu"), "|none")
+    ' A local stamp with nothing remote is written whole.
+    r = SettingsSync_reconcile({}, config, { sideMenu: L(7) }, {})
+    eq(t, "sm first write", smStr(SettingsSync_decodeSideMenu(SettingsSync_decodeEntry(r.writes.sideMenu).v)), smStr(SettingsSync_localSideMenu(config)))
+    ' The wire shape: menu only on destinations.
+    eq(t, "sm wire", SettingsSync_decodeEntry(r.writes.sideMenu).v[2].DoesExist("menu"), false)
+    ' Not part of the plain settings.
+    eq(t, "sm not a local value", SettingsSync_specForLocal("homeRowOrder").key, "homeRows")
+end sub
+
+sub testSideMenuSeeding(t as object)
+    eq(t, "default menu unseeded", stampStr(SettingsSync_seedStamps({}, menuConfig()), "sideMenu"), "none")
+    cfg = menuConfig()
+    cfg[1].rail = false
+    eq(t, "menu off seeds", stampStr(SettingsSync_seedStamps({}, cfg), "sideMenu"), "1")
+    cfg = menuConfig()
+    cfg.Unshift(cfg.Pop())
+    eq(t, "moved to the top seeds", stampStr(SettingsSync_seedStamps({}, cfg), "sideMenu"), "1")
+    cfg = menuConfig()
+    tmp = cfg[0]
+    cfg[0] = cfg[8]
+    cfg[8] = tmp
+    eq(t, "lists on top seeds", cfg[0].id + ":" + stampStr(SettingsSync_seedStamps({}, cfg), "sideMenu"), "lists:1")
+    ' Library order alone (Home rewrites it), or where the migrations put
+    ' Requests, SashimiTV, Lists and the Dashboard, is not a choice.
+    cfg = menuConfig()
+    tmp = cfg[6]
+    cfg[6] = cfg[7]
+    cfg[7] = tmp
+    eq(t, "library order unseeded", stampStr(SettingsSync_seedStamps({}, cfg), "sideMenu"), "none")
+    migrated = RailItems_withBuiltIns([{ id: "hero", kind: "hero", visible: true }, { id: "cw", kind: "cw", visible: true }, { id: "library_m", kind: "library", libraryId: "m", visible: true }])
+    eq(t, "migrated order unseeded", stampStr(SettingsSync_seedStamps({}, migrated), "sideMenu"), "none")
+    ' Upgrading from phase 1 (stamps already seeded): only the new key seeds.
+    cfg = menuConfig()
+    cfg[0].rail = false
+    seeds = SettingsSync_seedStamps({ autoSkipIntro: "true" }, cfg, 1)
+    eq(t, "phase 2 seeds only sideMenu", stampStr(seeds, "sideMenu") + "," + stampStr(seeds, "autoSkipIntro") + "," + stampStr(seeds, "homeRows"), "1,none,none")
+end sub
+
+sub testLayoutChanges(t as object)
+    base = menuConfig()
+    eq(t, "no change", SettingsSync_layoutChanges(base, menuConfig()).Join(","), "")
+    ' Flipping a menu toggle stamps only sideMenu.
+    cfg = menuConfig()
+    cfg[5].rail = false
+    eq(t, "menu toggle", SettingsSync_layoutChanges(base, cfg).Join(","), "sideMenu")
+    ' Flipping a Home toggle stamps only homeRows.
+    cfg = menuConfig()
+    cfg[5].visible = false
+    eq(t, "home toggle", SettingsSync_layoutChanges(base, cfg).Join(","), "homeRows")
+    ' Moving a menu-only entry past a row: sideMenu only.
+    cfg = menuConfig()
+    tmp = cfg[1]
+    cfg[1] = cfg[2]
+    cfg[2] = tmp
+    eq(t, "move menu-only", SettingsSync_layoutChanges(base, cfg).Join(","), "sideMenu")
+    ' Moving a row past a row: both.
+    cfg = menuConfig()
+    tmp = cfg[2]
+    cfg[2] = cfg[3]
+    cfg[3] = tmp
+    eq(t, "move row", SettingsSync_layoutChanges(base, cfg).Join(","), "homeRows,sideMenu")
 end sub
