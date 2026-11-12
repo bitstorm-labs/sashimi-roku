@@ -35,6 +35,25 @@ sub processRequest()
     if r = invalid or r.action = invalid then return
     a = r.action
     out = invalid
+    ' A runtime error must still answer: an uncaught one ends this thread, and
+    ' a screen waiting on the answer (Plex sign-in polls only once the last
+    ' check answered) then waits forever with nothing on screen.
+    try
+        out = dispatch(r, a)
+    catch e
+        #if DEBUG
+            print "[SeerrTask] "; a; " threw: "; e.message
+        #end if
+        out = { success: false, error: Seerr.GENERIC_ERROR, kind: "exception" }
+    end try
+    if out = invalid then out = { success: false, error: "Unknown request." }
+    out.action = a
+    out.context = r.context
+    m.top.response = out
+end sub
+
+function dispatch(r as object, a as string) as dynamic
+    out = invalid
     if a = "restore"
         out = doRestore()
     else if a = "publicSettings"
@@ -74,11 +93,8 @@ sub processRequest()
     else if a = "serverConfig"
         out = doServerConfig()
     end if
-    if out = invalid then out = { success: false, error: "Unknown request." }
-    out.action = a
-    out.context = r.context
-    m.top.response = out
-end sub
+    return out
+end function
 
 ' ---------- Plumbing ----------
 
@@ -312,8 +328,8 @@ end function
 function finishSignIn(res as object) as object
     if not ok(res) then return failure(res, true)
     c = Seerr.sessionCookie(res.headers)
-    if c = "" then return { success: false, error: Seerr.errorMessage("noSession", res.code, invalid) }
-    if not Seerr.isAA(res.data) then return { success: false, error: Seerr.errorMessage("decoding", res.code, invalid) }
+    if c = "" then return { success: false, error: Seerr.errorMessage("noSession", res.code, invalid), kind: "noSession" }
+    if not Seerr.isAA(res.data) then return { success: false, error: Seerr.errorMessage("decoding", res.code, invalid), kind: "decoding" }
     SeerrStore.saveSignIn(res.data, c)
     SeerrStore.publishSignedIn(res.data)
     doPublicSettings()
@@ -351,12 +367,20 @@ function doPlexCheck(r as object) as object
     #end if
     if token = ""
         res = send("GET", Seerr.plexPinUrl(Seerr.getInt(r, "pinId")), invalid, false, plexHeaders())
-        pin = invalid
-        if ok(res) then pin = Seerr.plexPin(res.data)
-        if pin = invalid or pin.token = "" then return { success: true, waiting: true }
-        token = pin.token
+        pinStep = Seerr.plexPinStep(res.code, res.data)
+        #if DEBUG
+            print "[SeerrTask] plex pin read: "; res.code; " -> "; pinStep
+        #end if
+        ' A failed read used to count as "not linked yet", so a code plex.tv
+        ' had dropped was polled silently until it expired.
+        if pinStep = "gone" then return { success: false, error: Seerr.plexPinMessage(pinStep), kind: "pinGone" }
+        if pinStep <> "linked" then return { success: true, waiting: true, warning: Seerr.plexPinMessage(pinStep) }
+        token = Seerr.plexPin(res.data).token
     end if
     route = Seerr.plexCheckRoute(purpose, m.global.seerrServer)
+    #if DEBUG
+        print "[SeerrTask] plex code linked; route "; route
+    #end if
     if route = "watchlist"
         out = linkWatchlist(token, false)
         out.success = true
@@ -365,13 +389,17 @@ function doPlexCheck(r as object) as object
     if route = "noServer" then return { success: false, error: "Set your Seerr server's address first." }
     signIn = send("POST", apiUrl("auth/plex"), { authToken: token }, false)
     out = finishSignIn(signIn)
-    if not out.success and out.kind = "invalidCredentials"
+    #if DEBUG
+        print "[SeerrTask] auth/plex: "; signIn.code; " -> "; Seerr.getStr(out, "kind")
+    #end if
+    ' finishSignIn leaves `kind` out on success; read it defensively.
+    if out.success <> true and Seerr.getStr(out, "kind") = "invalidCredentials"
         out.error = "That Plex account doesn't have access to " + m.global.seerrTitle + "."
     end if
     ' The sign-in answers now; linking the Watchlist is a separate request
     ' (watchlistAutoLink), so a missing plugin or a slow server never holds
     ' up or fails it. The token waits here, on this thread, until then.
-    if out.success
+    if out.success = true
         m.autoLinkToken = token
         out.autoLink = true
     end if

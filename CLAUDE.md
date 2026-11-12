@@ -82,7 +82,8 @@ vectors: permission bits, the poster pill, request states and their lines,
 Home's requests row, the Requests list's filter / scope / actions / paging,
 Discover, the quota line, Search's "Not in your library" merge, the season
 picker, the wire's queries and bodies, the session cookie, the launch and
-401 checks) and
+401 checks, the Plex code poll: a check that never answers times out, a
+PIN read that fails says so) and
 `source/utils/SharedLists.bs` (shared lists: a list's creator from its
 self-share, S1:E1 shown as its series, repeats once, the subscriptions codec
 for DisplayPreferences `sashimi-lists`, "N new", subscribe/markSeen/prune, and
