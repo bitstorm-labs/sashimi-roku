@@ -8,6 +8,8 @@ import "pkg:/source/utils/Filmography.bs"
 import "pkg:/source/utils/RailItems.bs"
 import "pkg:/source/utils/Seerr.bs"
 import "pkg:/source/utils/Watchlist.bs"
+import "pkg:/source/utils/SettingsSync.bs"
+import "pkg:/source/utils/SettingsSyncLocal.bs"
 
 ' tvOS Settings parity: card rows (maxWidth 800), focus = accent fill + scale.
 ' Pickers cycle values on OK (TV-simple equivalent of tvOS picker subscreens).
@@ -53,14 +55,8 @@ sub init()
     ' The old lowest option was "480p (3 Mbps)". Playback already reads it as
     ' the 4 Mbps tier; rewrite it so this picker shows that instead of "Auto".
     if AppSettings.read("maxBitrateMbps", "0") = "3" then AppSettings.write("maxBitrateMbps", "4")
-    m.resumeOptions = [
-        { label: "Always resume", value: "0" },
-        { label: "30 seconds", value: "30" },
-        { label: "1 minute", value: "60" },
-        { label: "2 minutes", value: "120" },
-        { label: "5 minutes", value: "300" },
-        { label: "10 minutes", value: "600" }
-    ]
+    ' The list every platform shares (settings sync); unset reads as 30 s.
+    m.resumeOptions = SettingsSync.resumeOptions()
     ' Same list as tvOS; the first entry ("Default") keeps the file's default
     ' track, which is also what an unset value reads as.
     m.languageOptions = LanguagePrefs.options()
@@ -81,6 +77,8 @@ sub init()
     m.versionText = "v" + appInfo.GetVersion()
 
     m.allItems = [
+        ' Never synced itself (WORK-106); on by default.
+        { key: SettingsSyncLocal.ENABLED_KEY, title: "Sync Settings Across Devices", kind: "toggle", default: "true", footer: "Playback, display and Home rows follow you to every Sashimi app signed in as you on this server." },
         { key: "", title: "Servers", kind: "servers" },
         { key: "", title: "Requests", kind: "seerr" },
         { key: "", title: "Home & Side Menu", kind: "homerows" },
@@ -120,7 +118,23 @@ sub init()
     ' The Requests row says who is signed in to Seerr.
     m.global.observeFieldScoped("seerrState", "onSeerrChanged")
     m.global.observeFieldScoped("seerrUser", "onSeerrChanged")
+    ' Another device's settings synced in while this screen is up.
+    m.global.observeFieldScoped("settingsSyncVersion", "refreshValues")
 end sub
+
+sub refreshValues()
+    for i = 0 to m.items.count() - 1
+        if i < m.rows.count() then m.rows[i].value.text = currentValueLabel(m.items[i])
+    end for
+end sub
+
+' What an unset picker reads as: the synced settings' own defaults (Resume
+' Threshold is 30 s, not its first option), else the first option.
+function pickerIndex(item as object) as integer
+    fallback = item.options[0].value
+    if SettingsSync.specForLocal(item.key) <> invalid then fallback = SettingsSync.defaultValue(item.key)
+    return SettingsSync.optionIndex(item.options, AppSettings.read(item.key, ""), fallback)
+end function
 
 ' ---------- Plex (the Watchlist's sync) ----------
 
@@ -216,11 +230,7 @@ end sub
 
 function currentValueLabel(item as object) as string
     if item.kind = "picker"
-        v = AppSettings.read(item.key, item.options[0].value)
-        for each opt in item.options
-            if opt.value = v then return opt.label
-        end for
-        return item.options[0].label
+        return item.options[pickerIndex(item)].label
     else if item.kind = "toggle"
         v = AppSettings.read(item.key, item.default)
         if v = "true" then return "On"
@@ -245,8 +255,10 @@ sub buildRows()
     m.rows = []
 
     y = 0
+    m.rowY = []
     for i = 0 to m.items.count() - 1
         item = m.items[i]
+        m.rowY.push(y)
 
         row = CreateObject("roSGNode", "Group")
         row.translation = [0, y]
@@ -290,9 +302,26 @@ sub buildRows()
         value.font = vf
         row.appendChild(value)
 
+        rowPitch = m.rowH + m.rowSpacing
+        if item.footer <> invalid
+            foot = CreateObject("roSGNode", "Label")
+            foot.text = item.footer
+            foot.translation = [28, m.rowH + 8]
+            foot.width = m.rowW - 56
+            foot.wrap = true
+            foot.maxLines = 2
+            foot.color = "#8C8C8C"
+            ff = CreateObject("roSGNode", "Font")
+            ff.uri = "pkg:/fonts/Inter-Medium.ttf"
+            ff.size = 20
+            foot.font = ff
+            row.appendChild(foot)
+            rowPitch += 60
+        end if
+
         m.rowsGroup.appendChild(row)
         m.rows.push({ bg: bg, group: row, value: value })
-        y += m.rowH + m.rowSpacing
+        y += rowPitch
     end for
 
     updateFocus()
@@ -309,8 +338,9 @@ end sub
 sub scrollToFocus()
     if m.focusIndex < m.firstVisible then m.firstVisible = m.focusIndex
     if m.focusIndex > m.firstVisible + m.visibleRows - 1 then m.firstVisible = m.focusIndex - m.visibleRows + 1
-    pitch = m.rowH + m.rowSpacing
-    m.rowsGroup.translation = [560, m.rowsBaseY - m.firstVisible * pitch]
+    top = 0
+    if m.rowY <> invalid and m.firstVisible < m.rowY.count() then top = m.rowY[m.firstVisible]
+    m.rowsGroup.translation = [560, m.rowsBaseY - top]
 end sub
 
 sub updateFocus()
@@ -353,16 +383,16 @@ sub activateRow(index as integer)
         else if item.key = "playHeroTrailers"
             ' Read by HeroTrailerPlayer on the next detail screen.
             m.global.playHeroTrailers = (AppSettings.read("playHeroTrailers", "true") = "true")
+        else if item.key = SettingsSyncLocal.ENABLED_KEY
+            ' Turned on: catch up at once (changes made while off included).
+            if SettingsSyncLocal.enabled() then SettingsSyncLocal.requestSync()
         end if
+        SettingsSyncLocal.recordChange(item.key)
         m.rows[index].value.text = currentValueLabel(item)
     else if item.kind = "picker"
-        v = AppSettings.read(item.key, item.options[0].value)
-        idx = 0
-        for j = 0 to item.options.count() - 1
-            if item.options[j].value = v then idx = j
-        end for
-        idx = (idx + 1) mod item.options.count()
+        idx = (pickerIndex(item) + 1) mod item.options.count()
         AppSettings.write(item.key, item.options[idx].value)
+        SettingsSyncLocal.recordChange(item.key)
         ' A new default is the newer decision, so it replaces a mode picked in
         ' the player earlier this session (same rule as the Apple client).
         if item.key = "defaultViewMode" then m.global.sessionViewMode = ""
@@ -646,7 +676,12 @@ end function
 sub saveHomeRows()
     hidden = []
     if m.hrHidden <> invalid then hidden = m.hrHidden
+    before = FormatJson(SettingsSync.localLayout(Registry.readJson("settings", "homeRowOrder")))
     Registry.writeJson("settings", "homeRowOrder", RailItems.mergeHidden(m.hrConfig, hidden))
+    ' Only the Home rows' order and on/off sync (WORK-106); closing the editor
+    ' with no change to them, or a side-menu-only change, isn't a new choice.
+    after = FormatJson(SettingsSync.localLayout(Registry.readJson("settings", "homeRowOrder")))
+    if after <> before then SettingsSyncLocal.recordChange("homeRowOrder")
 end sub
 
 sub closeHomeRowsEditor()

@@ -39,7 +39,8 @@ const suites = {
     'ListLayoutTests.brs': ['out/source/utils/ListLayout.brs'],
     'EntitiesTests.brs': ['out/source/utils/Entities.brs'],
     'PlayerSessionTests.brs': ['out/source/utils/PlayerSession.brs'],
-    'WatchlistTests.brs': ['out/source/utils/Seerr.brs', 'out/source/utils/SeerrSeasons.brs', 'out/source/utils/Watchlist.brs']
+    'WatchlistTests.brs': ['out/source/utils/Seerr.brs', 'out/source/utils/SeerrSeasons.brs', 'out/source/utils/Watchlist.brs'],
+    'SettingsSyncTests.brs': ['out/source/utils/SettingsSync.brs']
 };
 
 // SASHIMI_TEST_MODULE swaps in another build of the module under test, to

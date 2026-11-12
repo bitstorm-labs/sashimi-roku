@@ -1,0 +1,67 @@
+import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/SettingsSync.bs"
+
+' The device side of settings sync (SettingsSync holds the rules): the
+' registry values, this device's stamps and the on/off toggle, none of which
+' is ever synced itself. Used from the render thread (a setting changed here)
+' and from SettingsSyncTask (a reconcile), so every stamp write re-reads the
+' map first instead of trusting a copy.
+namespace SettingsSyncLocal
+
+    const ENABLED_KEY = "settingsSyncEnabled"
+    const STAMPS_KEY = "settingsSyncStamps"
+
+    function enabled() as boolean
+        return Registry.read("settings", ENABLED_KEY) <> "false"
+    end function
+
+    ' Unix epoch ms. AsSeconds() is an Integer; the product is not.
+    function nowMs() as dynamic
+        dt = CreateObject("roDateTime")
+        secs& = dt.AsSeconds()
+        return secs& * 1000 + dt.GetMilliseconds()
+    end function
+
+    ' Every synced setting's stored string, "" when never set.
+    function localValues() as object
+        out = {}
+        for each s in SettingsSync.specs()
+            if s.kind <> "layout" then out[s.local] = Registry.read("settings", s.local)
+        end for
+        return out
+    end function
+
+    function layoutConfig() as dynamic
+        return Registry.readJson("settings", SettingsSync.LAYOUT_LOCAL_KEY)
+    end function
+
+    ' The stamp map, seeded (and saved) the first time it is asked for.
+    function stamps() as object
+        stored = SettingsSync.decodeStamps(Registry.read("settings", STAMPS_KEY))
+        if stored <> invalid then return stored
+        seeded = SettingsSync.seedStamps(localValues(), layoutConfig())
+        saveStamps(seeded)
+        return seeded
+    end function
+
+    sub saveStamps(map as object)
+        Registry.write("settings", STAMPS_KEY, SettingsSync.encodeStamps(map))
+    end sub
+
+    ' Call after writing a setting this device's person chose. Unsynced keys
+    ' are ignored; with sync off the stamp is still kept (pushed later).
+    sub recordChange(localKey as string)
+        spec = SettingsSync.specForLocal(localKey)
+        if spec = invalid then return
+        change = SettingsSync.recordChange(stamps(), spec.key, nowMs(), enabled())
+        saveStamps(change.stamps)
+        if change.request then requestSync()
+    end sub
+
+    ' Asks MainScene's SettingsSyncTask for a reconcile.
+    sub requestSync()
+        if m.global = invalid or not m.global.hasField("settingsSyncPing") then return
+        m.global.settingsSyncPing = m.global.settingsSyncPing + 1
+    end sub
+
+end namespace

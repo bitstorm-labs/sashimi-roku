@@ -114,6 +114,14 @@ and `source/utils/ListLayout.bs` (how every list looks: the Lists page's
 and button (Play / Resume / Request / Requested / Sign in to Requests),
 the list's and the Watchlist's button rows, and Up/Down between the Plex
 card, the buttons and the one-row poster strip).
+`source/utils/SettingsSync.bs` is settings sync across devices (DisplayPreferences
+`sashimi-settings`, the shared V1-V11 vectors): each setting's `{"v","t"}`
+entry (t is epoch ms, a LongInteger: kept as digits, never through FormatJson),
+newest-t-wins reconcile, seeding at stamp 1, the body that keeps other keys,
+`homeRowOrder` <-> the shared `homeRows` layout, and the Resume Threshold
+options and default (unset is 30 s). `SettingsSyncLocal` holds the registry
+side and `SettingsSyncTask` (owned by MainScene) every request; a change calls
+`SettingsSyncLocal.recordChange(key)` after writing the setting.
 `source/utils/PlayerSession.bs` decides which API answers a player that has
 already closed still acts on (only the watch-state writes; never anything
 that would start the Video node again off-screen).

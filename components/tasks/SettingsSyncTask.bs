@@ -1,0 +1,70 @@
+import "pkg:/source/utils/Http.bs"
+import "pkg:/source/utils/Registry.bs"
+import "pkg:/source/utils/SettingsSync.bs"
+import "pkg:/source/utils/SettingsSyncLocal.bs"
+
+' One long-lived task that owns every sync request, so a change pushed while
+' a reconcile is running can't race it: requests queue on the port and run
+' one at a time. Pushing one changed setting is a reconcile too -- the rules
+' only ever write a key whose local stamp is newer, so it writes exactly that
+' key (plus anything else that was waiting).
+
+sub init()
+    m.top.functionName = "taskLoop"
+end sub
+
+sub taskLoop()
+    port = CreateObject("roMessagePort")
+    m.top.observeFieldScoped("trigger", port)
+    while true
+        msg = wait(0, port)
+        if msg <> invalid
+            ' Several triggers queued behind a slow request need one run.
+            while port.PeekMessage() <> invalid
+                port.GetMessage()
+            end while
+            reconcile()
+        end if
+    end while
+end sub
+
+sub reconcile()
+    signedIn = m.global.serverUrl <> "" and m.global.authToken <> "" and m.global.userId <> ""
+    if not SettingsSync.shouldRequest(SettingsSyncLocal.enabled(), signedIn) then return
+    path = SettingsSync.prefsPath(m.global.userId)
+    before = SettingsSyncLocal.stamps()
+    config = SettingsSyncLocal.layoutConfig()
+    r = Http.send("GET", path)
+    if not r.ok or type(r.data) <> "roAssociativeArray" then return
+    plan = SettingsSync.reconcile(SettingsSyncLocal.localValues(), config, before, SettingsSync.customPrefsOf(r.data))
+
+    ' A setting changed on the remote while this ran has a newer stamp now:
+    ' that change wins over the value read a moment ago.
+    current = SettingsSyncLocal.stamps()
+    appliedKeys = []
+    homeRows = false
+    for each a in plan.apply
+        if sameStamp(before, current, a.key)
+            if type(a.value) = "roArray"
+                Registry.writeJson("settings", a.local, a.value)
+                homeRows = true
+            else
+                Registry.write("settings", a.local, a.value)
+            end if
+            appliedKeys.push(a.local)
+            current[a.key] = a.t
+        end if
+    end for
+    if appliedKeys.count() > 0 then SettingsSyncLocal.saveStamps(current)
+
+    if plan.writes.count() > 0
+        Http.send("POST", path, SettingsSync.prefsBody(r.data, plan.writes))
+    end if
+    if appliedKeys.count() > 0 then m.top.result = { applied: appliedKeys, homeRows: homeRows }
+end sub
+
+function sameStamp(a as object, b as object, key as string) as boolean
+    if a.DoesExist(key) <> b.DoesExist(key) then return false
+    if not a.DoesExist(key) then return true
+    return a[key] = b[key]
+end function

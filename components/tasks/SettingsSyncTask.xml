@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Settings sync across devices (WORK-106). See SettingsSyncTask.bs. -->
+<component name="SettingsSyncTask" extends="Task">
+    <interface>
+        <!-- Any write asks for a reconcile; requests made while one runs
+             fold into a single next run. -->
+        <field id="trigger" type="boolean" alwaysNotify="true" />
+        <!-- { applied: [registry keys], homeRows } after a reconcile that
+             changed something on this device. -->
+        <field id="result" type="assocarray" alwaysNotify="true" />
+    </interface>
+</component>
