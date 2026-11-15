@@ -34,27 +34,23 @@ repositories.
 
 ## Screenshots
 
-<img src="docs/screenshots/home.jpg" alt="Home screen with hero banner and Continue Watching rail" width="820">
+*Shown with the public [Jellyfin demo server](https://demo.jellyfin.org/stable). Caminandes © Blender Foundation | caminandes.com, licensed CC BY.*
 
-*Home — a hero banner that rotates through featured items, above Continue
-Watching and a "Recently Added" row per library. The collapsed sidebar on the
-left expands when focused.*
+<img src="docs/screenshots/detail.jpg" alt="Movie detail screen with backdrop, quality chips, action buttons and cast and crew row" width="820">
 
-<img src="docs/screenshots/library.jpg" alt="Movies library poster grid with sort header and shuffle button" width="820">
+*Detail — backdrop art, ratings and quality chips, genre tags, action buttons and the cast and crew row.*
 
-*Library — poster grid with quality and rating badges. The header shows the
-active sort and filter; `*` opens the sort/filter menu, and Shuffle plays one
-random item.*
+<img src="docs/screenshots/search.jpg" alt="Search screen with on-screen keyboard and poster results" width="820">
 
-<img src="docs/screenshots/detail.jpg" alt="Series detail screen with logo art, action buttons, season pills and episode row" width="820">
+*Search — results appear as you type, with rating and quality badges on each poster.*
 
-*Detail — series logo art, action buttons, season pills and an episode row.
-Movies use the same layout without seasons.*
+<img src="docs/screenshots/side-menu.jpg" alt="Expanded side menu listing Home, Search, Watchlist, libraries, Lists and Settings" width="820">
 
-<img src="docs/screenshots/player-trickplay.jpg" alt="Player overlay with stream info chips, scrub bar and trick-play thumbnail" width="820">
+*Side menu — collapsed to icons while you browse, expanded when focused. Its order is yours to set in Settings › Home & Side Menu.*
 
-*Player — stream info chips (resolution, codec, Original/Converted, bitrate), a
-"Finishes at" estimate, and trick-play thumbnails while scrubbing.*
+<img src="docs/screenshots/settings.jpg" alt="Settings screen with playback and sync options" width="820">
+
+*Settings — playback, skipping, servers, Requests, and settings that sync across your Sashimi apps.*
 
 ## Features
 
