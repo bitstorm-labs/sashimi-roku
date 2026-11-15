@@ -120,7 +120,6 @@ end function
 function newTransfer(url as string) as object
     x = CreateObject("roUrlTransfer")
     x.SetCertificatesFile("common:/certs/ca-bundle.crt")
-    x.InitClientCertificates()
     x.SetUrl(url)
     x.RetainBodyOnError(true)
     ' No cookie store: the session cookie is sent by hand from the registry,
