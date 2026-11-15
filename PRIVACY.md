@@ -1,6 +1,6 @@
 # Privacy Policy for Sashimi
 
-**Last updated: October 2026**
+**Last updated: November 2026**
 
 ## Overview
 
@@ -22,7 +22,9 @@ All of this lives in the Roku registry, a per-channel storage area on the device
 
 2. **A device identifier** — a random, channel-scoped ID from Roku's `GetChannelClientId()`. It is not your Roku's serial number and it is not shared with anyone but your own Jellyfin server, which uses it to distinguish this device in its session list.
 
-3. **Your preferences** — home screen row order, maximum bitrate, subtitle and playback settings, recent searches, and programme reminders you set on the channel Guide.
+3. **Requests (optional)** — if you sign in to a Seerr server for Requests: that server's address, your Seerr user name and id, and the session cookie Seerr issues. If you sign in with Plex, a random Plex client identifier is stored so plex.tv lists this Roku as one device; the Plex token itself is never stored on the Roku.
+
+4. **Your preferences** — home screen row order, maximum bitrate, subtitle and playback settings, recent searches, and programme reminders you set on the channel Guide.
 
 ### How that data is protected
 
@@ -32,17 +34,23 @@ All of this lives in the Roku registry, a per-channel storage area on the device
 
 ### Data transmission
 
-Sashimi communicates with two things, both of which are yours:
+Sashimi communicates with your own servers and, only for the optional features named below, with plex.tv and TMDB's image servers:
 
 1. **Your Jellyfin server** — all browsing, streaming, and playback progress goes directly from your Roku to the server you configured, and nowhere else. On Roku OS 16 and newer, Sashimi also keeps one WebSocket open to that server so its dashboard can send Stop and Message commands to this Roku.
 
 2. **Your local network** — when you use "Discover Servers", Sashimi sends one UDP broadcast (`"Who is JellyfinServer?"` to port 7359, Jellyfin's standard discovery protocol) and listens briefly for replies. It contains no personal data and never leaves your network.
 
+3. **Your Seerr server (optional)** — only if you set up Requests. Sashimi sends your Seerr sign-in, the titles you request, and your session cookie to the Seerr address you (or your Jellyfin server's administrator) configured.
+
+4. **plex.tv (optional)** — only if you choose "Sign in with Plex" for Requests or connect Plex for the Watchlist. Sashimi asks plex.tv for a short sign-in code and checks it until you approve it at plex.tv/link. The resulting Plex token is passed once to your Seerr server or your Jellyfin server's Sashimi Lists plugin and is not kept on the Roku. These requests are governed by Plex's privacy policy.
+
+5. **TMDB's image servers (image.tmdb.org)** — posters and backdrops for titles that are not in your library (Requests, Discover, and Watchlist titles) load directly from TMDB's public image servers, as they do on Seerr's own website. Those requests carry no account information, but like any web request they reveal your IP address to TMDB.
+
 If you connect over `http://` rather than `https://`, that traffic — including your password at sign-in — is unencrypted on your network. Use HTTPS if your server is reachable from outside your home.
 
 ### Third-party content
 
-The TMDb and Rotten Tomatoes logos shown next to ratings are bundled images. The ratings themselves come from your Jellyfin server. Sashimi makes **no network requests to TMDb, Rotten Tomatoes, or any other third party.**
+The TMDB and Rotten Tomatoes logos shown next to ratings are bundled images, used only to label where a rating comes from. The ratings themselves come from your Jellyfin server or your Seerr server. Apart from the optional plex.tv sign-in and TMDB image loads described above, Sashimi makes no network requests to TMDB, Rotten Tomatoes, or any other third party, and it contains no analytics or advertising. This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 ## Your Jellyfin server
 
