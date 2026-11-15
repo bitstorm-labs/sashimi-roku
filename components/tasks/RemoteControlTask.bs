@@ -100,7 +100,6 @@ sub connect()
     ws.SetMessagePort(m.port)
     ws.SetUrl(url)
     ws.SetCertificatesFile("common:/certs/ca-bundle.crt")
-    ws.InitClientCertificates()
     ws.AddHeader("Authorization", Http.authHeader())
     m.ws = ws
     m.socketId = ws.GetSocketId()
